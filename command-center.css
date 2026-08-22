@@ -1,0 +1,190 @@
+/* COMMAND CENTER UI - PREMIUM ENTERPRISE */
+:root {
+  --cmd-navy: #040d1a;
+  --cmd-navy-panel: rgba(10, 25, 47, 0.65);
+  --cmd-cyan: #00E5FF;
+  --cmd-cyan-dim: rgba(0, 229, 255, 0.15);
+  --cmd-gold: #FFD700;
+  --cmd-gold-dim: rgba(255, 215, 0, 0.15);
+  --cmd-text-main: #E2F1FF;
+  --cmd-text-sub: #8892B0;
+  --cmd-glass-border: rgba(0, 229, 255, 0.15);
+  --cmd-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --cmd-glass-hover: 0 12px 48px rgba(0, 229, 255, 0.15);
+}
+
+body.dark-mode {
+  background: var(--cmd-navy) !important;
+  color: var(--cmd-text-main) !important;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(circle at 50% 0%, rgba(0, 229, 255, 0.08) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+/* TOPBAR */
+.topbar {
+  background: rgba(4, 13, 26, 0.8) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-bottom: 1px solid var(--cmd-glass-border) !important;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5) !important;
+}
+.topbar-title {
+  color: #fff !important;
+  letter-spacing: 1px;
+}
+.topbar-title .sub {
+  color: var(--cmd-cyan) !important;
+  font-weight: 600;
+  letter-spacing: 2px;
+}
+.topbar-mark {
+  border-color: var(--cmd-cyan) !important;
+  color: var(--cmd-cyan) !important;
+  box-shadow: 0 0 15px var(--cmd-cyan-dim) !important;
+}
+
+/* TABS */
+.tabs {
+  background: rgba(10, 25, 47, 0.5) !important;
+  backdrop-filter: blur(15px) !important;
+  -webkit-backdrop-filter: blur(15px) !important;
+  border-bottom: 1px solid rgba(0, 229, 255, 0.05) !important;
+}
+.tab {
+  color: var(--cmd-text-sub) !important;
+  text-transform: uppercase;
+  letter-spacing: 1.5px !important;
+  font-weight: 600 !important;
+}
+.tab:hover {
+  color: #fff !important;
+}
+.tab.active {
+  color: var(--cmd-cyan) !important;
+  border-bottom: 2px solid var(--cmd-cyan) !important;
+  box-shadow: inset 0 -15px 15px -15px var(--cmd-cyan-dim) !important;
+}
+
+/* PANELS & 3D CARDS (Dashboard, Cases, Reports, etc.) */
+.panel, .kpi, .login-card {
+  background: var(--cmd-navy-panel) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid var(--cmd-glass-border) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--cmd-glass-shadow), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+  transform-style: preserve-3d;
+}
+.panel:hover, .kpi:hover {
+  transform: translateY(-4px) scale(1.01) !important;
+  box-shadow: var(--cmd-glass-hover), inset 0 1px 0 rgba(255,255,255,0.1) !important;
+  border-color: rgba(0, 229, 255, 0.3) !important;
+}
+
+/* KPIS */
+.kpi-label {
+  color: var(--cmd-text-sub) !important;
+}
+.kpi-value {
+  color: #fff !important;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+}
+.kpi.gold { border-left: 3px solid var(--cmd-gold) !important; }
+.kpi.green { border-left: 3px solid var(--cmd-cyan) !important; } /* Using cyan for positive in Command Center */
+.kpi.red { border-left: 3px solid #ff4d4d !important; }
+
+/* TABLES */
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}
+th {
+  color: var(--cmd-cyan) !important;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 11px !important;
+  border-bottom: 1px solid var(--cmd-glass-border) !important;
+  background: transparent !important;
+}
+td {
+  background: rgba(10, 25, 47, 0.4) !important;
+  color: var(--cmd-text-main) !important;
+  border-top: 1px solid rgba(255,255,255,0.03) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.03) !important;
+}
+tr td:first-child { border-left: 1px solid rgba(255,255,255,0.03) !important; border-radius: 8px 0 0 8px; }
+tr td:last-child { border-right: 1px solid rgba(255,255,255,0.03) !important; border-radius: 0 8px 8px 0; }
+tr:hover td {
+  background: rgba(0, 229, 255, 0.05) !important;
+}
+
+/* BUTTONS */
+.btn {
+  background: rgba(0, 229, 255, 0.1) !important;
+  border: 1px solid var(--cmd-cyan) !important;
+  color: var(--cmd-cyan) !important;
+  border-radius: 6px !important;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  box-shadow: 0 0 10px var(--cmd-cyan-dim) !important;
+  backdrop-filter: blur(4px) !important;
+  transition: all 0.2s ease !important;
+}
+.btn:hover {
+  background: var(--cmd-cyan) !important;
+  color: var(--cmd-navy) !important;
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.4) !important;
+}
+.btn.primary {
+  background: var(--cmd-gold) !important;
+  border-color: var(--cmd-gold) !important;
+  color: var(--cmd-navy) !important;
+  box-shadow: 0 0 15px var(--cmd-gold-dim) !important;
+}
+.btn.primary:hover {
+  box-shadow: 0 0 25px rgba(255, 215, 0, 0.5) !important;
+}
+
+/* INPUTS */
+.fin, .fg input, .fg select, .fg textarea {
+  background: rgba(4, 13, 26, 0.6) !important;
+  border: 1px solid rgba(0, 229, 255, 0.2) !important;
+  color: #fff !important;
+  border-radius: 6px !important;
+}
+.fin:focus, .fg input:focus, .fg select:focus, .fg textarea:focus {
+  border-color: var(--cmd-cyan) !important;
+  box-shadow: 0 0 0 2px var(--cmd-cyan-dim) !important;
+  outline: none;
+}
+
+/* BADGES */
+.badge {
+  background: rgba(10, 25, 47, 0.8);
+  border: 1px solid var(--cmd-glass-border) !important;
+}
+.badge.green { color: var(--cmd-cyan) !important; border-color: var(--cmd-cyan) !important; }
+.badge.gold { color: var(--cmd-gold) !important; border-color: var(--cmd-gold) !important; }
+
+/* UPGRADE / PREMIUM ACCENTS */
+.premium-marker {
+  color: var(--cmd-gold) !important;
+  text-shadow: 0 0 10px var(--cmd-gold);
+}
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--cmd-navy); }
+::-webkit-scrollbar-thumb { background: rgba(0, 229, 255, 0.3); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--cmd-cyan); }

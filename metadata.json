@@ -1,0 +1,6 @@
+{
+  "name": "DNA Investigation Agency Payment System",
+  "description": "Premium payment and case management system for DNA Professional Investigation Agency, featuring exception handling for rejected/withdrawn cases.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

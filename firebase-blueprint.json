@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profiles",
+      "description": "User roles and investigator mapping.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Auth UID" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["agency", "investigator"] },
+        "investigator_name": { "type": "string" }
+      },
+      "required": ["id", "email", "role"]
+    },
+    "cases": {
+      "title": "Cases",
+      "description": "Investigation cases.",
+      "type": "object",
+      "properties": {
+        "doc_code": { "type": "string" },
+        "claim_no": { "type": "string" },
+        "insured_name": { "type": "string" },
+        "company": { "type": "string" },
+        "inv1": { "type": "string" },
+        "inv2": { "type": "string" },
+        "status": { "type": "string" },
+        "total_payable": { "type": "number" },
+        "received": { "type": "number" },
+        "drive_folder_id": { "type": "string" },
+        "drive_url": { "type": "string" }
+      },
+      "required": ["doc_code"]
+    },
+    "drive_settings": {
+      "title": "Google Drive Settings",
+      "description": "Global settings for Google Drive integration.",
+      "type": "object",
+      "properties": {
+        "google_email": { "type": "string" },
+        "drive_root_folder": { "type": "string" },
+        "folder_companies": { "type": "string" },
+        "folder_investigators": { "type": "string" },
+        "folder_reports": { "type": "string" },
+        "folder_backups": { "type": "string" },
+        "connected_at": { "type": "string" },
+        "connected_by": { "type": "string" }
+      },
+      "required": ["google_email", "drive_root_folder"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "users",
+      "description": "User access and profiles"
+    },
+    "cases": {
+      "schema": "cases",
+      "description": "Case records"
+    },
+    "settings/drive": {
+      "schema": "drive_settings",
+      "description": "Google Drive configuration"
+    }
+  }
+}

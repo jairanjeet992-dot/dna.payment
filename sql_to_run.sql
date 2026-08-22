@@ -1,0 +1,1 @@
+ALTER TABLE public.agency_settings ADD COLUMN IF NOT EXISTS case_types jsonb DEFAULT '["PA","CASHLESS","REIMBURSEMENT","MB","FVR","SPOT","PROJECT","HOSPICASH","POST FACTO"]'::jsonb;

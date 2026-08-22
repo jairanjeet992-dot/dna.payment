@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script>
+    window.applyHtml2CanvasPatch = function(win) {
+      if (!win) return;
+      try {
+        if (!win.__h2c_patched && win.getComputedStyle) {
+          win.__h2c_patched = true;
+          const origGetComputedStyle = win.getComputedStyle;
+          win.getComputedStyle = function(elt, pseudo) {
+            const css = origGetComputedStyle.call(win, elt, pseudo);
+            return new Proxy(css, {
+              get: function(target, prop) {
+                const val = target[prop];
+                if (typeof val === 'string' && (val.includes('oklab') || val.includes('oklch') || val.includes('color('))) {
+                  return 'rgba(0,0,0,0)';
+                }
+                if (typeof val === 'function') {
+                  return val.bind(target);
+                }
+                return val;
+              }
+            });
+          };
+        }
+        if (win.CSSStyleDeclaration && win.CSSStyleDeclaration.prototype && !win.CSSStyleDeclaration.prototype.__h2c_patched) {
+          win.CSSStyleDeclaration.prototype.__h2c_patched = true;
+          const origGetPropertyValue = win.CSSStyleDeclaration.prototype.getPropertyValue;
+          win.CSSStyleDeclaration.prototype.getPropertyValue = function(prop) {
+            let val = origGetPropertyValue.call(this, prop);
+            if (val && typeof val === 'string' && (val.includes('oklab') || val.includes('oklch') || val.includes('color('))) {
+              return 'rgba(0,0,0,0)';
+            }
+            return val;
+          };
+        }
+      } catch(e) {}
+    };
+    window.applyHtml2CanvasPatch(window);
+  </script>
+</head>
+<body>
+  <div id="content">
+    <button style="outline: 5px solid oklab(0.5 0.5 0.5);">Test</button>
+  </div>
+  <script>
+    window.sanitizeHtml2Canvas = function(doc) {
+      if (doc.defaultView && window.applyHtml2CanvasPatch) {
+        window.applyHtml2CanvasPatch(doc.defaultView);
+      }
+    };
+    html2pdf().from(document.getElementById('content')).set({
+        html2canvas: {
+            onclone: window.sanitizeHtml2Canvas
+        }
+    }).output('blob')
+      .then(()=>console.log('Success!'))
+      .catch(e=>console.error('Failed!', e));
+  </script>
+</body>
+</html>

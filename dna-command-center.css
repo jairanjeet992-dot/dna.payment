@@ -1,0 +1,573 @@
+/* DNA Payments Command Center — presentation only.
+   No business logic, data rules, Supabase calls, calculations or permissions live here.
+   Colors here reference the SAME variables defined in index.html (--paper, --card,
+   --navy, --gold, --ink, --line...), so light AND dark mode stay consistent. */
+:root{
+  --dna-bg:var(--paper);--dna-surface:var(--card);--dna-surface-2:var(--paper);
+  --dna-ink:var(--ink);--dna-muted:var(--sub);
+  --dna-line:var(--line);
+  --dna-primary:var(--navy);--dna-primary-2:var(--navy2);
+  --dna-gold:var(--gold);--dna-success:var(--green);--dna-danger:var(--red);--dna-warning:var(--amber);
+  --dna-shadow:0 0 0 0 rgba(0,0,0,0);--dna-shadow-lg:0 0 0 0 rgba(0,0,0,0)
+}
+body.dark-mode{
+  --dna-bg:var(--paper);--dna-surface:var(--card);--dna-surface-2:var(--paper);
+  --dna-ink:var(--ink);--dna-muted:var(--sub);
+  --dna-line:var(--line);
+  --dna-primary:var(--navy);--dna-primary-2:var(--navy2);
+  --dna-gold:var(--gold);--dna-success:var(--green);--dna-danger:var(--red);--dna-warning:var(--amber)
+}
+body{background:var(--dna-bg);color:var(--dna-ink)}
+#app{min-height:100vh;background:transparent}
+.topbar{height:72px!important;padding:0 28px!important;background:rgba(7,24,37,.82)!important;border-bottom:1px solid rgba(255,255,255,.09)!important;backdrop-filter:blur(22px);box-shadow:0 10px 35px rgba(0,0,0,.16)!important}
+.topbar-mark{width:38px!important;height:38px!important;border-color:var(--dna-gold)!important;box-shadow:0 0 24px rgba(226,180,79,.12)}
+.topbar-title{font-size:14px!important}.topbar-title .sub{color:#58c8f3!important}
+.user-chip{padding:6px 13px 6px 6px!important;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.07)!important}
+.icon-btn{border:1px solid rgba(255,255,255,.08)!important}
+.tabs{padding:0 28px!important;background:rgba(255,255,255,.84)!important;border-bottom:1px solid var(--dna-line)!important;backdrop-filter:blur(18px)}
+body.dark-mode .tabs{background:rgba(7,19,31,.80)!important}
+.tab{padding:15px 17px!important;color:var(--dna-muted)!important;font-size:10px!important;letter-spacing:.8px!important}
+.tab.active{color:var(--dna-primary)!important;border-bottom-color:var(--dna-gold)!important}
+.view{max-width:1480px!important;padding:28px 30px 42px!important}
+.view h2,.view h3{color:var(--dna-ink)}
+.panel{background:color-mix(in srgb,var(--dna-surface) 90%,transparent)!important;border:1px solid var(--dna-line)!important;border-radius:16px!important;box-shadow:var(--dna-shadow)!important;overflow:hidden}
+.panel-head{padding:17px 20px!important;border-bottom:1px solid var(--dna-line)!important}
+.panel-title{color:var(--dna-ink)!important;font-weight:750!important}
+.kpi-row{gap:16px!important}
+#view-dashboard .kpi,#view-monthly .kpi,#view-yearly .kpi{min-height:128px;position:relative;overflow:hidden;border:1px solid var(--dna-line)!important;border-radius:17px!important;background:linear-gradient(145deg,color-mix(in srgb,var(--dna-surface) 94%,transparent),color-mix(in srgb,var(--dna-surface-2) 92%,transparent))!important;box-shadow:var(--dna-shadow)!important;padding:20px!important}
+body.dark-mode #view-dashboard .kpi,body.dark-mode #view-monthly .kpi,body.dark-mode #view-yearly .kpi{background:linear-gradient(145deg,#102b3e,#0b2030)!important}
+#view-dashboard .kpi:before,#view-monthly .kpi:before,#view-yearly .kpi:before{height:3px!important;background:linear-gradient(90deg,var(--dna-primary),var(--dna-gold),transparent)!important}
+#view-dashboard .kpi:after,#view-monthly .kpi:after,#view-yearly .kpi:after{content:"";position:absolute;right:-42px;top:-52px;width:145px;height:145px;border-radius:50%;background:radial-gradient(circle,rgba(80,196,242,.13),transparent 67%);pointer-events:none}
+.kpi-label{color:var(--dna-muted)!important;font-size:10px!important}.kpi-value{color:var(--dna-ink)!important;font-size:27px!important;font-weight:800!important}.kpi-value.gold{color:var(--dna-gold)!important}.kpi-value.green{color:var(--dna-success)!important}.kpi-value.red{color:var(--dna-danger)!important}
+input,select,textarea{color:var(--dna-ink)!important;background:var(--dna-surface)!important;border:1px solid var(--dna-line)!important;border-radius:10px!important}input::placeholder,textarea::placeholder{color:var(--dna-muted)!important;opacity:.9}input:focus,select:focus,textarea:focus{border-color:var(--dna-primary)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--dna-primary) 14%,transparent)!important;outline:none}
+.btn{border-radius:10px!important;font-weight:700!important}.btn-gold{background:linear-gradient(135deg,#b98221,#e0b04c)!important;color:#102a43!important;border:0!important;box-shadow:0 7px 18px rgba(199,150,50,.22)}.btn-primary{background:linear-gradient(135deg,#126b98,#1b91c4)!important;color:#fff!important;border:0!important}
+table{border-color:var(--dna-line)!important}th{color:var(--dna-muted)!important}td{color:var(--dna-ink)!important;border-color:var(--dna-line)!important}tbody tr:hover{background:color-mix(in srgb,var(--dna-primary) 6%,transparent)!important}
+.badge,.status,.pill{font-weight:750!important}.section-eyebrow{color:var(--dna-gold)!important}.month-pill{background:var(--dna-surface)!important;color:var(--dna-ink)!important;border-color:var(--dna-line)!important}.month-pill.active{background:linear-gradient(135deg,#126b98,#1b91c4)!important;color:#fff!important;border-color:transparent!important}
+#login-screen{background:transparent!important}.login-card{border-radius:22px!important;border:1px solid rgba(255,255,255,.12)!important;box-shadow:var(--dna-shadow-lg)!important;overflow:hidden}.login-body{background:var(--dna-surface)!important}.login-field input,.login-field select{background:var(--dna-surface-2)!important;color:var(--dna-ink)!important}.login-field label{color:var(--dna-muted)!important}.login-btn{border-radius:11px!important;background:linear-gradient(135deg,#126b98,#1b91c4)!important}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--dna-primary)!important;outline-offset:2px!important}
+
+/* Phase 2 — Command Center hierarchy: visual-only, no DOM/data assumptions beyond existing classes. */
+#view-dashboard{position:relative}
+#view-dashboard::before{content:"";display:block;height:2px;width:100%;margin:0 0 20px;border-radius:99px;background:linear-gradient(90deg,var(--dna-gold),var(--dna-primary),transparent 72%);opacity:.7}
+#view-dashboard .kpi-row{grid-template-columns:repeat(4,minmax(0,1fr));align-items:stretch}
+#view-dashboard .kpi{display:flex;flex-direction:column;justify-content:space-between;isolation:isolate}
+#view-dashboard .kpi-label{position:relative;z-index:2;text-transform:uppercase;font-weight:750;letter-spacing:1.15px}
+#view-dashboard .kpi-value{position:relative;z-index:2;margin-top:8px;line-height:1.05}
+#view-dashboard .kpi small,#view-dashboard .kpi .sub,#view-dashboard .kpi .hint{color:var(--dna-muted)!important;position:relative;z-index:2}
+#view-dashboard .kpi:hover{transform:translateY(-4px);box-shadow:var(--dna-shadow-lg)!important;border-color:color-mix(in srgb,var(--dna-primary) 35%,var(--dna-line))!important}
+#view-dashboard .panel{position:relative}
+#view-dashboard .panel-head{background:linear-gradient(90deg,color-mix(in srgb,var(--dna-surface) 96%,transparent),color-mix(in srgb,var(--dna-primary) 3%,var(--dna-surface)));}
+body.dark-mode #view-dashboard .panel-head{background:linear-gradient(90deg,#0e2232,#102a3c)}
+#view-dashboard .panel-title{font-size:12.5px!important;letter-spacing:.2px}
+#view-dashboard .filters,.filters{align-items:center}
+#view-dashboard .filters .fin{min-height:38px;padding:9px 12px!important;background:var(--dna-surface)!important;color:var(--dna-ink)!important}
+#view-dashboard .bar-track{background:color-mix(in srgb,var(--dna-line) 65%,transparent)!important}
+#view-dashboard .bar-fill{background:linear-gradient(90deg,var(--dna-primary),var(--dna-gold))!important;box-shadow:0 0 12px color-mix(in srgb,var(--dna-primary) 18%,transparent)}
+#view-dashboard .bar-label{color:var(--dna-ink)!important}
+#view-dashboard .bar-value{color:var(--dna-muted)!important}
+#view-dashboard .ring-center{background:var(--dna-surface)!important;border:1px solid var(--dna-line)}
+#view-dashboard .ring-total{color:var(--dna-ink)!important}
+#view-dashboard .ring-total-label,#view-dashboard .ring-legend-item{color:var(--dna-muted)!important}
+#view-dashboard .ring-legend-item b{color:var(--dna-ink)!important}
+#view-dashboard .inv-card{background:linear-gradient(145deg,var(--dna-surface),var(--dna-surface-2))!important;border:1px solid var(--dna-line)!important;border-top:2px solid var(--dna-gold)!important;border-radius:14px!important;box-shadow:var(--dna-shadow)!important}
+#view-dashboard .inv-card:hover{transform:translateY(-3px);box-shadow:var(--dna-shadow-lg)!important;border-color:color-mix(in srgb,var(--dna-gold) 45%,var(--dna-line))!important}
+#view-dashboard .inv-name,#view-dashboard .inv-code,#view-dashboard .inv-stat-l,#view-dashboard .inv-amt-l{color:var(--dna-muted)!important}
+#view-dashboard .inv-name{color:var(--dna-ink)!important;font-size:13px!important}
+#view-dashboard .inv-stat-v,#view-dashboard .inv-amt-v{color:var(--dna-ink)!important}
+#view-dashboard .inv-amt{border-top-color:var(--dna-line)!important}
+#view-dashboard .empty-state{color:var(--dna-muted)!important;background:color-mix(in srgb,var(--dna-surface) 88%,transparent)}
+#view-dashboard .badge.paid{background:color-mix(in srgb,var(--dna-success) 14%,var(--dna-surface))!important;color:var(--dna-success)!important}
+#view-dashboard .badge.pending{background:color-mix(in srgb,var(--dna-warning) 16%,var(--dna-surface))!important;color:var(--dna-warning)!important}
+#view-dashboard .badge.overdue{background:color-mix(in srgb,var(--dna-danger) 14%,var(--dna-surface))!important;color:var(--dna-danger)!important}
+
+/* Data-dense screens: stronger row rhythm and sticky-header contrast. */
+.tbl-scroll{border-radius:12px;scrollbar-width:thin;scrollbar-color:var(--dna-line) transparent}
+table th{background:linear-gradient(180deg,#123c59,#0d2f49)!important;color:#f4f8fb!important;border-bottom:1px solid rgba(255,255,255,.12)!important}
+body.dark-mode table th{background:linear-gradient(180deg,#153d58,#0d2d43)!important}
+table td{background:transparent!important}
+tbody tr:nth-child(even){background:color-mix(in srgb,var(--dna-surface-2) 72%,transparent)!important}
+tbody tr:hover td{background:color-mix(in srgb,var(--dna-primary) 7%,transparent)!important}
+
+/* Investigator workspace gets the same DNA palette as the dashboard. */
+.inv-grid{gap:14px!important}.inv-card{background:linear-gradient(145deg,var(--dna-surface),var(--dna-surface-2))!important;border:1px solid var(--dna-line)!important;border-top:3px solid var(--dna-gold)!important;border-radius:15px!important;box-shadow:var(--dna-shadow)!important}.inv-card:hover{transform:translateY(-2px);box-shadow:var(--dna-shadow-lg)!important}.inv-name{color:var(--dna-ink)!important}.inv-code,.inv-stat-l,.inv-amt-l{color:var(--dna-muted)!important}.inv-stat-v,.inv-amt-v{color:var(--dna-ink)!important}.inv-amt{border-top-color:var(--dna-line)!important}
+
+/* Forms and modals: readable in both themes. */
+.form-section{border-bottom-color:var(--dna-line)!important}.form-section-label{color:var(--dna-gold)!important}.fg label{color:var(--dna-muted)!important}.fg input,.fg select,.fg textarea,.fin{background:var(--dna-surface)!important;color:var(--dna-ink)!important}.fg input[readonly]{background:var(--dna-surface-2)!important;color:var(--dna-ink)!important}.notice{color:var(--dna-warning)!important;background:color-mix(in srgb,var(--dna-warning) 10%,var(--dna-surface))!important}.modal{background:var(--dna-surface)!important;color:var(--dna-ink)!important;border:1px solid var(--dna-line)}.modal-foot{background:var(--dna-surface-2)!important;border-color:var(--dna-line)!important}.notif-panel{background:var(--dna-surface)!important;color:var(--dna-ink)!important;border:1px solid var(--dna-line)}.notif-item{border-color:var(--dna-line)!important}.notif-item:hover{background:var(--dna-surface-2)!important}.notif-item .d{color:var(--dna-muted)!important}
+
+/* Soft cinematic edge: keeps the background visible without reducing readability. */
+#view-dashboard .panel,#view-dashboard .kpi,#view-dashboard .inv-card{backdrop-filter:blur(9px)}
+
+@media(max-width:1100px){#view-dashboard .kpi-row{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){.topbar{padding:0 16px!important}.tabs{padding:0 12px!important}.view{padding:20px 16px 34px!important}.kpi-row{grid-template-columns:repeat(2,minmax(0,1fr))}.inv-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.view{padding:14px 12px 28px!important}.kpi-row,#view-dashboard .kpi-row,.inv-grid{grid-template-columns:1fr!important}.kpi-value{font-size:24px!important}.tab{padding:13px 12px!important}.panel-head{padding:14px 15px!important}}
+@media(prefers-reduced-motion:reduce){.kpi,.panel,.btn,.tab,.inv-card{transition:none!important;transform:none!important}}
+
+/* Frontend redesign: application shell and theme-safe operations workspace. */
+:root{--dna-bg:var(--paper);--dna-surface:var(--card);--dna-surface-2:var(--paper);--dna-ink:var(--ink);--dna-muted:var(--sub);--dna-line:var(--line);--dna-primary:var(--navy);--dna-primary-2:var(--navy2);--dna-gold:var(--gold);--dna-success:var(--green);--dna-danger:var(--red);--dna-warning:var(--amber);--dna-shadow:0 0 0 0 rgba(0,0,0,0);--dna-shadow-lg:0 0 0 0 rgba(0,0,0,0)}
+body.dark-mode{--dna-bg:var(--paper);--dna-surface:var(--card);--dna-surface-2:var(--paper);--dna-ink:var(--ink);--dna-muted:var(--sub);--dna-line:var(--line);--dna-primary:var(--navy);--dna-primary-2:var(--navy2);--dna-gold:var(--gold);--dna-success:var(--green);--dna-danger:var(--red);--dna-warning:var(--amber)}
+body{background:var(--dna-bg)!important;color:var(--dna-ink)!important;line-height:1.45}
+#dna-cinematic-bg{position:fixed;inset:0;z-index:-2;overflow:hidden;pointer-events:none;background:var(--dna-bg) url('assets/dna-cinematic-network.svg') center/cover no-repeat;opacity:.55}
+#dna-cinematic-bg:after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 12% 0,rgba(66,184,232,.14),transparent 32%),radial-gradient(circle at 92% 90%,rgba(215,163,61,.11),transparent 28%),linear-gradient(180deg,rgba(6,19,31,.14),var(--dna-bg) 76%)}
+body:not(.dark-mode) #dna-cinematic-bg{opacity:.15;filter:saturate(.65)}
+#dna-cinematic-bg .grid{position:absolute;inset:-20%;background-image:linear-gradient(rgba(66,184,232,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(66,184,232,.07) 1px,transparent 1px);background-size:70px 70px;transform:perspective(700px) rotateX(62deg) translateY(18%);animation:dnaGrid 28s linear infinite}
+#dna-cinematic-bg .particles{position:absolute;inset:0;background-image:radial-gradient(circle,rgba(214,239,249,.8) 0 1px,transparent 1.5px);background-size:127px 101px;opacity:.13;animation:dnaParticles 36s linear infinite}
+#dna-cinematic-bg .orb{position:absolute;border-radius:50%;filter:blur(8px);opacity:.22}.orbA{width:42vw;height:42vw;top:-20vw;left:-16vw;background:radial-gradient(circle,rgba(35,146,198,.5),transparent 65%)}.orbB{width:35vw;height:35vw;right:-16vw;bottom:-16vw;background:radial-gradient(circle,rgba(215,163,61,.35),transparent 67%)}
+@keyframes dnaGrid{to{background-position:70px 70px}}@keyframes dnaParticles{to{transform:translate(-127px,-101px)}}
+.topbar{height:76px!important;padding:0 30px 0 28px!important;background:color-mix(in srgb,var(--dna-surface) 88%,transparent)!important;border-bottom:1px solid var(--dna-line)!important;box-shadow:none!important}.topbar-mark{border-radius:10px!important;border:1px solid color-mix(in srgb,var(--dna-gold) 60%,transparent)!important;background:color-mix(in srgb,var(--dna-gold) 9%,transparent);font-size:10px!important}.topbar-title{font-size:13px!important;letter-spacing:.7px!important}.topbar-title .sub{color:var(--dna-primary)!important}.user-chip{background:var(--dna-surface-2)!important;border:1px solid var(--dna-line)!important;color:var(--dna-ink)!important}.user-chip .dot{background:var(--dna-primary)!important;color:#fff!important}.icon-btn{background:var(--dna-surface-2)!important;border:1px solid var(--dna-line)!important;color:var(--dna-ink)!important;border-radius:9px!important}
+@media(min-width:1025px){.tabs{position:fixed!important;top:76px!important;bottom:0;left:0;width:224px;padding:18px 12px!important;display:flex!important;flex-direction:column;align-items:stretch;overflow-y:auto;background:color-mix(in srgb,var(--dna-surface) 90%,transparent)!important;border-right:1px solid var(--dna-line)!important;border-bottom:0!important}.tab{padding:11px 13px!important;border:0!important;border-radius:8px!important;text-transform:none!important;font-size:12px!important;letter-spacing:.1px!important;color:var(--dna-muted)!important}.tab:before{content:'•';color:var(--dna-primary);margin-right:10px;font-size:16px;vertical-align:-1px}.tab.active{color:var(--dna-ink)!important;background:color-mix(in srgb,var(--dna-primary) 11%,transparent)!important;box-shadow:inset 3px 0 var(--dna-primary)}.view{max-width:1600px!important;margin-left:224px!important;padding:30px 36px 46px!important}.notif-panel{top:84px!important}}
+.panel{background:color-mix(in srgb,var(--dna-surface) 93%,transparent)!important;border:1px solid var(--dna-line)!important;border-radius:12px!important;box-shadow:var(--dna-shadow)!important}.panel-head{background:color-mix(in srgb,var(--dna-surface-2) 75%,transparent)!important;padding:15px 18px!important}.panel-title{font-size:12px!important;letter-spacing:.2px!important}.kpi{border-radius:12px!important}.kpi-label,.fg label{font-size:9px!important;letter-spacing:1px!important}.kpi-value{font-family:Inter,'Segoe UI',sans-serif!important;letter-spacing:-.6px!important}.tbl-scroll{border:1px solid var(--dna-line);border-radius:10px!important}table th{background:#102b3f!important;color:#f1f7fa!important;padding:11px 10px!important}body.dark-mode table th{background:#102b40!important}table td{padding:10px!important}tbody tr:nth-child(even){background:color-mix(in srgb,var(--dna-surface-2) 72%,transparent)!important}.btn{min-height:36px;border-radius:8px!important;text-transform:none!important;letter-spacing:.1px!important}.btn-navy,.btn-primary{background:var(--dna-primary)!important}.btn-gold{background:var(--dna-gold)!important;color:#fff!important}.btn-ghost{color:var(--dna-ink)!important;background:transparent!important;border-color:var(--dna-line)!important}.fin,.fg input,.fg select,.fg textarea{min-height:38px!important;background:var(--dna-surface)!important;color:var(--dna-ink)!important;border-color:var(--dna-line)!important}.modal{border-radius:14px!important;background:var(--dna-surface)!important}.modal-head{background:#102b3f!important}.modal-foot{background:var(--dna-surface-2)!important}.badge{padding:3px 8px!important;border-radius:999px!important}.inv-card{border-radius:12px!important;background:var(--dna-surface)!important;border:1px solid var(--dna-line)!important;border-top:3px solid var(--dna-gold)!important;box-shadow:var(--dna-shadow)!important}
+@media(max-width:1024px){.tabs{top:76px!important;background:color-mix(in srgb,var(--dna-surface) 92%,transparent)!important}.view{padding-top:24px!important}}@media(max-width:640px){.topbar{height:64px!important;padding:0 12px!important}.topbar-title{font-size:11px!important}.user-chip span:not(.dot){display:none}.tabs{top:64px!important}.view{padding:16px 12px 32px!important}.filters .fin{width:100%!important}.panel-head{padding:13px!important}.modal{margin-top:0!important}.overlay{padding:12px!important}.topbar-right{gap:6px!important}}
+@media(prefers-reduced-motion:reduce){#dna-cinematic-bg .grid,#dna-cinematic-bg .particles{animation:none!important}}
+
+/* Full-product command center treatment: operations, reports and settings. */
+.tab:nth-child(1):before{content:'▦'}.tab:nth-child(2):before{content:'□'}.tab:nth-child(3):before{content:'♙'}.tab:nth-child(4):before{content:'◷'}.tab:nth-child(5):before{content:'◫'}.tab:nth-child(6):before{content:'⌕'}.tab:nth-child(7):before{content:'↔'}.tab:nth-child(8):before{content:'▤'}.tab:nth-child(9):before{content:'⚙'}
+#view-cases>.panel,#view-monthly>.panel,#view-yearly>.panel,#view-reports>.panel,#view-settings>.panel{box-shadow:0 14px 42px rgba(8,31,47,.10)!important}body.dark-mode #view-cases>.panel,body.dark-mode #view-monthly>.panel,body.dark-mode #view-yearly>.panel,body.dark-mode #view-reports>.panel,body.dark-mode #view-settings>.panel{box-shadow:0 18px 50px rgba(0,0,0,.28)!important}#view-cases>.panel>.panel-head:first-child{min-height:72px;background:linear-gradient(105deg,color-mix(in srgb,var(--dna-primary) 8%,var(--dna-surface)),var(--dna-surface-2))!important}#view-cases>.panel>.panel-head:first-child .panel-title{font-size:14px!important}#view-cases>.panel>.panel-head:first-child .panel-title:before{content:'CASE OPERATIONS';display:block;margin-bottom:3px;color:var(--dna-primary);font-size:8px;letter-spacing:1.4px;font-weight:800}.count-chip{background:var(--dna-primary)!important;padding:3px 8px!important;border-radius:99px!important}.filters{padding:10px!important;width:100%;border-radius:10px;background:color-mix(in srgb,var(--dna-surface-2) 72%,transparent);border:1px solid var(--dna-line)}.filters .fin:first-child{background:var(--dna-surface)!important}.filters select{cursor:pointer}.tbl-scroll::-webkit-scrollbar{height:9px;width:9px}.tbl-scroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--dna-muted) 38%,transparent);border-radius:99px}.tbl-scroll:has(#cases-table){max-height:calc(100vh - 315px);min-height:340px}#cases-table th{font-size:9px!important;letter-spacing:.7px!important}#cases-table td:nth-child(2){color:var(--dna-primary)!important;font-weight:750;font-family:var(--mono)}#cases-table td:nth-child(17),#cases-table td:nth-child(18),#cases-table td:nth-child(19){font-variant-numeric:tabular-nums;text-align:right;font-weight:650}
+#view-investigators>.panel-head{padding:17px 19px!important;border:1px solid var(--dna-line)!important;border-radius:12px!important;background:linear-gradient(105deg,color-mix(in srgb,var(--dna-primary) 7%,var(--dna-surface)),var(--dna-surface))!important;box-shadow:var(--dna-shadow)!important}.inv-card{position:relative;overflow:hidden;padding:17px!important}.inv-card:after{content:'';position:absolute;width:112px;height:112px;right:-45px;top:-52px;border-radius:50%;background:radial-gradient(circle,rgba(66,184,232,.14),transparent 68%);pointer-events:none}.inv-card-head,.inv-stats,.inv-amt,.inv-actions{position:relative;z-index:1}.inv-stats{padding:11px 0;border-top:1px solid var(--dna-line);border-bottom:1px solid var(--dna-line)}.inv-stat-v{font-size:19px!important}.inv-actions .btn{flex:1}
+#view-monthly .panel:first-child,#view-yearly .panel:first-child{background:linear-gradient(125deg,color-mix(in srgb,var(--dna-primary) 9%,var(--dna-surface)),var(--dna-surface))!important}.month-pill-row{padding:2px}.month-pill{border-radius:7px!important}.month-pill.active{box-shadow:0 5px 13px color-mix(in srgb,var(--dna-primary) 28%,transparent)!important}.year-select-wrap select{background:var(--dna-surface)!important;border:1px solid var(--dna-line)!important;color:var(--dna-ink)!important;border-radius:8px!important}#view-reports .panel-title:before,#view-settings .panel-title:before{display:block;margin-bottom:3px;font-size:8px;letter-spacing:1.3px;color:var(--dna-primary)}#view-reports .panel-title:before{content:'REPORTING WORKSPACE'}#view-settings .panel-title:before{content:'CONTROL CENTER'}#view-reports .panel,#view-settings .panel{border-radius:12px!important}#view-reports .form-section,#view-settings .form-section{padding:20px!important}#view-reports .form-section-label,#view-settings .form-section-label{display:flex;align-items:center;gap:8px;font-size:10px!important}#view-reports .form-section-label:after,#view-settings .form-section-label:after{content:'';height:1px;flex:1;background:var(--dna-line)}.settings-grid{gap:18px!important}.logo-upload{border-radius:11px!important;background:color-mix(in srgb,var(--dna-surface-2) 75%,transparent)!important;border-color:var(--dna-line)!important}.logo-upload:hover{border-color:var(--dna-primary)!important}
+.overlay{background:rgba(2,12,21,.68)!important;backdrop-filter:blur(7px)}.modal{max-height:calc(100vh - 34px);overflow:auto;box-shadow:0 32px 100px rgba(0,0,0,.48)!important}.modal-head{position:sticky;top:0;z-index:2;background:linear-gradient(100deg,#0a2438,#102f46)!important;border-bottom:1px solid rgba(255,255,255,.08)}.modal-head h3:before{content:'DNA PAYMENTS';display:block;color:#67c8ec;font-size:8px;letter-spacing:1.4px;margin-bottom:4px}.form-section-label{padding-bottom:8px;border-bottom:1px solid var(--dna-line)}.notice{border-left:3px solid var(--dna-warning)!important;border-radius:7px!important}.empty-state{border:1px dashed var(--dna-line);border-radius:11px;background:color-mix(in srgb,var(--dna-surface-2) 55%,transparent)!important}.toast{border-radius:9px!important;background:#102b3f!important;box-shadow:0 14px 36px rgba(0,0,0,.28)!important}
+@media(min-width:1025px){#view-dashboard:after{content:'LIVE OPERATIONS';position:absolute;right:38px;top:31px;color:var(--dna-primary);font-size:9px;font-weight:800;letter-spacing:1.4px}.view.active{animation:contentIn .28s ease both}@keyframes contentIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}}@media(max-width:640px){.filters{padding:8px!important}.filters .fin{min-height:40px!important}.tbl-scroll:has(#cases-table){min-height:250px}.inv-grid{gap:12px!important}.inv-card{padding:14px!important}.modal-foot{position:sticky;bottom:0;z-index:2}.btn{padding-left:12px!important;padding-right:12px!important}}
+
+/* Five-second DNA Payments cinematic introduction. Presentation-only. */
+.dna-intro{position:fixed;inset:0;z-index:2000;display:none;overflow:hidden;background:#020b13;color:#f1f7fa;isolation:isolate}.dna-intro.play{display:block; /* Animation removed for video intro */}.dna-intro:before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 44%,rgba(31,137,192,.17),transparent 28%),linear-gradient(180deg,rgba(2,10,18,.12),#020b13 90%);z-index:-1}.dna-intro-noise{position:absolute;inset:0;opacity:.16;background-image:radial-gradient(rgba(124,205,239,.62) .65px,transparent .8px);background-size:9px 9px;mask-image:radial-gradient(circle at 50% 42%,#000,transparent 65%);animation:introDrift 5s linear}.dna-intro-helix{position:absolute;inset:-5%;background:url('assets/dna-cinematic-network.svg') center/cover no-repeat;opacity:0;filter:drop-shadow(0 0 24px rgba(49,184,232,.65));transform:scale(1.12);animation:introHelix 2.35s cubic-bezier(.2,.7,.2,1) forwards}.dna-intro-beam{position:absolute;inset:auto -20% 47%;height:1px;background:linear-gradient(90deg,transparent,rgba(215,163,61,.1),#e7bf61,rgba(66,184,232,.78),transparent);opacity:0;transform:translateX(-48%);animation:introSweep 1.2s ease 1.12s forwards}.dna-intro-brand{position:absolute;top:50%;left:50%;width:min(88vw,600px);text-align:center;transform:translate(-50%,-45%);opacity:0;animation:introBrand 1.2s cubic-bezier(.2,.8,.2,1) 1.05s forwards}.dna-intro-mark{width:52px;height:52px;margin:0 auto 16px;display:grid;place-items:center;border:1px solid var(--dna-gold);border-radius:15px;background:rgba(7,27,42,.72);box-shadow:0 0 30px rgba(66,184,232,.24);font-size:11px;font-weight:800;letter-spacing:1px;color:var(--dna-gold)}.dna-intro-brand p{margin:0 0 8px;color:#d7a33d;font-size:10px;font-weight:700;letter-spacing:3px}.dna-intro-brand h1{margin:0;font-size:clamp(31px,6vw,66px);letter-spacing:5px;font-weight:750}.dna-intro-dashboard{position:absolute;inset:13vh 8vw 8vh;display:grid;grid-template-columns:18% 1fr;gap:14px;padding:13px;border:1px solid rgba(66,184,232,.34);border-radius:13px;background:linear-gradient(140deg,rgba(12,31,47,.96),rgba(3,15,25,.94));box-shadow:0 28px 90px rgba(0,0,0,.58),inset 0 1px rgba(255,255,255,.08);opacity:0;transform:perspective(1100px) rotateY(-16deg) translateX(15%) scale(.91);animation:introDashboard 1.35s cubic-bezier(.2,.8,.2,1) 2.15s forwards}.intro-side{border-radius:7px;background:linear-gradient(180deg,rgba(5,18,30,.9),rgba(10,43,62,.62));border:1px solid rgba(255,255,255,.06)}.intro-work{display:grid;grid-template-rows:13% 26% 1fr;gap:12px}.intro-title{width:30%;border-radius:6px;background:linear-gradient(90deg,rgba(235,247,250,.72),rgba(66,184,232,.18))}.intro-kpis,.intro-panels{display:grid;gap:10px}.intro-kpis{grid-template-columns:repeat(4,1fr)}.intro-panels{grid-template-columns:1.1fr 1fr .8fr}.intro-kpis i,.intro-panels i{display:block;border:1px solid rgba(93,188,227,.15);border-radius:7px;background:linear-gradient(145deg,rgba(23,63,87,.68),rgba(9,29,43,.8));box-shadow:inset 0 1px rgba(255,255,255,.04)}.intro-kpis i{transform:translateY(18px);opacity:0;animation:introCards .42s ease forwards}.intro-kpis i:nth-child(1){animation-delay:3.05s}.intro-kpis i:nth-child(2){animation-delay:3.24s}.intro-kpis i:nth-child(3){animation-delay:3.43s}.intro-kpis i:nth-child(4){animation-delay:3.62s}.intro-panels i:first-child{background:radial-gradient(circle at 35% 52%,transparent 0 24%,rgba(215,163,61,.85) 25% 29%,rgba(49,201,130,.75) 30% 37%,transparent 38%),linear-gradient(145deg,rgba(23,63,87,.68),rgba(9,29,43,.8))}.dna-intro-finale{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;opacity:0;pointer-events:none;animation:introFinal .45s ease 4.15s forwards}.dna-intro-finale strong{font-size:clamp(22px,4vw,42px);letter-spacing:4px}.dna-intro-finale span{margin-top:10px;color:#69c9ed;font-size:clamp(12px,1.6vw,17px);letter-spacing:1px}.dna-intro-skip{position:absolute;right:22px;bottom:18px;padding:8px 11px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);border-radius:7px;color:#c9d7df;font:inherit;font-size:11px;cursor:pointer;opacity:0;animation:introSkip .2s ease 1s forwards}.dna-intro-skip:focus-visible{outline:2px solid #42b8e8;outline-offset:3px}@keyframes introHelix{0%{opacity:0;transform:scale(1.2)}35%{opacity:.85}100%{opacity:.33;transform:scale(1)}}@keyframes introBrand{to{opacity:1;transform:translate(-50%,-50%)}}@keyframes introSweep{to{opacity:1;transform:translateX(48%)}}@keyframes introDashboard{to{opacity:1;transform:perspective(1100px) rotateY(-3deg) translateX(0) scale(1)}}@keyframes introCards{to{transform:translateY(0);opacity:1}}@keyframes introFinal{to{opacity:1;background:radial-gradient(circle at 50% 50%,rgba(5,20,31,.75),rgba(2,11,19,.94) 68%)}}@keyframes introExit{to{opacity:0;visibility:hidden}}@keyframes introDrift{to{transform:translate3d(-20px,14px,0)}}@keyframes introSkip{to{opacity:1}}@media(max-width:640px){.dna-intro-dashboard{inset:21vh 5vw 12vh;grid-template-columns:16% 1fr;padding:8px;gap:8px}.intro-work{gap:7px}.intro-kpis,.intro-panels{gap:6px}.dna-intro-brand h1{letter-spacing:3px}}@media(prefers-reduced-motion:reduce){.dna-intro.play{animation:none}.dna-intro.play,.dna-intro-brand,.dna-intro-dashboard,.dna-intro-finale{opacity:1;transform:none}.dna-intro-helix,.dna-intro-noise,.dna-intro-beam,.dna-intro-kpis i{animation:none}}
+
+/* Global Badge Normalization for Data Tables & UI */
+.badge.paid, .badge.success, .badge.green {
+  background: color-mix(in srgb, var(--dna-success) 14%, var(--dna-surface)) !important;
+  color: var(--dna-success) !important;
+  border: 1px solid color-mix(in srgb, var(--dna-success) 30%, transparent) !important;
+}
+
+.badge.pending, .badge.warning, .badge.amber {
+  background: color-mix(in srgb, var(--dna-warning) 16%, var(--dna-surface)) !important;
+  color: var(--dna-warning) !important;
+  border: 1px solid color-mix(in srgb, var(--dna-warning) 30%, transparent) !important;
+}
+
+.badge.overdue, .badge.danger, .badge.red {
+  background: color-mix(in srgb, var(--dna-danger) 14%, var(--dna-surface)) !important;
+  color: var(--dna-danger) !important;
+  border: 1px solid color-mix(in srgb, var(--dna-danger) 30%, transparent) !important;
+}
+
+.badge.na, .badge.withdrawn {
+  background: color-mix(in srgb, var(--dna-muted) 12%, var(--dna-surface)) !important;
+  color: var(--dna-muted) !important;
+  border: 1px solid color-mix(in srgb, var(--dna-muted) 25%, transparent) !important;
+}
+
+/* Force override inline background variables */
+span.badge[style*="background:var(--red)"] {
+  background: var(--dna-danger) !important;
+  color: #fff !important;
+}
+span.badge[style*="background:var(--green)"] {
+  background: var(--dna-success) !important;
+  color: #fff !important;
+}
+span.badge[style*="background:#666"] {
+  background: var(--dna-muted) !important;
+  color: #fff !important;
+}
+span.badge[style*="background:var(--green-bg)"] { background: color-mix(in srgb, var(--dna-success) 14%, var(--dna-surface)) !important; color: var(--dna-success) !important; }
+span.badge[style*="background:var(--amber-bg)"] { background: color-mix(in srgb, var(--dna-warning) 16%, var(--dna-surface)) !important; color: var(--dna-warning) !important; }
+span.badge[style*="background:var(--red-bg)"] { background: color-mix(in srgb, var(--dna-danger) 14%, var(--dna-surface)) !important; color: var(--dna-danger) !important; }
+
+/* Enhanced Tab KPIs */
+.tab-kpi-enhanced {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 16px !important;
+  background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01)) !important;
+  border-radius: 16px !important;
+  padding: 20px 24px !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.4) !important;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+body:not(.dark-mode) .tab-kpi-enhanced {
+  background: linear-gradient(135deg, #ffffff, #f8fafc) !important;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.04), 0 2px 5px rgba(0,0,0,0.02) !important;
+}
+.tab-kpi-enhanced:hover {
+  transform: translateY(-4px) !important;
+  box-shadow: 0 14px 40px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.6) !important;
+}
+.tab-kpi-enhanced::after {
+  content: "";
+  position: absolute;
+  top: -20px;
+  right: -20px;
+  width: 100px;
+  height: 100px;
+  background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.tab-kpi-enhanced .tab-kpi-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+  flex-shrink: 0;
+}
+.tab-kpi-enhanced .kpi-label {
+  font-size: 11px !important;
+  letter-spacing: 1.2px !important;
+  margin-bottom: 6px !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  opacity: 0.85;
+}
+.tab-kpi-enhanced .kpi-value {
+  font-size: 28px !important;
+  font-weight: 800 !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  line-height: 1 !important;
+  letter-spacing: -0.5px !important;
+  margin-top: 0 !important;
+}
+/* Ensure dark mode text visibility */
+body.dark-mode .tab-kpi-enhanced .kpi-label { color: #94a3b8 !important; }
+body.dark-mode .tab-kpi-enhanced .kpi-value { color: #f8fafc !important; }
+body.dark-mode .tab-kpi-enhanced .kpi-value.gold { color: #fbbf24 !important; }
+body.dark-mode .tab-kpi-enhanced .kpi-value.green { color: #34d399 !important; }
+body.dark-mode .tab-kpi-enhanced .kpi-value.red { color: #fb7185 !important; }
+
+/* AI Auto-Fill & Dispatch Elements */
+.ai-autofill-panel {
+  box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+  transition: all 0.2s ease;
+}
+body.dark-mode .ai-autofill-panel {
+  background: linear-gradient(135deg, rgba(18,107,152,0.18), rgba(224,176,76,0.12)) !important;
+  border-color: rgba(224,176,76,0.4) !important;
+}
+.dispatch-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.dispatch-card:hover {
+  border-color: var(--navy);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+.btn-whatsapp {
+  background: #25D366 !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-weight: 700 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+.btn-whatsapp:hover {
+  background: #1ebc59 !important;
+}
+.btn-email {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-weight: 700 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+.btn-email:hover {
+  background: #0369a1 !important;
+}
+
+
+-e 
+/* Role: Company */
+body.role-company .col-finance {
+  display: none !important;
+}
+
+/* Normalize all UI Cards and Fields */
+.inv-card, .inv360-card {
+  background: var(--dna-surface, var(--card)) !important;
+  color: var(--dna-ink, var(--ink)) !important;
+  border-color: var(--dna-line, var(--line)) !important;
+}
+.fin, .fg input, .fg select, .fg textarea, .inv360-search-input, .inv360-edit-field input, .inv360-edit-field select {
+  background: var(--dna-bg, var(--paper)) !important;
+  color: var(--dna-ink, var(--ink)) !important;
+  border: 1px solid var(--dna-line, var(--line)) !important;
+}
+body.dark-mode .inv-card, body.dark-mode .inv360-card {
+  background: var(--card) !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+}
+body.dark-mode .fin, body.dark-mode .fg input, body.dark-mode .fg select, body.dark-mode .fg textarea, body.dark-mode .inv360-search-input, body.dark-mode .inv360-edit-field input, body.dark-mode .inv360-edit-field select {
+  background: var(--paper) !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+}
+
+
+/* Unified Input and Form fields */
+input, select, textarea, .fin, .fg input, .fg select, .fg textarea, .inv360-search-input, .inv360-edit-field input, .inv360-edit-field select {
+  background: color-mix(in srgb, var(--dna-surface) 60%, var(--dna-bg)) !important;
+  border: 1px solid var(--dna-line) !important;
+  border-radius: 10px !important;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--dna-primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dna-primary) 15%, transparent) !important;
+  background: var(--dna-surface) !important;
+}
+.login-card {
+  background: var(--dna-surface) !important;
+  border: 1px solid var(--dna-line) !important;
+}
+.login-field input, .login-field select {
+  background: color-mix(in srgb, var(--dna-surface) 60%, var(--dna-bg)) !important;
+}
+
+
+/* Unified Label Text */
+.kpi-label, .fg label, .inv360-detail label, .login-field label, .section-eyebrow, th, .tab {
+  color: var(--dna-muted) !important;
+}
+body.dark-mode .kpi-label, body.dark-mode .fg label, body.dark-mode .inv360-detail label, body.dark-mode .login-field label, body.dark-mode th, body.dark-mode .tab {
+  color: #94a3b8 !important; /* Force readable contrast for muted text */
+}
+body.dark-mode {
+  --dna-ink: #f8fafc;
+  --dna-muted: #94a3b8;
+  --dna-line: rgba(255,255,255,0.12);
+}
+
+
+/* Match Investigator Cards exactly to Dashboard KPI styling */
+.inv-card, .inv360-card {
+  background: linear-gradient(145deg,color-mix(in srgb,var(--dna-surface) 94%,transparent),color-mix(in srgb,var(--dna-surface-2) 92%,transparent)) !important;
+  border: 1px solid var(--dna-line) !important;
+  border-radius: 17px !important;
+  box-shadow: var(--dna-shadow) !important;
+  backdrop-filter: blur(9px) !important;
+}
+body.dark-mode .inv-card, body.dark-mode .inv360-card {
+  background: linear-gradient(145deg,#102b3e,#0b2030) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+}
+.inv-card:hover, .inv360-card:hover {
+  transform: translateY(-3px) !important;
+  box-shadow: var(--dna-shadow-lg) !important;
+  border-color: color-mix(in srgb,var(--dna-gold) 45%,var(--dna-line)) !important;
+}
+
+
+/* Global Smooth Transitions */
+body, .panel, .panel-head, .kpi, .tab, .inv-card, .inv360-card, .topbar, .tabs, .user-chip, .icon-btn, input, select, textarea, .modal, .modal-head, .modal-foot, table th, table td {
+  transition: background-color 0.35s ease, color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease, transform 0.2s ease !important;
+}
+
+/* Scrollbar Enhancement */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--dna-surface-2); }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--dna-primary) 30%, transparent); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--dna-primary); }
+
+/* Dark mode specific glows */
+body.dark-mode .topbar {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+}
+body.dark-mode .panel {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+body.dark-mode .btn-gold {
+  box-shadow: 0 0 15px rgba(217, 168, 70, 0.2) !important;
+}
+body.dark-mode .btn-primary {
+  box-shadow: 0 0 15px rgba(27, 145, 196, 0.2) !important;
+}
+body.dark-mode input:focus, body.dark-mode select:focus, body.dark-mode textarea:focus {
+  box-shadow: 0 0 0 3px rgba(27, 145, 196, 0.3) !important;
+}
+
+/* Force Crisp Light Mode Form Fields */
+body:not(.dark-mode) input, 
+body:not(.dark-mode) select, 
+body:not(.dark-mode) textarea, 
+body:not(.dark-mode) .fin, 
+body:not(.dark-mode) .fg input, 
+body:not(.dark-mode) .fg select, 
+body:not(.dark-mode) .fg textarea,
+body:not(.dark-mode) .inv360-edit-field input,
+body:not(.dark-mode) .inv360-edit-field select {
+  background: #ffffff !important;
+  color: #1B2530 !important;
+  border: 1px solid #D1D5DB !important; /* clear gray border */
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.03) !important;
+}
+
+body:not(.dark-mode) input:focus, 
+body:not(.dark-mode) select:focus, 
+body:not(.dark-mode) textarea:focus {
+  border-color: #0F2942 !important;
+  box-shadow: 0 0 0 3px rgba(15, 41, 66, 0.15) !important;
+}
+
+/* Force Crisp Dark Mode Form Fields */
+body.dark-mode input, 
+body.dark-mode select, 
+body.dark-mode textarea, 
+body.dark-mode .fin, 
+body.dark-mode .fg input, 
+body.dark-mode .fg select, 
+body.dark-mode .fg textarea,
+body.dark-mode .inv360-edit-field input,
+body.dark-mode .inv360-edit-field select {
+  background: #121f2d !important;
+  color: #e8edf2 !important;
+  border: 1px solid #2e4359 !important;
+}
+
+body.dark-mode input:focus, 
+body.dark-mode select:focus, 
+body.dark-mode textarea:focus {
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25) !important;
+}
+
+/* Fix Labels in Light Mode */
+body:not(.dark-mode) .kpi-label, 
+body:not(.dark-mode) .fg label, 
+body:not(.dark-mode) .inv360-detail label, 
+body:not(.dark-mode) .login-field label, 
+body:not(.dark-mode) th, 
+body:not(.dark-mode) .tab {
+  color: #475569 !important;
+}
+
+/* Explicit fix for inline table editors */
+body:not(.dark-mode) .td-editor-overlay input, 
+body:not(.dark-mode) .td-editor-overlay select {
+  border: 2px solid #0F2942 !important;
+  box-shadow: 0 4px 12px rgba(15, 41, 66, 0.2) !important;
+  border-radius: 6px !important;
+  padding: 6px 10px !important;
+  font-weight: 600 !important;
+}
+
+body.dark-mode .td-editor-overlay input, 
+body.dark-mode .td-editor-overlay select {
+  border: 2px solid #fbbf24 !important;
+  background: #121f2d !important;
+  color: #fbbf24 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+  border-radius: 6px !important;
+  padding: 6px 10px !important;
+  font-weight: 600 !important;
+}
+
+/* Fix PDF preview text colors explicitly to ignore app-level dark/light mode */
+#pdf-preview-content {
+  background: #ffffff !important;
+  color: #1B2530 !important;
+}
+#pdf-preview-content td {
+  color: #1B2530 !important;
+  background: #ffffff !important;
+  border-color: #E4E0D6 !important;
+}
+#pdf-preview-content th {
+  background: #0F2942 !important;
+  color: #ffffff !important;
+}
+#pdf-preview-content .pdf-title, 
+#pdf-preview-content h2, 
+#pdf-preview-content div {
+  color: inherit;
+}
+
+/* Explicit fix for PDF Preview table colors */
+#pdf-preview-content th {
+  color: #ffffff !important;
+}
+#pdf-preview-content td {
+  color: #1B2530 !important;
+}
+
+/* Ensure PDF Preview retains absolute white-paper consistency regardless of app theme */
+#pdf-preview-content tbody tr:nth-child(even) {
+  background: #f8f9fa !important;
+}
+#pdf-preview-content tbody tr:nth-child(odd) {
+  background: #ffffff !important;
+}
+#pdf-preview-content td {
+  border-color: #e2e8f0 !important;
+}
+#pdf-preview-content th {
+  background: #0F2942 !important;
+}
+
+/* Investigator Card Enhancements */
+.inv-name {
+  color: var(--dna-primary) !important;
+}
+.inv-stat-l, .inv-amt-l {
+  color: var(--dna-muted) !important;
+}
+.inv-code {
+  color: var(--dna-muted) !important;
+}
+.inv-card-head {
+  border-bottom: 1px solid var(--dna-line);
+  padding-bottom: 10px;
+}
+.inv-amt {
+  border-top-color: var(--dna-line) !important;
+}
+.inv-stats, .inv-amt {
+  border-color: var(--dna-line) !important;
+}
+
+/* Force ALL form inputs globally to respect the theme */
+body:not(.dark-mode) input:not([type="checkbox"]):not([type="radio"]), 
+body:not(.dark-mode) select, 
+body:not(.dark-mode) textarea,
+body:not(.dark-mode) .fin,
+body:not(.dark-mode) .inv360-edit-field input,
+body:not(.dark-mode) .inv360-edit-field select {
+  background: #ffffff !important;
+  color: #1B2530 !important;
+  border: 1px solid #D1D5DB !important;
+}
+
+body.dark-mode input:not([type="checkbox"]):not([type="radio"]), 
+body.dark-mode select, 
+body.dark-mode textarea,
+body.dark-mode .fin,
+body.dark-mode .inv360-edit-field input,
+body.dark-mode .inv360-edit-field select {
+  background: #121f2d !important;
+  color: #e8edf2 !important;
+  border: 1px solid #2e4359 !important;
+}
+
+
+/* Fix Investigator 360 & Card Headings */
+.inv-card .inv-name,
+.inv360-name, .inv360-sheet-title, .inv360-detail b, .inv360-stat b {
+  color: var(--dna-primary) !important;
+}
+.inv360-role, .inv360-location, .inv360-sheet-sub, .inv360-detail label, .inv360-stat span {
+  color: var(--dna-muted) !important;
+}

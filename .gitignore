@@ -1,0 +1,55 @@
+# Configuration files with credentials
+config.js
+.env
+.env.local
+.env.*.local
+
+# Node modules (if added later)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Operating System
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE and Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.tmp
+
+# Database dumps
+*.sql.backup
+*.dump
+
+# Build outputs (if build tools added)
+dist/
+build/
+.cache/
+.parcel-cache/
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+.vercel
+.netlify
