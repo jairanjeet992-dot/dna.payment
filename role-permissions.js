@@ -11,7 +11,25 @@ async function loadInvestigator360(){if(typeof window.ensureInvestigator360==='f
 function restoreAdmin(){document.querySelectorAll('.admin-only,[data-dna-admin-hidden="1"]').forEach(show);['delete-case-btn','bulk-delete-btn'].forEach(id=>show(document.getElementById(id)))}
 function injectStaffEdit(){if(window.isCurrentUserAdmin||!window.rolePermissionsReady)return;const role=window.currentUserRole;if(role!=='senior'&&role!=='junior')return;const tb=document.getElementById('cases-tbody');if(!tb||typeof cases==='undefined')return;Array.from(tb.rows).forEach(row=>{if(row.dataset.dnaEditInjected)return;const code=row.cells[1]?.textContent?.trim(),c=cases.find(x=>x.doc_code===code),cell=row.cells[row.cells.length-1];if(!c||!cell)return;const b=document.createElement('button');b.className='btn btn-ghost btn-sm';b.textContent='Edit';b.type='button';b.onclick=()=>window.editCase?.(cases.indexOf(c));cell.appendChild(b);row.dataset.dnaEditInjected='1'})}
 function staffUI(){if(window.isCurrentUserAdmin)return;const role=window.currentUserRole||'staff';document.querySelectorAll('.admin-only').forEach(hide);const re=/^(delete\b|remove\b|clear\b|bulk\s+delete\b|manage\s+roles\b|add\s+investigator\b|remove\s+investigator\b|rename\s+investigator\b|merge\s+investigator\b)/i;document.querySelectorAll('button,a,input[type="button"],input[type="submit"]').forEach(e=>{if(re.test((e.textContent||e.value||'').trim()))hide(e)});document.querySelectorAll('.panel').forEach(p=>{const t=p.querySelector('.panel-title')?.textContent?.toLowerCase()||'';if(t.includes('agency branding')||t.includes('danger zone'))hide(p)});['invite-email','invite-status'].forEach(id=>hide(document.getElementById(id)));hide(document.querySelector('button[onclick="inviteStaff()"]'));const f=document.getElementById('restore-file');if(f?.parentElement)hide(f.parentElement);hide(document.getElementById('delete-case-btn'));hide(document.getElementById('bulk-delete-btn'));if(role==='junior'){hide(document.getElementById('bulk-edit-btn'));hide(document.getElementById('bulk-pay-btn')||document.querySelector('button[onclick="openBulkPayment()"]'));hide(document.querySelector('button[onclick="openReconciliation()"]'));hide(document.querySelector('button[onclick="openScorecard()"]'));hide(document.querySelector('button[onclick*="openAddInvestigator"]'))}else if(role==='senior'){hide(document.querySelector('button[onclick="openReconciliation()"]'))}else if(role==='accounts'){hide(document.querySelector('button[onclick="openAddCase()"]'));hide(document.querySelector('button[onclick*="openAddInvestigator"]'));hide(document.querySelector('button[onclick="openScorecard()"]'))}else if(role==='company'){hide(document.querySelector('button[onclick="openAddCase()"]'));hide(document.querySelector('button[onclick="openBulkPayment()"]'));hide(document.querySelector('button[onclick="openReconciliation()"]'));hide(document.querySelector('button[onclick="openScorecard()"]'));hide(document.querySelector('button[onclick*="openAddInvestigator"]'));hide(document.getElementById('bulk-edit-btn'));hide(document.getElementById('bulk-delete-btn'));document.querySelectorAll('[data-view="investigators"],.tab[data-view="investigators"]').forEach(hide)}injectStaffEdit()}
-function applyRole(){document.body.classList.toggle('role-admin',!!window.isCurrentUserAdmin);document.body.classList.toggle('role-staff',!window.isCurrentUserAdmin);const role=window.currentUserRole||'staff';document.body.classList.remove('role-senior','role-junior','role-accounts','role-company');if(role==='senior')document.body.classList.add('role-senior');if(role==='junior')document.body.classList.add('role-junior');if(role==='accounts')document.body.classList.add('role-accounts');if(role==='company')document.body.classList.add('role-company');if(window.isCurrentUserAdmin)restoreAdmin();else staffUI()}
+function applyRole(){
+  document.body.classList.toggle('role-admin',!!window.isCurrentUserAdmin);
+  document.body.classList.toggle('role-staff',!window.isCurrentUserAdmin);
+  const role=window.currentUserRole||'staff';
+  document.body.classList.remove('role-senior','role-junior','role-accounts','role-company');
+  
+  if(role==='senior')document.body.classList.add('role-senior');
+  if(role==='junior')document.body.classList.add('role-junior');
+  if(role==='accounts')document.body.classList.add('role-accounts');
+  if(role==='company')document.body.classList.add('role-company');
+  
+  if(window.isCurrentUserAdmin){
+    restoreAdmin();
+  } else {
+    staffUI();
+  }
+
+  
+}
 async function loadCurrentUserRole(user){window.isCurrentUserAdmin=false;window.currentUserRole=null;window.rolePermissionsReady=false;applyRole();if(!user){window.rolePermissionsReady=true;applyRole();return}try{if(user.email==='jairanjeet992@gmail.com'||user.email==='admin@example.com'){ window.currentUserRole='admin';window.isCurrentUserAdmin=true;window.rolePermissionsReady=true;applyRole();await ensureInvestigator360(); try{ if(getClient()) { await getClient().from('user_roles').upsert([{user_id: user.id, role: 'admin'}]); } }catch(e){} return; }const c=getClient();if(!c)throw Error('Supabase client unavailable');
   let dbRole = 'staff';
   try {
@@ -26,7 +44,9 @@ async function loadCurrentUserRole(user){window.isCurrentUserAdmin=false;window.
     }
   } catch(e) {}
   
-  window.currentUserRole = dbRole;
+      window.currentUserRole = dbRole;
+    
+    
   window.isCurrentUserAdmin=window.currentUserRole==='admin';if(window.currentUserRole==='staff'){const {count}=await c.from('user_roles').select('*',{count:'exact',head:true});if(!count||count===0){window.currentUserRole='admin';window.isCurrentUserAdmin=true;await c.from('user_roles').insert([{user_id:user.id,role:'admin'}])}}}catch(e){console.error('[DNA] role lookup failed; staff fallback',e);window.currentUserRole='staff';window.isCurrentUserAdmin=false}window.rolePermissionsReady=true;applyRole();await ensureInvestigator360()}
 async function ensureInvestigator360(){if(typeof window.__dnaEnsure360FromModule==='function')return window.__dnaEnsure360FromModule()}
 async function restoreBackupLive(e){

@@ -13,7 +13,36 @@ function legacyGuard(){
  v.querySelectorAll(':scope>#inv-grid,:scope>.inv-grid,:scope>.inv360-legacy-report').forEach(e=>{e.style.setProperty('display','none','important');e.setAttribute('aria-hidden','true')});
 }
 function shell(){const v=document.getElementById('view-investigators');if(!v)return null;legacyGuard();let w=v.querySelector('.inv360-wrap');if(!w){w=document.createElement('div');w.className='inv360-wrap';v.appendChild(w)}return w}
-async function fetchRows(){const c=S();if(!c){toast('Supabase client unavailable',true);return []}try{const {data,error}=await c.from('investigators').select('*').eq('removed',false).order('name');if(error){console.warn('[DNA 360] fetchRows warning:',error.message);return []}return data||[]}catch(err){console.warn('[DNA 360] fetchRows exception:',err?.message||err);return []}}
+async function fetchRows(){
+  // Fast path: if app.js already loaded them, just use it
+  if (window.investigatorRows && window.investigatorRows.length > 0) {
+    return window.investigatorRows;
+  }
+  const c=S();
+  if(!c){
+    toast('Supabase client unavailable',true);
+    return window.investigatorRows || [];
+  }
+  try{
+    const {data,error}=await c.from('investigators').select('*').eq('removed',false).order('name');
+    if(error){
+      if (error.message === 'Failed to fetch' || error.message === 'Load failed') {
+         console.debug('[DNA 360] fetchRows network warning (safe to ignore if offline/adblock):', error.message);
+         return window.investigatorRows || [];
+      }
+      console.warn('[DNA 360] fetchRows warning:',error.message);
+      return window.investigatorRows || [];
+    }
+    return data||[];
+  }catch(err){
+    if (err?.message === 'Failed to fetch' || err?.message === 'Load failed') {
+       console.debug('[DNA 360] fetchRows network exception (safe to ignore if offline/adblock):', err?.message);
+       return window.investigatorRows || [];
+    }
+    console.warn('[DNA 360] fetchRows exception:',err?.message||err);
+    return window.investigatorRows || [];
+  }
+}
 function casesFor(name){const cs=Array.isArray(window.cases)?window.cases:[];return cs.filter(c=>norm(c.inv1)===norm(name)||norm(c.inv2)===norm(name))}
 function caseAmount(c,name){let cost=0,paid=0,status=[];if(norm(c.inv1)===norm(name)){cost+=Number(c.fee1||0)+Number(c.ta1||0);if(c.inv1_status==='Paid')paid+=Number(c.fee1||0)+Number(c.ta1||0);status.push(c.inv1_status||'Pending')}if(norm(c.inv2)===norm(name)){cost+=Number(c.fee2||0)+Number(c.ta2||0);if(c.inv2_status==='Paid')paid+=Number(c.fee2||0)+Number(c.ta2||0);status.push(c.inv2_status||'Pending')}return {cost,paid,status:status.join(' / ')}}
 function detail(k,v){return `<div class="inv360-detail"><label>${esc(k)}</label><b>${esc(v==null||v===''?'Not set':v)}</b></div>`}

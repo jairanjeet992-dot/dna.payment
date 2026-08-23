@@ -15,6 +15,13 @@ const getSupabaseConfig = () => {
   return config;
 };
 
+
+window.getGoogleClientId = () => {
+  const localId = localStorage.getItem('GOOGLE_CLIENT_ID');
+  if (localId) return localId;
+  return window.APP_CONFIG?.googleClientId || null;
+};
+
 const SUPABASE_CONFIG = getSupabaseConfig();
 const supabaseClient = (SUPABASE_CONFIG && window.supabase)
   ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey)
@@ -71,6 +78,9 @@ function refreshDynamicCompanies() {
     fct.innerHTML = '<option value="">All Types</option>' + CASE_TYPES.map(c => `<option value="${escAttr(c)}">${escAttr(c)}</option>`).join('');
     fct.value = val;
   }
+
+  
+
 
   // Update Report dropdown
   const reportWrap = document.getElementById('report-target-wrap');
@@ -144,6 +154,8 @@ let activeFYStart = null; // set on first renderYearly() call to the current FY'
 let cases = [];
 let bulkEditConfig = null;
 window.cases = cases; // expose for investigator-360 + reports modules
+let investigatorExpenses = [];
+window.investigatorExpenses = investigatorExpenses; // expose for vouchers & ledger
 // Safe placeholder shown before login — RLS blocks reading agency_settings
 // until authenticated, so the real values load via loadSettingsFromDB() in
 // enterApp() once a session exists.
@@ -198,12 +210,14 @@ document.addEventListener('fullscreenchange', () => {
 function toggleDarkMode() {
   const isDark = document.body.classList.toggle('dark-mode');
   localStorage.setItem('dna_dark_mode', isDark ? '1' : '0');
-  document.getElementById('dark-toggle-btn').textContent = isDark ? '☀️' : '🌙';
+  const btn = document.getElementById('dark-toggle-btn');
+  if (btn) btn.textContent = isDark ? '☀️' : '🌙';
 }
 function applySavedDarkMode() {
   if (localStorage.getItem('dna_dark_mode') === '1') {
     document.body.classList.add('dark-mode');
-    document.getElementById('dark-toggle-btn').textContent = '☀️';
+    const btn = document.getElementById('dark-toggle-btn');
+    if (btn) btn.textContent = '☀️';
   }
 }
 
@@ -295,6 +309,7 @@ function populateStaticSelects() {
   // page-load time) — refreshInvestigatorDropdowns() fills them once data
   // arrives, called from enterApp() after loadInvestigatorsFromDB().
   refreshInvestigatorDropdowns();
+  
   loadDriveSettingsFromDB();
 }
 
@@ -424,8 +439,8 @@ async function enterApp() {
   document.getElementById('app').style.display = 'block';
   
   // Init Google Drive if Client ID is present
-  if (window.APP_CONFIG?.googleClientId) {
-    if (typeof google !== "undefined" && google.accounts) { window.googleDriveService.init(window.APP_CONFIG.googleClientId); } else { console.log("[APP] Waiting for Google Sign-In script to load..."); }
+  if (window.getGoogleClientId()) {
+    if (typeof google !== "undefined" && google.accounts) { window.googleDriveService.init(window.getGoogleClientId()); } else { console.log("[APP] Waiting for Google Sign-In script to load..."); }
   }
 
   updateUserChip();
@@ -433,7 +448,8 @@ async function enterApp() {
   await Promise.all([
     loadCasesFromDB(), 
     loadInvestigatorsFromDB(), 
-    loadSettingsFromDB()
+    loadSettingsFromDB(),
+    loadInvestigatorExpensesDB()
     ]);
   refreshInvestigatorDropdowns(); 
   applySettingsToForm();
@@ -512,7 +528,7 @@ async function searchDrive() {
 }
 
 async function connectGoogleDrive() {
-  if (!window.APP_CONFIG?.googleClientId) {
+  if (!window.getGoogleClientId()) {
     showToast('Google Client ID not configured in config.js.', true);
     return;
   }
@@ -646,7 +662,8 @@ async function loadCasesFromDB() {
       let hasMore = true;
       let newlyLoaded = 0;
       
-      while (hasMore) {
+      const MAX_CLIENT_RECORDS = 5000; // Hard cap to prevent browser OOM (Memory crash)
+      while (hasMore && cases.length < MAX_CLIENT_RECORDS) {
         const { data: bgData, error: bgError } = await supabaseClient.from('cases')
           .select('*')
           .order('date', {ascending: false})
@@ -726,6 +743,7 @@ async function loadInvestigatorsFromDB() {
   INVESTIGATORS = data.map(r => r.name);
   INVESTIGATOR_PHONES = {};
   data.forEach(r => { if (r.phone) INVESTIGATOR_PHONES[r.name] = r.phone; });
+  window.dispatchEvent(new CustomEvent('dna:investigators-ready'));
 }
 
 function getAllInvestigators() { return INVESTIGATORS; } // kept as a function — ~15 call sites use it as such
@@ -1650,14 +1668,16 @@ async function applyReconciliation() {
   let ok = 0;
   for (const m of toApply) {
     try {
-      await updateCaseDB(m.docCode, { received: m.case.total_payable, inv1_status: 'Paid', inv2_status: m.case.inv2 && m.case.inv2 !== 'NA' ? 'Paid' : m.case.inv2_status || '' });
+      const matchAmt = (m.txn && typeof m.txn.amt === 'number') ? m.txn.amt : (m.case.total_payable || 0);
+      const newReceived = (m.case.received ? m.case.received + matchAmt : matchAmt);
+      await updateCaseDB(m.docCode, { received: newReceived, inv1_status: 'Paid', inv2_status: m.case.inv2 && m.case.inv2 !== 'NA' ? 'Paid' : m.case.inv2_status || '' });
       ok++;
     } catch (e) { /* keep going */ }
   }
   await loadCasesFromDB();
   renderAll();
   closeModal('recon-modal');
-  showToast(`Reconciled ${ok} case(s) as Paid.`);
+  showToast(`Reconciled ${ok} case(s) with bank transactions.`);
 }
 
 // ============================================================
@@ -2293,6 +2313,376 @@ function renderMonthButtons() {
 }
 function selectMonth(i) { activeMonth = i; renderMonthButtons(); renderMonthly(i); }
 
+// ============================================================
+// INVESTIGATOR EXPENSES & VOUCHER LEDGER
+// ============================================================
+async function loadInvestigatorExpensesDB() {
+  try {
+    if (supabaseClient) {
+      const { data, error } = await supabaseClient
+        .from('investigator_expenses')
+        .select('*')
+        .order('date', { ascending: false });
+      if (!error && data) {
+        investigatorExpenses = data.map(r => ({ ...r, amount: Number(r.amount) || 0 }));
+        window.investigatorExpenses = investigatorExpenses;
+        localStorage.setItem('DNA_INVESTIGATOR_EXPENSES', JSON.stringify(investigatorExpenses));
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn('[EXPENSES] DB load failed, using local cache:', err);
+  }
+  const cached = localStorage.getItem('DNA_INVESTIGATOR_EXPENSES');
+  if (cached) {
+    try {
+      investigatorExpenses = JSON.parse(cached).map(r => ({ ...r, amount: Number(r.amount) || 0 }));
+      window.investigatorExpenses = investigatorExpenses;
+    } catch (e) {
+      investigatorExpenses = [];
+    }
+  }
+}
+
+async function saveInvestigatorExpenseDB(exp) {
+  const id = exp.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'exp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
+  const record = {
+    id,
+    investigator_name: exp.investigator_name,
+    category: exp.category,
+    amount: Number(exp.amount) || 0,
+    date: exp.date,
+    month_code: exp.month_code,
+    status: exp.status || 'Pending',
+    remarks: exp.remarks || '',
+    created_at: exp.created_at || new Date().toISOString(),
+    created_by: currentUser?.email || 'Admin'
+  };
+
+  const existingIdx = investigatorExpenses.findIndex(e => e.id === id);
+  if (existingIdx >= 0) {
+    investigatorExpenses[existingIdx] = record;
+  } else {
+    investigatorExpenses.unshift(record);
+  }
+  window.investigatorExpenses = investigatorExpenses;
+  localStorage.setItem('DNA_INVESTIGATOR_EXPENSES', JSON.stringify(investigatorExpenses));
+
+  try {
+    if (supabaseClient) {
+      const { error } = await supabaseClient.from('investigator_expenses').upsert(record);
+      if (error) console.warn('[EXPENSES] Supabase upsert error:', error.message);
+    }
+  } catch (e) {
+    console.warn('[EXPENSES] Supabase error:', e);
+  }
+  return record;
+}
+
+async function deleteInvestigatorExpenseDB(id) {
+  investigatorExpenses = investigatorExpenses.filter(e => e.id !== id);
+  window.investigatorExpenses = investigatorExpenses;
+  localStorage.setItem('DNA_INVESTIGATOR_EXPENSES', JSON.stringify(investigatorExpenses));
+  try {
+    if (supabaseClient) {
+      await supabaseClient.from('investigator_expenses').delete().eq('id', id);
+    }
+  } catch (e) {
+    console.warn('[EXPENSES] Supabase delete error:', e);
+  }
+}
+
+async function toggleExpenseStatusDB(id) {
+  const exp = investigatorExpenses.find(e => e.id === id);
+  if (!exp) return;
+  exp.status = exp.status === 'Paid' ? 'Pending' : 'Paid';
+  window.investigatorExpenses = investigatorExpenses;
+  localStorage.setItem('DNA_INVESTIGATOR_EXPENSES', JSON.stringify(investigatorExpenses));
+  try {
+    if (supabaseClient) {
+      await supabaseClient.from('investigator_expenses').update({ status: exp.status }).eq('id', id);
+    }
+  } catch (e) {
+    console.warn('[EXPENSES] Supabase update error:', e);
+  }
+}
+
+function getExpensesForMonth(mo) {
+  if (!mo) return [];
+  return investigatorExpenses.filter(e => {
+    if (e.month_code && e.month_code === mo.code) return true;
+    if (e.date) {
+      const d = new Date(e.date);
+      if (!isNaN(d.getTime())) {
+        return (d.getMonth() + 1) === mo.m && d.getFullYear() === mo.y;
+      }
+    }
+    return false;
+  });
+}
+
+function openAddExpenseModal(defaultInv = '', defaultMonthIdx = null) {
+  const selInv = document.getElementById('exp-inv');
+  if (selInv) {
+    selInv.innerHTML = '<option value="">-- Select Investigator --</option>' + INVESTIGATORS.map(n => `<option value="${escAttr(n)}">${escAttr(n)}</option>`).join('');
+    if (defaultInv) selInv.value = defaultInv;
+  }
+  const idEl = document.getElementById('exp-id');
+  if (idEl) idEl.value = '';
+  const titleEl = document.getElementById('exp-modal-title');
+  if (titleEl) titleEl.textContent = '💵 Add Expense / Voucher';
+  const amtEl = document.getElementById('exp-amount');
+  if (amtEl) amtEl.value = '';
+  const remEl = document.getElementById('exp-remarks');
+  if (remEl) remEl.value = '';
+  const catEl = document.getElementById('exp-category');
+  if (catEl) catEl.value = 'Courier / Hardcopy';
+  const stEl = document.getElementById('exp-status');
+  if (stEl) stEl.value = 'Pending';
+  
+  const dateInput = document.getElementById('exp-date');
+  if (dateInput) {
+    if (defaultMonthIdx !== null && MONTHS[defaultMonthIdx]) {
+      const mo = MONTHS[defaultMonthIdx];
+      const now = new Date();
+      const day = (now.getMonth() + 1 === mo.m && now.getFullYear() === mo.y) ? String(now.getDate()).padStart(2, '0') : '15';
+      dateInput.value = `${mo.y}-${String(mo.m).padStart(2, '0')}-${day}`;
+    } else {
+      dateInput.value = new Date().toISOString().slice(0, 10);
+    }
+  }
+  const modal = document.getElementById('expense-modal');
+  if (modal) modal.classList.add('open');
+}
+
+function editExpenseVoucher(id) {
+  const exp = investigatorExpenses.find(e => e.id === id);
+  if (!exp) return;
+  openAddExpenseModal(exp.investigator_name);
+  const idEl = document.getElementById('exp-id');
+  if (idEl) idEl.value = exp.id;
+  const titleEl = document.getElementById('exp-modal-title');
+  if (titleEl) titleEl.textContent = '✏️ Edit Expense / Voucher';
+  const catEl = document.getElementById('exp-category');
+  if (catEl) catEl.value = exp.category || 'Courier / Hardcopy';
+  const amtEl = document.getElementById('exp-amount');
+  if (amtEl) amtEl.value = exp.amount || '';
+  const dtEl = document.getElementById('exp-date');
+  if (dtEl) dtEl.value = exp.date || new Date().toISOString().slice(0, 10);
+  const stEl = document.getElementById('exp-status');
+  if (stEl) stEl.value = exp.status || 'Pending';
+  const remEl = document.getElementById('exp-remarks');
+  if (remEl) remEl.value = exp.remarks || '';
+}
+
+async function saveExpenseVoucher() {
+  const id = document.getElementById('exp-id').value.trim();
+  const inv = document.getElementById('exp-inv').value;
+  const category = document.getElementById('exp-category').value;
+  const amount = parseFloat(document.getElementById('exp-amount').value);
+  const date = document.getElementById('exp-date').value;
+  const status = document.getElementById('exp-status').value;
+  const remarks = document.getElementById('exp-remarks').value.trim();
+
+  if (!inv) {
+    showToast('Please select an investigator', true);
+    return;
+  }
+  if (!amount || isNaN(amount) || amount <= 0) {
+    showToast('Please enter a valid amount', true);
+    return;
+  }
+  if (!date) {
+    showToast('Please enter an expense date', true);
+    return;
+  }
+
+  const d = new Date(date);
+  const mo = MONTHS.find(m => m.m === (d.getMonth() + 1) && m.y === d.getFullYear());
+  const month_code = mo ? mo.code : `${d.getMonth() + 1}-${d.getFullYear()}`;
+
+  const payload = {
+    id: id || undefined,
+    investigator_name: inv,
+    category,
+    amount,
+    date,
+    month_code,
+    status,
+    remarks
+  };
+
+  const btn = document.getElementById('exp-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  await saveInvestigatorExpenseDB(payload);
+  if (btn) { btn.disabled = false; btn.textContent = '💾 Save Voucher'; }
+  closeModal('expense-modal');
+  showToast(`Voucher of ₹${fmt(amount)} saved for ${inv}`);
+  renderMonthly(activeMonth);
+  renderSalary();
+  if (document.getElementById('expense-ledger-modal').classList.contains('open')) {
+    renderExpenseLedgerTable();
+  }
+}
+
+function openExpenseLedgerModal(filterInv = '') {
+  const mSel = document.getElementById('ledger-filter-month');
+  if (mSel) {
+    const available = getAvailableMonths();
+    mSel.innerHTML = '<option value="ALL">All Months</option>' + available.map((mo) => {
+      const idx = MONTHS.indexOf(mo);
+      return `<option value="${idx}" ${idx === activeMonth ? 'selected' : ''}>${mo.label}</option>`;
+    }).join('');
+  }
+  const iSel = document.getElementById('ledger-filter-inv');
+  if (iSel) {
+    iSel.innerHTML = '<option value="">All Investigators</option>' + INVESTIGATORS.map(n => `<option value="${escAttr(n)}" ${n === filterInv ? 'selected' : ''}>${escAttr(n)}</option>`).join('');
+  }
+  renderExpenseLedgerTable();
+  document.getElementById('expense-ledger-modal').classList.add('open');
+}
+
+function renderExpenseLedgerTable() {
+  const mVal = document.getElementById('ledger-filter-month')?.value || 'ALL';
+  const iVal = document.getElementById('ledger-filter-inv')?.value || '';
+  const cVal = document.getElementById('ledger-filter-cat')?.value || '';
+
+  let list = [...investigatorExpenses];
+
+  if (mVal !== 'ALL') {
+    const mo = MONTHS[parseInt(mVal)];
+    if (mo) {
+      list = list.filter(e => {
+        if (e.month_code === mo.code) return true;
+        const d = new Date(e.date);
+        return (d.getMonth() + 1) === mo.m && d.getFullYear() === mo.y;
+      });
+    }
+  }
+
+  if (iVal) {
+    list = list.filter(e => e.investigator_name === iVal);
+  }
+
+  if (cVal) {
+    list = list.filter(e => (e.category || '').toLowerCase().includes(cVal.toLowerCase()));
+  }
+
+  const totalAmt = list.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const paidAmt = list.filter(e => e.status === 'Paid').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const pendingAmt = list.filter(e => e.status !== 'Paid').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  const kpiEl = document.getElementById('ledger-kpi-summary');
+  if (kpiEl) {
+    kpiEl.innerHTML = `
+      <div style="flex:1;background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 12px;">
+        <div style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;">Total Vouchers</div>
+        <div style="font-size:16px;font-weight:800;color:var(--navy);margin-top:2px;">${list.length} item(s) &bull; ₹${fmt(totalAmt)}</div>
+      </div>
+      <div style="flex:1;background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 12px;">
+        <div style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;">Paid Vouchers</div>
+        <div style="font-size:16px;font-weight:800;color:var(--green);margin-top:2px;">₹${fmt(paidAmt)}</div>
+      </div>
+      <div style="flex:1;background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 12px;">
+        <div style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;">Pending Vouchers</div>
+        <div style="font-size:16px;font-weight:800;color:var(--red);margin-top:2px;">₹${fmt(pendingAmt)}</div>
+      </div>
+    `;
+  }
+
+  const tbody = document.getElementById('expense-ledger-tbody');
+  if (!tbody) return;
+
+  if (list.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="ic">🧾</div>No vouchers found for this filter</div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map(e => {
+    const isPaid = e.status === 'Paid';
+    return `
+      <tr style="border-bottom:1px solid var(--line);">
+        <td style="padding:8px 10px;font-family:var(--mono);">${e.date || '—'}</td>
+        <td style="padding:8px 10px;font-weight:700;color:var(--navy);">${escAttr(e.investigator_name)}</td>
+        <td style="padding:8px 10px;"><span class="badge" style="background:#f1f5f9;color:#334155;font-weight:600;">${escAttr(e.category)}</span></td>
+        <td style="padding:8px 10px;color:var(--sub);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escAttr(e.remarks||'')}">${escAttr(e.remarks || '—')}</td>
+        <td style="padding:8px 10px;text-align:right;font-weight:700;">₹${fmt(e.amount)}</td>
+        <td style="padding:8px 10px;text-align:center;">
+          <button class="badge ${isPaid ? 'paid' : 'pending'}" style="cursor:pointer;border:none;" onclick="toggleExpenseVoucherStatus('${e.id}')" title="Click to toggle status">
+            ${isPaid ? '✓ Paid' : '⏳ Pending'}
+          </button>
+        </td>
+        <td style="padding:8px 10px;text-align:center;">
+          <div style="display:flex;gap:4px;justify-content:center;">
+            <button class="btn btn-ghost btn-sm admin-only" style="padding:2px 6px;font-size:11px;" onclick="editExpenseVoucher('${e.id}')" title="Edit">✏️</button>
+            <button class="btn btn-ghost btn-sm admin-only" style="padding:2px 6px;font-size:11px;color:var(--red);" onclick="deleteExpenseVoucher('${e.id}')" title="Delete">🗑️</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function toggleExpenseVoucherStatus(id) {
+  await toggleExpenseStatusDB(id);
+  renderExpenseLedgerTable();
+  renderMonthly(activeMonth);
+  renderSalary();
+}
+
+async function deleteExpenseVoucher(id) {
+  if (!confirm('Are you sure you want to delete this voucher?')) return;
+  await deleteInvestigatorExpenseDB(id);
+  showToast('Voucher deleted');
+  renderExpenseLedgerTable();
+  renderMonthly(activeMonth);
+  renderSalary();
+}
+
+function exportExpenseLedgerCSV() {
+  const mVal = document.getElementById('ledger-filter-month')?.value || 'ALL';
+  const iVal = document.getElementById('ledger-filter-inv')?.value || '';
+  const cVal = document.getElementById('ledger-filter-cat')?.value || '';
+
+  let list = [...investigatorExpenses];
+  if (mVal !== 'ALL') {
+    const mo = MONTHS[parseInt(mVal)];
+    if (mo) {
+      list = list.filter(e => {
+        if (e.month_code === mo.code) return true;
+        const d = new Date(e.date);
+        return (d.getMonth() + 1) === mo.m && d.getFullYear() === mo.y;
+      });
+    }
+  }
+  if (iVal) list = list.filter(e => e.investigator_name === iVal);
+  if (cVal) list = list.filter(e => (e.category || '').toLowerCase().includes(cVal.toLowerCase()));
+
+  if (!list.length) { showToast('No data to export', true); return; }
+
+  const headers = ['Date', 'Investigator', 'Category', 'Amount', 'Status', 'Remarks'];
+  const csvRows = [headers.join(',')];
+  list.forEach(e => {
+    csvRows.push([
+      `"${e.date || ''}"`,
+      `"${(e.investigator_name || '').replace(/"/g, '""')}"`,
+      `"${(e.category || '').replace(/"/g, '""')}"`,
+      e.amount || 0,
+      `"${e.status || 'Pending'}"`,
+      `"${(e.remarks || '').replace(/"/g, '""')}"`
+    ].join(','));
+  });
+
+  const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `DNA_Expenses_Vouchers_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function renderMonthly(idx) {
   const mo = MONTHS[idx];
   document.getElementById('monthly-title').textContent = `${mo.label} — Investigator Report`;
@@ -2303,8 +2693,12 @@ function renderMonthly(idx) {
     return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
   });
 
+  const monthExpenses = getExpensesForMonth(mo);
   const totalPayableM = monthCases.reduce((s,c)=>s+(c.total_payable||0),0);
   const totalReceivedM = monthCases.reduce((s,c)=>s+(c.received||0),0);
+  const totalExpensesM = monthExpenses.reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const totalNetPayableM = totalPayableM + totalExpensesM;
+  const netAgencyProfitM = totalReceivedM - totalNetPayableM;
 
   document.getElementById('monthly-kpi').innerHTML = `
     <div class="kpi tab-kpi-enhanced">
@@ -2313,11 +2707,23 @@ function renderMonthly(idx) {
     </div>
     <div class="kpi tab-kpi-enhanced gold">
       <div class="tab-kpi-icon" style="background:#fef3c7; color:#d97706;">💸</div>
-      <div><div class="kpi-label">Total Payable</div><div class="kpi-value gold">Rs ${fmt(totalPayableM)}</div></div>
+      <div><div class="kpi-label">Case Payable</div><div class="kpi-value gold">Rs ${fmt(totalPayableM)}</div></div>
+    </div>
+    <div class="kpi tab-kpi-enhanced" style="background:#f8fafc;border-left:3px solid #0284c7;">
+      <div class="tab-kpi-icon" style="background:#e0f2fe; color:#0284c7;">📦</div>
+      <div><div class="kpi-label">Extra Vouchers (Courier/Bonus)</div><div class="kpi-value" style="color:#0284c7;">Rs ${fmt(totalExpensesM)}</div></div>
+    </div>
+    <div class="kpi tab-kpi-enhanced" style="background:#fdf4ff;border-left:3px solid #a855f7;">
+      <div class="tab-kpi-icon" style="background:#fae8ff; color:#a855f7;">💼</div>
+      <div><div class="kpi-label">Net Investigator Payable</div><div class="kpi-value" style="color:#9333ea;">Rs ${fmt(totalNetPayableM)}</div></div>
     </div>
     <div class="kpi tab-kpi-enhanced green">
       <div class="tab-kpi-icon" style="background:#dcfce7; color:#15803d;">💰</div>
       <div><div class="kpi-label">Total Received</div><div class="kpi-value green">Rs ${fmt(totalReceivedM)}</div></div>
+    </div>
+    <div class="kpi tab-kpi-enhanced ${netAgencyProfitM>=0?'green':'red'}">
+      <div class="tab-kpi-icon" style="background:${netAgencyProfitM>=0?'#dcfce7':'#fee2e2'}; color:${netAgencyProfitM>=0?'#15803d':'#be123c'};">${netAgencyProfitM>=0?'📈':'📉'}</div>
+      <div><div class="kpi-label">Net Agency Margin</div><div class="kpi-value ${netAgencyProfitM>=0?'green':'red'}">Rs ${fmt(netAgencyProfitM)}</div></div>
     </div>
   `;
 
@@ -2327,20 +2733,41 @@ function renderMonthly(idx) {
   let __html = [];
   list.forEach(name => {
     const stats = computeInvStats(name, monthCases);
-    if (stats.totalCases === 0) return;
+    const invExp = monthExpenses.filter(e => e.investigator_name === name);
+    const invExpTotal = invExp.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    const invExpPaid = invExp.filter(e => e.status === 'Paid').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    const invExpPending = invExp.filter(e => e.status !== 'Paid').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+    if (stats.totalCases === 0 && invExpTotal === 0) return;
+
+    const netPayable = stats.totalPayable + invExpTotal;
+    const netPaidAmt = stats.paidAmt + invExpPaid;
+    const netPendingAmt = stats.pendingAmt + invExpPending;
+
+    const vouchersDisplay = invExpTotal > 0 
+      ? `<span class="badge" style="background:#e0f2fe;color:#0284c7;cursor:pointer;font-weight:700;" onclick="openExpenseLedgerModal('${escAttr(name)}')" title="Click to view ${invExp.length} voucher(s)">+Rs ${fmt(invExpTotal)} (${invExp.length})</span>`
+      : `<span style="color:var(--sub);font-size:11px;">—</span>`;
+
     __html.push(`<tr>
-      <td><strong>${name}</strong></td>
+      <td><strong>${escAttr(name)}</strong></td>
       <td>${stats.totalCases}</td>
       <td style="color:var(--green)">${stats.paidCases}</td>
       <td style="color:var(--red)">${stats.pendingCases}</td>
       <td>Rs ${fmt(stats.totalPayable)}</td>
-      <td style="color:var(--green)">Rs ${fmt(stats.paidAmt)}</td>
-      <td style="color:var(--red)">Rs ${fmt(stats.pendingAmt)}</td>
-      <td>${currentUser ? `<button class="btn btn-ghost btn-sm" onclick="quickSlip('${name}',${idx})">Slip</button>` : ''}</td>
+      <td>${vouchersDisplay}</td>
+      <td><strong>Rs ${fmt(netPayable)}</strong></td>
+      <td style="color:var(--green)">Rs ${fmt(netPaidAmt)}</td>
+      <td style="color:var(--red)">Rs ${fmt(netPendingAmt)}</td>
+      <td>
+        <div style="display:flex;gap:4px;align-items:center;">
+          ${currentUser ? `<button class="btn btn-ghost btn-sm" onclick="quickSlip('${escAttr(name)}',${idx})" title="Generate Statement">Slip</button>` : ''}
+          ${currentUser ? `<button class="btn btn-gold btn-sm admin-only" style="padding:2px 6px;font-size:11px;" onclick="openAddExpenseModal('${escAttr(name)}',${idx})" title="Add Courier / Bonus Voucher">+💵</button>` : ''}
+        </div>
+      </td>
     </tr>`);
   });
   tbody.innerHTML = __html.join('');
-  if (!tbody.innerHTML) tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="ic">📭</div>No cases in ${mo.label} yet</div></td></tr>`;
+  if (!tbody.innerHTML) tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="ic">📭</div>No cases or vouchers in ${mo.label} yet</div></td></tr>`;
 }
 
 // ============================================================
@@ -2363,12 +2790,14 @@ function renderSalary() {
     return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
   });
 
+  const monthExpenses = getExpensesForMonth(mo);
   const salaryInvestigators = investigatorRows.filter(r => r.payment_type === 'Salary');
   const tbody = document.getElementById('salary-tbody');
   if (tbody) tbody.innerHTML = '';
   
   let totalExpense = 0;
   let totalSalariedCases = 0;
+  let totalSalaryVouchers = 0;
 
   salaryInvestigators.forEach(r => {
     const typeChangedAt = r.payment_type_changed_at ? new Date(r.payment_type_changed_at) : null;
@@ -2386,14 +2815,23 @@ function renderSalary() {
         return sum + 0.5;
     }, 0);
 
+    const invExp = monthExpenses.filter(e => e.investigator_name === r.name);
+    const invExpTotal = invExp.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    totalSalaryVouchers += invExpTotal;
+
     const salary = r.salary_amount || 0;
-    totalExpense += salary;
+    const totalPayout = salary + invExpTotal;
+    totalExpense += totalPayout;
+
+    const voucherTag = invExpTotal > 0 
+      ? ` <span class="badge" style="background:#e0f2fe;color:#0284c7;cursor:pointer;font-weight:700;" onclick="openExpenseLedgerModal('${escAttr(r.name)}')" title="Courier/Bonus vouchers">+₹${invExpTotal.toLocaleString('en-IN')} (${invExp.length})</span>`
+      : '';
 
     if (tbody) tbody.innerHTML += `<tr>
       <td><strong>${escAttr(r.name)}</strong></td>
-      <td>₹${salary.toLocaleString('en-IN')}</td>
+      <td>₹${salary.toLocaleString('en-IN')}${voucherTag}</td>
       <td>${productivity} case(s)</td>
-      <td>₹${salary.toLocaleString('en-IN')}</td>
+      <td><strong>₹${totalPayout.toLocaleString('en-IN')}</strong></td>
     </tr>`;
   });
 
@@ -2410,7 +2848,7 @@ function renderSalary() {
       </div>
       <div class="kpi tab-kpi-enhanced green" style="background-color: #ececed;">
         <div class="tab-kpi-icon" style="background: rgba(0,0,0,0.05); color: var(--green);">🏦</div>
-        <div><div class="kpi-label">Monthly Salary Budget</div><div class="kpi-value green">₹${totalExpense.toLocaleString('en-IN')}</div></div>
+        <div><div class="kpi-label">Monthly Staff Payout Budget</div><div class="kpi-value green">₹${totalExpense.toLocaleString('en-IN')}</div></div>
       </div>
     `;
   }
@@ -2833,6 +3271,10 @@ function editCase(idx) {
   document.getElementById('f-inv2status').value = c.inv2_status||'';
   document.getElementById('f-hardcopy1status').value = c.hardcopy1_status||'';
   document.getElementById('f-hardcopy2status').value = c.hardcopy2_status||'';
+  const compHc = document.getElementById('f-companyhardcopy');
+  if (compHc) compHc.value = c.company_hardcopy_status || 'Pending';
+  const compAwb = document.getElementById('f-companyawb');
+  if (compAwb) compAwb.value = c.company_hardcopy_awb || '';
   document.getElementById('f-outcome').value = c.outcome||'Pending';
   document.getElementById('f-remarks').value = c.remarks||'';
   checkHospitalRisk(c.hospital || '');
@@ -2956,10 +3398,12 @@ function renderCellDisplay(c, field, type, val) {
 function clearForm() {
   ['f-company','f-date','f-casetype','f-claim','f-policy','f-insured','f-hospital','f-location','f-sla',
    'f-inv1','f-inv2','f-fee1','f-fee2','f-ta1','f-ta2','f-received','f-invoice',
-   'f-inv1status','f-inv2status','f-hardcopy1status','f-hardcopy2status','f-remarks'].forEach(id => {
+   'f-inv1status','f-inv2status','f-hardcopy1status','f-hardcopy2status','f-companyawb','f-remarks'].forEach(id => {
      const el = document.getElementById(id);
      if (el) el.value = '';
    });
+  const fCompanyHardcopy = document.getElementById('f-companyhardcopy');
+  if (fCompanyHardcopy) fCompanyHardcopy.value = 'Pending';
   const fOutcome = document.getElementById('f-outcome');
   if (fOutcome) fOutcome.value = 'Pending';
   const hRiskWarn = document.getElementById('hospital-risk-warning');
@@ -3372,11 +3816,11 @@ async function sendCaseEmail(docCode, role = 'INV1') {
 }
 
 function calcTotal() {
-  const fee1=parseFloat(document.getElementById('f-fee1').value)||0;
-  const fee2=parseFloat(document.getElementById('f-fee2').value)||0;
-  const ta1=parseFloat(document.getElementById('f-ta1').value)||0;
-  const ta2=parseFloat(document.getElementById('f-ta2').value)||0;
-  const received=parseFloat(document.getElementById('f-received').value)||0;
+  const fee1 = Math.max(0, parseFloat(document.getElementById('f-fee1').value) || 0);
+  const fee2 = Math.max(0, parseFloat(document.getElementById('f-fee2').value) || 0);
+  const ta1 = Math.max(0, parseFloat(document.getElementById('f-ta1').value) || 0);
+  const ta2 = Math.max(0, parseFloat(document.getElementById('f-ta2').value) || 0);
+  const received = Math.max(0, parseFloat(document.getElementById('f-received').value) || 0);
   const total=fee1+fee2+ta1+ta2;
   document.getElementById('f-total').value=total;
   const profit=received-total;
@@ -3491,12 +3935,16 @@ function updateHardcopy2Visibility() {
 }
 
 async function saveCase() {
-  const claim = document.getElementById('f-claim').value.trim();
+  const claim = document.getElementById('f-claim').value.trim().toUpperCase();
   const company = (document.getElementById('f-company').value || '').trim().toUpperCase();
   const inv1 = document.getElementById('f-inv1').value;
   const inv2 = document.getElementById('f-inv2').value;
   const insured = document.getElementById('f-insured').value.trim();
-  const date = document.getElementById('f-date').value;
+  let date = document.getElementById('f-date').value;
+  if (date && date.length === 10) {
+    const now = new Date();
+    date = `${date}T${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:00`;
+  }
   const transferReason = document.getElementById('f-transfer-reason').value.trim();
 
   if (!claim || !company || !inv1 || !insured || !date) {
@@ -3520,11 +3968,11 @@ async function saveCase() {
     return;
   }
 
-  const fee1=parseFloat(document.getElementById('f-fee1').value)||0;
-  const fee2=parseFloat(document.getElementById('f-fee2').value)||0;
-  const ta1=parseFloat(document.getElementById('f-ta1').value)||0;
-  const ta2=parseFloat(document.getElementById('f-ta2').value)||0;
-  const received=parseFloat(document.getElementById('f-received').value)||0;
+  const fee1 = Math.max(0, parseFloat(document.getElementById('f-fee1').value) || 0);
+  const fee2 = Math.max(0, parseFloat(document.getElementById('f-fee2').value) || 0);
+  const ta1 = Math.max(0, parseFloat(document.getElementById('f-ta1').value) || 0);
+  const ta2 = Math.max(0, parseFloat(document.getElementById('f-ta2').value) || 0);
+  const received = Math.max(0, parseFloat(document.getElementById('f-received').value) || 0);
 
   const sla_hours = parseInt(document.getElementById('f-sla').value) || null;
   let due_date = null;
@@ -3542,7 +3990,8 @@ async function saveCase() {
   
   const inv1_status = document.getElementById('f-inv1status').value;
   const hardcopy1_status = document.getElementById('f-hardcopy1status').value;
-  const isCompleted = (inv1_status === 'Paid' || hardcopy1_status === 'Received');
+  const outcomeValue = document.getElementById('f-outcome') ? document.getElementById('f-outcome').value : 'Pending';
+  const isCompleted = (outcomeValue !== 'Pending' || inv1_status === 'Paid' || hardcopy1_status === 'Received');
   
   let completed_at = null;
   const existingCase = editingDocCode ? cases.find(c => c.doc_code === editingDocCode) : null;
@@ -4847,7 +5296,7 @@ function buildReportHTML(title, summaryLines, rows) {
   const s = settings;
   return `
     <style>tr { page-break-inside: avoid; }</style>
-    <div style="font-family:'Segoe UI',Arial,sans-serif;padding:40px;max-width:800px;margin:0 auto;box-sizing:border-box;background:#fff;color:#1B2530;">
+    <div style="font-family:'Segoe UI',Arial,sans-serif;padding:30px;max-width:1050px;margin:0 auto;box-sizing:border-box;background:#fff;color:#1B2530;">
       <table style="width:100%; border-bottom:3px solid #B8862E; margin-bottom:22px; padding-bottom:18px;">
         <tr>
           <td style="vertical-align:middle;">
@@ -4869,7 +5318,7 @@ function buildReportHTML(title, summaryLines, rows) {
       <h2 style="color:#0F2942;font-size:15px;margin-bottom:10px;">${title}</h2>
       <div style="font-size:12px;color:#333;margin-bottom:16px;">${summaryLines.join(' &nbsp;|&nbsp; ')}</div>
 
-      <table style="width:100%;border-collapse:collapse;font-size:10.5px;">
+      <table style="width:100%;border-collapse:collapse;font-size:9.5px;">
         <thead>
           <tr style="background:#0F2942;color:#fff;">
             <th style="padding:6px;text-align:left;">Doc Code</th><th style="padding:6px;text-align:left;">Date</th>
@@ -5047,7 +5496,7 @@ async function generateSlip(previewOnly = true) {
   const filename = `Payment_Slip_${name.replace(/\s+/g, '_')}_${mo.label.replace(/\s+/g, '_')}.pdf`;
 
   if (previewOnly) {
-    openPDFPreview(html, filename, { orientation: 'portrait' });
+    openPDFPreview(html, filename, { orientation: 'landscape' });
     return;
   }
   
@@ -5056,8 +5505,8 @@ async function generateSlip(previewOnly = true) {
     filename: filename,
     image: { type: 'jpeg', quality: 0.98 },
     html2canvas: { scale: 2, useCORS: true, logging: false, onclone: window.sanitizeHtml2Canvas, scrollY: 0 },
-    pagebreak: { mode: ['css', 'legacy', 'avoid-all'] },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    pagebreak: { mode: ['css', 'legacy'] },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
   };
 
   showToast('Generating PDF...');
@@ -5089,23 +5538,84 @@ function slipTemplatePremium(name, mo, monthCases, stats) {
   const s = settings;
   const rows = monthCases.map((c, i) => {
     const a = invAmountOnCase(c, name);
-    return `<tr style="border-bottom:1px solid #E4E0D6;">
-      <td style="padding:7px 8px;font-family:monospace;font-size:10px;color:#657486;">${c.doc_code||''}</td>
-      <td style="padding:7px 8px;">${c.date||''}</td>
-      <td style="padding:7px 8px;">${c.claim_no||''}</td>
-      <td style="padding:7px 8px;">${c.insured_name||''}</td>
-      <td style="padding:7px 8px;color:#657486;">${c.company||''}</td>
-      <td style="padding:7px 8px;text-align:right;">Rs ${fmt(a.fee)}</td>
-      <td style="padding:7px 8px;text-align:right;">Rs ${fmt(a.ta)}</td>
-      <td style="padding:7px 8px;text-align:right;font-weight:700;">Rs ${fmt(a.total)}</td>
-      <td style="padding:7px 8px;text-align:center;">
+    return `<tr style="border-bottom:1px solid #E4E0D6; page-break-inside: avoid;">
+      <td style="padding:6px 4px;word-break:break-word;font-family:monospace;font-size:10px;color:#657486;">${c.doc_code||''}</td>
+      <td style="padding:6px 4px;word-break:break-word;">${c.date||''}</td>
+      <td style="padding:6px 4px;word-break:break-word;">${c.claim_no||''}</td>
+      <td style="padding:6px 4px;word-break:break-word;">${c.insured_name||''}</td>
+      <td style="padding:6px 4px;word-break:break-word;color:#657486;">${c.company||''}</td>
+      <td style="padding:6px 4px;word-break:break-word;text-align:right;">Rs ${fmt(a.fee)}</td>
+      <td style="padding:6px 4px;word-break:break-word;text-align:right;">Rs ${fmt(a.ta)}</td>
+      <td style="padding:6px 4px;word-break:break-word;text-align:right;font-weight:700;">Rs ${fmt(a.total)}</td>
+      <td style="padding:6px 4px;word-break:break-word;text-align:center;">
         <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;background:${a.status.includes('Paid')&&!a.status.includes('Pending')?'#E7F5EC':'#FDF2E0'};color:${a.status.includes('Paid')&&!a.status.includes('Pending')?'#1F7A4D':'#B87A1E'};">${a.status||'—'}</span>
       </td>
     </tr>`;
   }).join('');
 
+  // Investigator additional vouchers & allowances for this month
+  const invVouchers = (typeof getExpensesForMonth === 'function') 
+    ? getExpensesForMonth(mo).filter(e => e.investigator_name === name)
+    : [];
+  const vouchersTotal = invVouchers.reduce((sum, v) => sum + (Number(v.amount) || 0), 0);
+  const vouchersPaid = invVouchers.filter(v => v.status === 'Paid').reduce((sum, v) => sum + (Number(v.amount) || 0), 0);
+  const grandTotalPayable = stats.totalPayable + vouchersTotal;
+  const grandTotalPaid = stats.paidAmt + vouchersPaid;
+  const grandTotalPending = grandTotalPayable - grandTotalPaid;
+
+  let vouchersSectionHtml = '';
+  if (invVouchers.length > 0) {
+    const vRows = invVouchers.map(v => `
+      <tr style="border-bottom:1px solid #E4E0D6; page-break-inside: avoid;">
+        <td style="padding:6px 4px;font-family:monospace;font-size:10px;color:#657486;">${v.date || '—'}</td>
+        <td style="padding:6px 4px;font-weight:600;color:#0F2942;">${v.category || 'Voucher'}</td>
+        <td style="padding:6px 4px;color:#657486;">${v.remarks || '—'}</td>
+        <td style="padding:6px 4px;text-align:right;font-weight:700;">Rs ${fmt(v.amount)}</td>
+        <td style="padding:6px 4px;text-align:center;">
+          <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;background:${v.status==='Paid'?'#E7F5EC':'#FDF2E0'};color:${v.status==='Paid'?'#1F7A4D':'#B87A1E'};">${v.status || 'Pending'}</span>
+        </td>
+      </tr>
+    `).join('');
+
+    vouchersSectionHtml = `
+      <div style="margin-top:22px;">
+        <div style="font-size:11px;font-weight:700;color:#0F2942;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;border-bottom:1.5px solid #0F2942;padding-bottom:3px;">
+          Additional Allowances & Expenses (Courier, Bonus, Travel & Reimbursements)
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:9.5px;margin-bottom:12px;">
+          <thead>
+            <tr style="background:#F6F4EF;color:#0F2942;">
+              <th style="padding:6px 4px;text-align:left;">Date</th>
+              <th style="padding:6px 4px;text-align:left;">Category</th>
+              <th style="padding:6px 4px;text-align:left;">Remarks / Reference</th>
+              <th style="padding:6px 4px;text-align:right;">Amount</th>
+              <th style="padding:6px 4px;text-align:center;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${vRows}
+            <tr style="background:#F6F4EF;font-weight:700;">
+              <td colspan="3" style="padding:6px 4px;text-align:right;">Total Extra Allowances / Vouchers:</td>
+              <td style="padding:6px 4px;text-align:right;color:#0284c7;">+ Rs ${fmt(vouchersTotal)}</td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Grand Settlement Summary Box -->
+      <table style="width:100%;margin-top:14px;border:1.5px solid #0F2942;border-radius:6px;border-collapse:collapse;background:#FAF8F5;">
+        <tr>
+          <td style="padding:10px 14px;font-size:11px;color:#657486;">Case Payout: <strong>Rs ${fmt(stats.totalPayable)}</strong></td>
+          <td style="padding:10px 14px;font-size:11px;color:#0284c7;">Extra Vouchers: <strong>+ Rs ${fmt(vouchersTotal)}</strong></td>
+          <td style="padding:10px 14px;font-size:13px;font-weight:800;color:#0F2942;text-align:right;background:#F6F4EF;">Grand Net Payable: Rs ${fmt(grandTotalPayable)}</td>
+        </tr>
+      </table>
+    `;
+  }
+
   return `
-    <div style="font-family:'Segoe UI',Arial,sans-serif;padding:40px;max-width:800px;margin:0 auto;box-sizing:border-box;background:#fff;color:#1B2530;">
+    <div style="font-family:'Segoe UI',Arial,sans-serif;padding:30px;max-width:1050px;margin:0 auto;box-sizing:border-box;background:#fff;color:#1B2530;">
       <table style="width:100%; border-bottom:3px solid #B8862E; margin-bottom:22px; padding-bottom:18px;">
         <tr>
           <td style="vertical-align:middle;">
@@ -5137,7 +5647,7 @@ function slipTemplatePremium(name, mo, monthCases, stats) {
         </tr>
       </table>
 
-      <!-- Replaced Grid with a perfectly supported html2pdf Table -->
+      <!-- Summary KPI Table -->
       <table style="width:100%; margin-bottom:20px; border-collapse:separate; border-spacing:10px 0; margin-left:-10px; margin-right:-10px;">
         <tr>
           <td style="width:25%; background:#F6F4EF; border-radius:6px; padding:12px; text-align:center;">
@@ -5145,38 +5655,41 @@ function slipTemplatePremium(name, mo, monthCases, stats) {
             <div style="font-size:20px;font-weight:700;color:#0F2942;margin-top:3px;">${stats.totalCases}</div>
           </td>
           <td style="width:25%; background:#E7F5EC; border-radius:6px; padding:12px; text-align:center;">
-            <div style="font-size:8.5px;color:#657486;text-transform:uppercase;letter-spacing:0.5px;">Paid</div>
-            <div style="font-size:20px;font-weight:700;color:#1F7A4D;margin-top:3px;">${stats.paidCases}</div>
+            <div style="font-size:8.5px;color:#657486;text-transform:uppercase;letter-spacing:0.5px;">Paid Total</div>
+            <div style="font-size:18px;font-weight:700;color:#1F7A4D;margin-top:3px;">Rs ${fmt(grandTotalPaid)}</div>
           </td>
           <td style="width:25%; background:#FDF2E0; border-radius:6px; padding:12px; text-align:center;">
-            <div style="font-size:8.5px;color:#657486;text-transform:uppercase;letter-spacing:0.5px;">Pending</div>
-            <div style="font-size:20px;font-weight:700;color:#B87A1E;margin-top:3px;">${stats.pendingCases}</div>
+            <div style="font-size:8.5px;color:#657486;text-transform:uppercase;letter-spacing:0.5px;">Pending Total</div>
+            <div style="font-size:18px;font-weight:700;color:#B87A1E;margin-top:3px;">Rs ${fmt(grandTotalPending)}</div>
           </td>
           <td style="width:25%; background:#0F2942; border-radius:6px; padding:12px; text-align:center;">
-            <div style="font-size:8.5px;color:#D9A846;text-transform:uppercase;letter-spacing:0.5px;">Total Payable</div>
-            <div style="font-size:16px;font-weight:700;color:#fff;margin-top:3px;">Rs ${fmt(stats.totalPayable)}</div>
+            <div style="font-size:8.5px;color:#D9A846;text-transform:uppercase;letter-spacing:0.5px;">Net Total Payable</div>
+            <div style="font-size:16px;font-weight:700;color:#fff;margin-top:3px;">Rs ${fmt(grandTotalPayable)}</div>
           </td>
         </tr>
       </table>
 
-      <table style="width:100%;border-collapse:collapse;font-size:10.5px;">
+      <table style="width:100%;border-collapse:collapse;font-size:9.5px;">
         <thead>
           <tr style="background:#0F2942;color:#fff;">
-            <th style="padding:7px 8px;text-align:left;">Doc Code</th>
-            <th style="padding:7px 8px;text-align:left;">Date</th>
-            <th style="padding:7px 8px;text-align:left;">Claim No</th>
-            <th style="padding:7px 8px;text-align:left;">Insured</th>
-            <th style="padding:7px 8px;text-align:left;">Company</th>
-            <th style="padding:7px 8px;text-align:right;">Fee</th>
-            <th style="padding:7px 8px;text-align:right;">TA</th>
-            <th style="padding:7px 8px;text-align:right;">Total</th>
-            <th style="padding:7px 8px;text-align:center;">Status</th>
+            <th style="padding:6px 4px;text-align:left;">Doc Code</th>
+            <th style="padding:6px 4px;text-align:left;">Date</th>
+            <th style="padding:6px 4px;text-align:left;">Claim No</th>
+            <th style="padding:6px 4px;text-align:left;">Insured</th>
+            <th style="padding:6px 4px;text-align:left;">Company</th>
+            <th style="padding:6px 4px;text-align:right;">Fee</th>
+            <th style="padding:6px 4px;text-align:right;">TA</th>
+            <th style="padding:6px 4px;text-align:right;">Total</th>
+            <th style="padding:6px 4px;text-align:center;">Status</th>
           </tr>
         </thead>
         <tbody>
           ${rows}
         </tbody>
       </table>
+
+      ${vouchersSectionHtml}
+
       <div style="margin-top:30px;font-size:10px;color:#999;">Generated securely via DNA Payments Dashboard &bull; ${new Date().toLocaleDateString('en-IN')}</div>
     </div>`;
 }
@@ -5188,6 +5701,17 @@ function openPDFPreview(html, filename, options = {}) {
   const downloadBtn = document.getElementById('pdf-download-btn');
 
   filenameEl.textContent = filename;
+
+  if (options.orientation === 'landscape') {
+    content.style.width = '1123px';
+    content.style.minWidth = '1123px';
+    content.style.minHeight = '794px';
+  } else {
+    content.style.width = '794px';
+    content.style.minWidth = '794px';
+    content.style.minHeight = '1123px';
+  }
+
   content.innerHTML = html;
   modal.style.display = 'flex';
   
@@ -5205,7 +5729,7 @@ function openPDFPreview(html, filename, options = {}) {
       filename: filename,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, logging: false, onclone: window.sanitizeHtml2Canvas, scrollY: 0 },
-      pagebreak: { mode: ['css', 'legacy', 'avoid-all'] },
+      pagebreak: { mode: ['css', 'legacy'] },
       jsPDF: { unit: 'mm', format: 'a4', orientation: options.orientation || 'landscape' }
     };
     showToast('Downloading PDF...');
@@ -5326,7 +5850,7 @@ async function _saveListsToDB() {
     case_types: CASE_TYPES
   }).eq('id', 1);
   if (error) {
-    if (error.code === '42703') {
+    if ((error.code === '42703' || error.code === 'PGRST204')) {
       showToast('Database column missing. Please run the SQL command provided to upgrade your database.', true);
     } else {
       showToast('Failed to save lists: ' + error.message, true);
@@ -5378,7 +5902,9 @@ function exportExcel() {
     'Invoice No': c.invoice_no, 'INV1': c.inv1, 'INV2': c.inv2, 'Fee1': c.fee1, 'Fee2': c.fee2, 'TA1': c.ta1, 'TA2': c.ta2,
     'Total Payable': c.total_payable, 'Received': c.received, 'Profit': c.profit,
     'INV1 Status': c.inv1_status, 'INV2 Status': c.inv2_status,
-    'INV1 Hard Copy': c.hardcopy1_status, 'INV2 Hard Copy': c.hardcopy2_status, 'Company Dispatch': c.company_hardcopy_status, 'AWB No': c.company_hardcopy_awb, 'Remarks': c.remarks
+    'INV1 Hard Copy': c.hardcopy1_status, 'INV2 Hard Copy': c.hardcopy2_status, 'Company Dispatch': c.company_hardcopy_status, 'AWB No': c.company_hardcopy_awb,
+    'Outcome': c.outcome || 'Pending', 'SLA (Hours)': c.sla_hours || '', 'Due Date': c.due_date || '', 'Risk Level': c.risk_level || '',
+    'Completed At': c.completed_at || '', 'Exception': c.exception_type || '', 'Remarks': c.remarks || ''
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -5398,8 +5924,8 @@ async function exportPDF() {
 
 function exportForSheets() {
   const csv = [
-    ['Doc Code','Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','Invoice No','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable','Received','Profit','INV1 Status','INV2 Status','INV1 Hard Copy','INV2 Hard Copy','Company Dispatch','AWB No','Remarks'],
-    ...cases.map(c => [c.doc_code,c.company,c.date,c.case_type,c.claim_no,c.policy_no,c.insured_name,c.hospital,c.location,c.invoice_no,c.inv1,c.inv2,c.fee1,c.fee2,c.ta1,c.ta2,c.total_payable,c.received,c.profit,c.inv1_status,c.inv2_status,c.hardcopy1_status,c.hardcopy2_status,c.company_hardcopy_status,c.company_hardcopy_awb,c.remarks])
+    ['Doc Code','Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','Invoice No','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable','Received','Profit','INV1 Status','INV2 Status','INV1 Hard Copy','INV2 Hard Copy','Company Dispatch','AWB No','Outcome','SLA (Hours)','Due Date','Risk Level','Completed At','Exception','Remarks'],
+    ...cases.map(c => [c.doc_code,c.company,c.date,c.case_type,c.claim_no,c.policy_no,c.insured_name,c.hospital,c.location,c.invoice_no,c.inv1,c.inv2,c.fee1,c.fee2,c.ta1,c.ta2,c.total_payable,c.received,c.profit,c.inv1_status,c.inv2_status,c.hardcopy1_status,c.hardcopy2_status,c.company_hardcopy_status,c.company_hardcopy_awb,c.outcome||'Pending',c.sla_hours||'',c.due_date||'',c.risk_level||'',c.completed_at||'',c.exception_type||'',c.remarks||''])
   ].map(r => r.map(v => `"${(v==null?'':v).toString().replace(/"/g,'""')}"`).join(',')).join('\n');
   downloadFile('DNA_Cases_Export.csv', csv, 'text/csv');
   showToast('CSV exported — paste this into Google Sheets.');
@@ -5675,8 +6201,8 @@ function renderIntelligenceView() {
       statusBadge = `<span class="badge" style="background:var(--gold);color:var(--navy);">WATCH</span>`;
     }
     
-    html += `<tr>
-      <td style="font-weight:700;">${h.name}</td>
+    html += `<tr style="cursor:pointer;" onclick="window.viewHospitalCases('${h.name.replace(/'/g, "\\'")}')" title="Click to view all cases for this hospital" class="hover-row">
+      <td style="font-weight:800; color:var(--gold); text-decoration:underline;">${h.name}</td>
       <td>${h.total}</td>
       <td>${h.genuine}</td>
       <td style="color:var(--red);font-weight:600;">${h.fraud + h.suspicious}</td>
@@ -5690,6 +6216,7 @@ function renderIntelligenceView() {
   tbody.innerHTML = html;
   
   if (typeof Chart !== 'undefined') {
+    Chart.defaults.color = '#8b9bb4';
     const topFraud = sortedHospitals.filter(h => h.isHighRisk || h.riskScore > 0).slice(0, 10);
     const ctxBar = document.getElementById('fraudHospitalsChart');
     if (ctxBar) {
@@ -5738,16 +6265,16 @@ function renderIntelligenceView() {
 
 // Ensure Google Drive initialization is delayed until GSI is ready
 window.addEventListener('load', () => {
-  if (typeof google !== 'undefined' && google.accounts && window.APP_CONFIG?.googleClientId) {
-    if (typeof google !== "undefined" && google.accounts) { window.googleDriveService.init(window.APP_CONFIG.googleClientId); } else { console.log("[APP] Waiting for Google Sign-In script to load..."); }
+  if (typeof google !== 'undefined' && google.accounts && window.getGoogleClientId()) {
+    if (typeof google !== "undefined" && google.accounts) { window.googleDriveService.init(window.getGoogleClientId()); } else { console.log("[APP] Waiting for Google Sign-In script to load..."); }
   }
 });
 
 
 window.initGoogleDriveOnLoad = function() {
-  if (typeof google !== "undefined" && google.accounts && window.APP_CONFIG?.googleClientId && !window.googleDriveService.client) {
+  if (typeof google !== "undefined" && google.accounts && window.getGoogleClientId() && !window.googleDriveService.client) {
     console.log("[APP] GSI loaded via callback, initializing Drive client.");
-    window.googleDriveService.init(window.APP_CONFIG.googleClientId);
+    window.googleDriveService.init(window.getGoogleClientId());
   }
 };
 
@@ -6209,3 +6736,47 @@ function restrictFutureDates() {
   });
 }
 
+
+
+
+window.viewHospitalCases = function(hName) {
+    const hospitalCases = cases.filter(c => c.hospital && c.hospital.trim().toUpperCase() === hName);
+    
+    document.getElementById('hospital-modal-title').textContent = 'Cases for: ' + hName + ' (' + hospitalCases.length + ')';
+    
+    let html = '';
+    hospitalCases.forEach(c => {
+        const outcome = c.outcome || 'Pending';
+        let outColor = 'var(--sub)';
+        let bg = 'transparent';
+        const outLow = outcome.toLowerCase();
+        const excLow = (c.exception_type||'').toLowerCase();
+        
+        if (outLow.includes('repudiated') || outLow.includes('fraud') || outLow.includes('rejected') || excLow.includes('rejected') || outLow.includes('fake')) {
+            outColor = 'var(--red)';
+            bg = '#FFF5F3';
+        } else if (outLow.includes('approved') || outLow.includes('genuine') || outLow.includes('settled') || outLow.includes('paid')) {
+            outColor = 'var(--green)';
+            bg = '#F0F8F3';
+        } else if (outLow.includes('suspicious') || outLow.includes('hold') || outLow.includes('doubt')) {
+            outColor = '#966C18';
+            bg = '#FBF7ED';
+        }
+
+        html += `<tr style="background:${bg}; border-bottom:1px solid #E3E8EC;">
+            <td class="mono" style="font-weight:600;">${c.doc_code || '—'}</td>
+            <td>${c.date || '—'}</td>
+            <td class="mono">${c.claim_no || '—'}</td>
+            <td>${c.company || '—'}</td>
+            <td style="font-weight:600;">${c.insured_name || '—'}</td>
+            <td style="color:${outColor}; font-weight:800; font-size:10.5px; text-transform:uppercase;">${outcome} ${c.exception_type ? `(${c.exception_type})` : ''}</td>
+        </tr>`;
+    });
+    
+    document.getElementById('hospital-modal-tbody').innerHTML = html || '<tr><td colspan="6" style="text-align:center;padding:20px;">No cases found</td></tr>';
+    document.getElementById('hospital-cases-modal').style.display = 'flex';
+};
+
+document.getElementById('hospital-cases-modal')?.addEventListener('click', function(e) {
+    if(e.target === this) this.style.display = 'none';
+});

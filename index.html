@@ -4,18 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <title>DNA Professional Investigation Agency — Payment System</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script>
-  window.APP_CONFIG = {
-    supabase: {
-      url: 'https://aacvwozpfjuhcvihnaen.supabase.co',
-      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhY3Z3b3pwZmp1aGN2aWhuYWVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3Nzc2MjUsImV4cCI6MjEwMjM1MzYyNX0.nPHpd2YeC-VgF-xKCKO7kLzr_5TncD84b8IOzoiKAIk'
-    },
-    googleClientId: '1051883487866-db1eelsu3ue0f2ue4b29aqa0qt2ca4qv.apps.googleusercontent.com'
-  };
-</script>
-
+<script src="config.js"></script>
 <script>
 // Prevent html2canvas oklab/oklch crashes globally
 (function() {
@@ -391,6 +383,8 @@ tbody tr:hover{background:var(--line);}
   .tab{padding:11px 10px;font-size:10px;}
   .bar-row{grid-template-columns:90px 1fr 70px;gap:6px;}
 }
+
+  .hover-row:hover { background: rgba(199, 154, 59, 0.05) !important; }
 </style>
 </head>
 <body>
@@ -446,6 +440,7 @@ tbody tr:hover{background:var(--line);}
     <div class="tab" data-view="reports" onclick="showView('reports',this)">Reports</div>
     <div class="tab" data-view="intelligence" onclick="showView('intelligence',this)">Intelligence <span class="badge" style="background:var(--red);color:white;font-size:9px;margin-left:4px;">BETA</span></div>
     <div class="tab" data-view="settings" onclick="showView('settings',this)">Settings</div>
+    
   </div>
 
   <div id="view-dashboard" class="view active">
@@ -587,10 +582,16 @@ tbody tr:hover{background:var(--line);}
     </div>
     <div class="kpi-row" id="monthly-kpi"></div>
     <div class="panel">
-      <div class="panel-head"><span class="panel-title" id="monthly-title">Monthly Report</span></div>
+      <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <span class="panel-title" id="monthly-title">Monthly Report</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-gold btn-sm admin-only" onclick="openAddExpenseModal()" title="Add Courier, Bonus or Misc Voucher">+ Add Expense / Voucher</button>
+          <button class="btn btn-navy btn-sm" onclick="openExpenseLedgerModal()" title="View all vouchers & allowances">📋 Expense Ledger</button>
+        </div>
+      </div>
       <div class="tbl-scroll">
         <table id="monthly-table">
-          <thead><tr><th>Investigator</th><th>Total Cases</th><th>Paid</th><th>Pending</th><th>Payable</th><th>Paid ₹</th><th>Pending ₹</th><th></th></tr></thead>
+          <thead><tr><th>Investigator</th><th>Total Cases</th><th>Paid</th><th>Pending</th><th>Case Payable</th><th>Vouchers / Courier</th><th>Net Payable</th><th>Paid ₹</th><th>Pending ₹</th><th>Actions</th></tr></thead>
           <tbody id="monthly-tbody"></tbody>
         </table>
       </div>
@@ -795,6 +796,9 @@ tbody tr:hover{background:var(--line);}
     </div>
   </div>
 
+  
+  
+
   <div id="view-settings" class="view">
     <div class="settings-grid">
       <div class="panel" style="padding:18px;">
@@ -817,6 +821,9 @@ tbody tr:hover{background:var(--line);}
         <div class="fg"><label>Staff Email</label><input type="email" id="invite-email" placeholder="staff@agency.com"></div>
         <button class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="inviteStaff()">Send Invite</button>
         <div id="invite-status" style="font-size:11px;margin-top:8px;"></div>
+
+        
+        
 
         <div class="panel-title admin-only" style="margin:20px 0 10px;">👥 Manage Staff Roles</div>
         <div class="admin-only" style="font-size:11.5px;color:var(--sub);margin-bottom:10px;">Assign roles directly by their email address.</div>
@@ -912,6 +919,11 @@ tbody tr:hover{background:var(--line);}
           <button class="btn btn-ghost btn-sm" onclick="connectGoogleDrive()">Reconnect / Change Account</button>
           <button class="btn btn-ghost btn-sm" style="margin-top:8px; color:var(--red);" onclick="disconnectGoogleDrive()">Disconnect</button>
         </div>
+        
+        <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line);">
+          <div style="font-size:11.5px;color:var(--sub);margin-bottom:10px;">Customize your workspace (Dark mode, Privacy, etc.)</div>
+          <button class="btn btn-navy btn-sm" style="width:100%;" onclick="openPluginsModal()">🧩 Manage Plugins</button>
+        </div>
       </div>
       <div class="panel" style="padding:18px;">
         <div class="panel-title" style="margin-bottom:14px;color:var(--red)">⚠ Danger Zone</div>
@@ -920,6 +932,27 @@ tbody tr:hover{background:var(--line);}
     </div>
   </div>
 
+</div>
+
+  
+<div class="overlay" id="plugins-modal">
+  <div class="modal" style="max-width:800px; width:95%;">
+    <div class="modal-head">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <h3 style="margin:0;">🧩 System Plugins (App Store)</h3>
+      </div>
+      <button class="icon-btn" onclick="closeModal('plugins-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--sub);margin-bottom:16px;">Enable or disable optional features to customize your workspace.</p>
+      <div id="plugin-list" style="display:flex;flex-direction:column;gap:12px;">
+        <!-- Plugins injected by JS -->
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('plugins-modal')">Close</button>
+    </div>
+  </div>
 </div>
 
 <div class="overlay" id="case-modal">
@@ -1488,15 +1521,158 @@ tbody tr:hover{background:var(--line);}
     </div>
   </div>
 
+  <!-- EXPENSE / VOUCHER ADD & EDIT MODAL -->
+  <div class="overlay" id="expense-modal">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-head">
+        <h3 id="exp-modal-title">💵 Add Expense / Voucher</h3>
+        <button class="modal-x" onclick="closeModal('expense-modal')">✕</button>
+      </div>
+      <div class="modal-body" style="padding:18px;">
+        <input type="hidden" id="exp-id" value="">
+        <div class="form-grid">
+          <div class="fg span-2">
+            <label>Investigator <span class="req">*</span></label>
+            <select id="exp-inv" class="fin" required></select>
+          </div>
+          <div class="fg">
+            <label>Category <span class="req">*</span></label>
+            <select id="exp-category" class="fin" required>
+              <option value="Courier / Hardcopy">📦 Courier / Hardcopy Dispatch</option>
+              <option value="Bonus / Incentive">🎁 Bonus / Performance Incentive</option>
+              <option value="Travel / Fuel">⛽ Travel / Fuel / Outstation TA</option>
+              <option value="Printing / Stationery">📄 Printing / Document Charges</option>
+              <option value="Special Allowance">⭐ Special Investigation Allowance</option>
+              <option value="Advance / Deduction">🔻 Advance / Deduction</option>
+              <option value="Other Misc">🏷️ Other Miscellaneous</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label>Amount (₹) <span class="req">*</span></label>
+            <input type="number" id="exp-amount" class="fin" placeholder="e.g. 150" min="1" step="1" required>
+          </div>
+          <div class="fg">
+            <label>Expense Date <span class="req">*</span></label>
+            <input type="date" id="exp-date" class="fin" required>
+          </div>
+          <div class="fg">
+            <label>Payment Status</label>
+            <select id="exp-status" class="fin">
+              <option value="Pending" selected>Pending (Pay with Monthly Settlement)</option>
+              <option value="Paid">Paid (Already Transferred)</option>
+            </select>
+          </div>
+          <div class="fg span-2">
+            <label>Remarks / Reference (e.g. DTDC Tracking No, 35 Cases hardcopy packet)</label>
+            <input type="text" id="exp-remarks" class="fin" placeholder="e.g. Hardcopy bundle 35 cases courier DTDC #8899">
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" onclick="closeModal('expense-modal')">Cancel</button>
+        <button class="btn btn-navy" id="exp-save-btn" onclick="saveExpenseVoucher()">💾 Save Voucher</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXPENSE LEDGER MODAL -->
+  <div class="overlay" id="expense-ledger-modal">
+    <div class="modal" style="max-width:960px;">
+      <div class="modal-head">
+        <h3>📋 Investigator Expense & Voucher Ledger</h3>
+        <button class="modal-x" onclick="closeModal('expense-ledger-modal')">✕</button>
+      </div>
+      <div class="modal-body" style="padding:16px;max-height:78vh;overflow-y:auto;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:14px;background:var(--paper);padding:10px 14px;border-radius:8px;border:1px solid var(--line);">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <div>
+              <label style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;display:block;margin-bottom:2px;">Filter Month</label>
+              <select id="ledger-filter-month" class="fin" style="width:160px;" onchange="renderExpenseLedgerTable()"></select>
+            </div>
+            <div>
+              <label style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;display:block;margin-bottom:2px;">Investigator</label>
+              <select id="ledger-filter-inv" class="fin" style="width:180px;" onchange="renderExpenseLedgerTable()"></select>
+            </div>
+            <div>
+              <label style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;display:block;margin-bottom:2px;">Category</label>
+              <select id="ledger-filter-cat" class="fin" style="width:160px;" onchange="renderExpenseLedgerTable()">
+                <option value="">All Categories</option>
+                <option value="Courier / Hardcopy">Courier / Hardcopy</option>
+                <option value="Bonus / Incentive">Bonus / Incentive</option>
+                <option value="Travel / Fuel">Travel / Fuel</option>
+                <option value="Printing / Stationery">Printing / Stationery</option>
+                <option value="Special Allowance">Special Allowance</option>
+                <option value="Advance / Deduction">Advance / Deduction</option>
+                <option value="Other Misc">Other Misc</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-gold btn-sm admin-only" onclick="openAddExpenseModal()">+ Add New Voucher</button>
+        </div>
+
+        <!-- KPI summary banner inside ledger -->
+        <div id="ledger-kpi-summary" style="display:flex;gap:12px;margin-bottom:14px;"></div>
+
+        <div class="tbl-scroll">
+          <table style="width:100%;font-size:12px;">
+            <thead>
+              <tr style="background:var(--navy);color:#fff;">
+                <th style="padding:8px 10px;text-align:left;">Date</th>
+                <th style="padding:8px 10px;text-align:left;">Investigator</th>
+                <th style="padding:8px 10px;text-align:left;">Category</th>
+                <th style="padding:8px 10px;text-align:left;">Remarks / Ref</th>
+                <th style="padding:8px 10px;text-align:right;">Amount (₹)</th>
+                <th style="padding:8px 10px;text-align:center;">Status</th>
+                <th style="padding:8px 10px;text-align:center;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="expense-ledger-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-foot" style="display:flex;justify-content:space-between;">
+        <button class="btn btn-ghost" onclick="closeModal('expense-ledger-modal')">Close</button>
+        <button class="btn btn-gold btn-sm" onclick="exportExpenseLedgerCSV()">⬇ Export CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hospital Cases Modal -->
+  <div class="overlay" id="hospital-cases-modal" style="display:none; z-index:10001; align-items:center; justify-content:center;">
+    <div class="panel" style="width:95%; max-width:900px; max-height:85vh; display:flex; flex-direction:column;">
+      <div class="panel-head" style="border-bottom:1px solid var(--line); padding-bottom:12px; margin-bottom:12px;">
+        <h3 id="hospital-modal-title" style="margin:0; font-size:16px; color:var(--navy);">Hospital Cases</h3>
+        <button class="btn btn-ghost" onclick="document.getElementById('hospital-cases-modal').style.display='none'">✕</button>
+      </div>
+      <div style="flex:1; overflow-y:auto; padding-right:5px;">
+        <table class="table" style="width:100%;">
+          <thead>
+            <tr>
+              <th>Doc Code</th>
+              <th>Date</th>
+              <th>Claim No</th>
+              <th>Company</th>
+              <th>Insured Name</th>
+              <th>Outcome</th>
+            </tr>
+          </thead>
+          <tbody id="hospital-modal-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 <script src="https://accounts.google.com/gsi/client" async defer onload="if(typeof window.initGoogleDriveOnLoad === 'function') window.initGoogleDriveOnLoad()"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="app.js"></script>
+<script src="realtime-sync.js"></script>
 <script src="role-permissions.js"></script>
 <script src="import-pdf-enhancements.js"></script>
 <script src="dna-bugfixes.js"></script>
 <script src="frontend/investigator-360/investigator-360.js"></script>
 <script src="investigator-case-breakdown.js"></script>
+<script src="plugins-manager.js"></script>
+
 </body>
 </html>
