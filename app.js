@@ -19,7 +19,7 @@ const getSupabaseConfig = () => {
 window.getGoogleClientId = () => {
   const localId = localStorage.getItem('GOOGLE_CLIENT_ID');
   if (localId) return localId;
-  return window.APP_CONFIG?.googleClientId || null;
+  return window.APP_CONFIG?.googleDrive?.clientId || window.APP_CONFIG?.googleClientId || '1051883487866-db1eelsu3ue0f2ue4b29aqa0qt2ca4qv.apps.googleusercontent.com';
 };
 
 const SUPABASE_CONFIG = getSupabaseConfig();
@@ -2745,7 +2745,7 @@ function renderMonthly(idx) {
     const netPendingAmt = stats.pendingAmt + invExpPending;
 
     const vouchersDisplay = invExpTotal > 0 
-      ? `<span class="badge" style="background:#e0f2fe;color:#0284c7;cursor:pointer;font-weight:700;" onclick="openExpenseLedgerModal('${escAttr(name)}')" title="Click to view ${invExp.length} voucher(s)">+Rs ${fmt(invExpTotal)} (${invExp.length})</span>`
+      ? `<span class="badge" style="background:#e0f2fe;color:#0284c7;cursor:pointer;font-weight:700;" onclick="openExpenseLedgerModal('${name.replace(/'/g, "\\'")}')" title="Click to view ${invExp.length} voucher(s)">+Rs ${fmt(invExpTotal)} (${invExp.length})</span>`
       : `<span style="color:var(--sub);font-size:11px;">—</span>`;
 
     __html.push(`<tr>
@@ -2760,8 +2760,8 @@ function renderMonthly(idx) {
       <td style="color:var(--red)">Rs ${fmt(netPendingAmt)}</td>
       <td>
         <div style="display:flex;gap:4px;align-items:center;">
-          ${currentUser ? `<button class="btn btn-ghost btn-sm" onclick="quickSlip('${escAttr(name)}',${idx})" title="Generate Statement">Slip</button>` : ''}
-          ${currentUser ? `<button class="btn btn-gold btn-sm admin-only" style="padding:2px 6px;font-size:11px;" onclick="openAddExpenseModal('${escAttr(name)}',${idx})" title="Add Courier / Bonus Voucher">+💵</button>` : ''}
+          ${currentUser ? `<button class="btn btn-ghost btn-sm" onclick="quickSlip('${name.replace(/'/g, "\\'")}',${idx})" title="Generate Statement">Slip</button>` : ''}
+          ${currentUser ? `<button class="btn btn-gold btn-sm admin-only" style="padding:2px 6px;font-size:11px;" onclick="openAddExpenseModal('${name.replace(/'/g, "\\'")}',${idx})" title="Add Courier / Bonus Voucher">+💵</button>` : ''}
         </div>
       </td>
     </tr>`);
@@ -2824,7 +2824,7 @@ function renderSalary() {
     totalExpense += totalPayout;
 
     const voucherTag = invExpTotal > 0 
-      ? ` <span class="badge" style="background:#e0f2fe;color:#0284c7;cursor:pointer;font-weight:700;" onclick="openExpenseLedgerModal('${escAttr(r.name)}')" title="Courier/Bonus vouchers">+₹${invExpTotal.toLocaleString('en-IN')} (${invExp.length})</span>`
+      ? ` <span class="badge" style="background:#e0f2fe;color:#0284c7;cursor:pointer;font-weight:700;" onclick="openExpenseLedgerModal('${r.name.replace(/'/g, "\\'")}')" title="Courier/Bonus vouchers">+₹${invExpTotal.toLocaleString('en-IN')} (${invExp.length})</span>`
       : '';
 
     if (tbody) tbody.innerHTML += `<tr>
@@ -4179,35 +4179,56 @@ async function confirmDupClaimSave() {
 // ADD INVESTIGATOR
 // ============================================================
 function openAddInvestigator(existing) {
-  document.getElementById('new-inv-name').value = existing ? (existing.name || '') : '';
-  document.getElementById('new-inv-suggestion').innerHTML = existing ? `<div class="notice" style="background:var(--amber-bg);border-left-color:var(--amber);margin-top:8px;">Editing existing investigator: ${escAttr(existing.name)}</div>` : '';
+  const nameEl = document.getElementById('new-inv-name');
+  const suggEl = document.getElementById('new-inv-suggestion');
+  const phoneEl = document.getElementById('new-inv-phone');
+  const emailEl = document.getElementById('new-inv-email');
+  const cityEl = document.getElementById('new-inv-city');
+  const stateEl = document.getElementById('new-inv-state');
+  const desigEl = document.getElementById('new-inv-designation');
+  const availEl = document.getElementById('new-inv-availability');
+  const payTypeEl = document.getElementById('new-inv-payment-type');
+  const salaryEl = document.getElementById('new-inv-salary');
+  const salaryWrapEl = document.getElementById('new-inv-salary-wrap');
+  const phoneWarnEl = document.getElementById('new-inv-phone-warning');
+  const emailWarnEl = document.getElementById('new-inv-email-warning');
+  const submitBtn = document.getElementById('new-inv-submit-btn');
+
+  if (phoneWarnEl) phoneWarnEl.innerHTML = '';
+  if (emailWarnEl) emailWarnEl.innerHTML = '';
+  if (phoneEl) phoneEl.style.borderColor = '';
+  if (emailEl) emailEl.style.borderColor = '';
+
   if (existing) {
-    // Pre-fill other fields if they exist
-    const phone = document.getElementById('new-inv-phone');
-    if (phone) phone.value = existing.phone || '';
-    const email = document.getElementById('new-inv-email');
-    if (email) email.value = existing.email || '';
-    const city = document.getElementById('new-inv-city');
-    if (city) city.value = existing.city || '';
-    const state = document.getElementById('new-inv-state');
-    if (state) state.value = existing.state || '';
-    const designation = document.getElementById('new-inv-designation');
-    if (designation) designation.value = existing.designation || '';
-    const availability = document.getElementById('new-inv-availability');
-    if (availability) availability.value = existing.availability || 'available';
-    const payType = document.getElementById('new-inv-payment-type');
-    if (payType) payType.value = existing.payment_type || 'Per Case';
-    const salary = document.getElementById('new-inv-salary');
-    if (salary) salary.value = existing.salary_amount || 0;
-    const salaryWrap = document.getElementById('new-inv-salary-wrap');
-    if (salaryWrap) salaryWrap.style.display = (existing.payment_type === 'Salary') ? 'block' : 'none';
+    if (nameEl) nameEl.value = existing.name || '';
+    if (suggEl) suggEl.innerHTML = `<div class="notice" style="background:var(--amber-bg);border-left-color:var(--amber);margin-top:8px;">Editing existing investigator: ${escAttr(existing.name)}</div>`;
+    if (phoneEl) phoneEl.value = existing.phone || '';
+    if (emailEl) emailEl.value = existing.email || '';
+    if (cityEl) cityEl.value = existing.city || '';
+    if (stateEl) stateEl.value = existing.state || '';
+    if (desigEl) desigEl.value = existing.designation || '';
+    if (availEl) availEl.value = existing.availability || 'available';
+    if (payTypeEl) payTypeEl.value = existing.payment_type || 'Per Case';
+    if (salaryEl) salaryEl.value = existing.salary_amount || 0;
+    if (salaryWrapEl) salaryWrapEl.style.display = (existing.payment_type === 'Salary') ? 'block' : 'none';
+    if (submitBtn) submitBtn.textContent = 'Save Changes';
   } else {
-    document.getElementById('new-inv-payment-type').value = 'Per Case';
-    document.getElementById('new-inv-salary').value = 0;
-    document.getElementById('new-inv-salary-wrap').style.display = 'none';
+    if (nameEl) nameEl.value = '';
+    if (suggEl) suggEl.innerHTML = '';
+    if (phoneEl) phoneEl.value = '';
+    if (emailEl) emailEl.value = '';
+    if (cityEl) cityEl.value = '';
+    if (stateEl) stateEl.value = '';
+    if (desigEl) desigEl.value = '';
+    if (availEl) availEl.value = 'available';
+    if (payTypeEl) payTypeEl.value = 'Per Case';
+    if (salaryEl) salaryEl.value = 0;
+    if (salaryWrapEl) salaryWrapEl.style.display = 'none';
+    if (submitBtn) submitBtn.textContent = 'Add Investigator';
   }
   document.getElementById('addinv-modal').classList.add('open');
 }
+window.openAddInvestigator = openAddInvestigator;
 
 function checkNewInvestigatorSuggestion() {
   const box = document.getElementById('new-inv-suggestion');
@@ -4270,9 +4291,11 @@ function mapToExistingInvestigator(typedName, existingName) {
 }
 
 async function saveNewInvestigator() {
+  const submitBtn = document.getElementById('new-inv-submit-btn');
+  const originalBtnText = submitBtn ? submitBtn.textContent : 'Add Investigator';
   const name = document.getElementById('new-inv-name').value.trim();
-  if (!name) { showToast('Please enter a name.', true); return; }
-  const existingName = document.getElementById('new-inv-suggestion').innerText.includes('Editing existing investigator:')
+  if (!name) { showToast('Please enter investigator name.', true); return; }
+  const existingName = document.getElementById('new-inv-suggestion')?.innerText.includes('Editing existing investigator:')
     ? document.getElementById('new-inv-suggestion').innerText.replace('Editing existing investigator: ', '').trim()
     : null;
 
@@ -4280,11 +4303,9 @@ async function saveNewInvestigator() {
     showToast('This investigator already exists.', true); return;
   }
   // If a suggestion is currently showing and unresolved, force the user to
-  // explicitly dismiss it (via the "different person" button) before saving —
-  // otherwise near-duplicate investigators like "JITENDRA BHAHOTE" get created
-  // right alongside "JITENDRA KUMAR BAHOTE".
+  // explicitly dismiss it (via the "different person" button) before saving
   const suggBox = document.getElementById('new-inv-suggestion');
-  if (suggBox.innerHTML.trim() !== '' && !existingName) {
+  if (suggBox && suggBox.innerHTML.trim() !== '' && !existingName) {
     showToast('A similar investigator already exists — resolve the suggestion above first.', true);
     return;
   }
@@ -4300,6 +4321,12 @@ async function saveNewInvestigator() {
     payment_type: document.getElementById('new-inv-payment-type')?.value || 'Per Case',
     salary_amount: parseFloat(document.getElementById('new-inv-salary')?.value) || 0
   };
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = existingName ? 'Saving...' : 'Adding...';
+  }
+
   try {
     if (existingName) {
       // Update existing
@@ -4308,6 +4335,14 @@ async function saveNewInvestigator() {
       // Insert new
       await insertInvestigatorDB(invData);
     }
+    await loadInvestigatorsFromDB();
+    refreshInvestigatorDropdowns();
+    closeModal('addinv-modal');
+    filterInvestigators();
+    if (typeof window.ensureInvestigator360 === 'function') {
+      window.ensureInvestigator360();
+    }
+    showToast(`${existingName ? 'Updated' : 'Added'} ${name}.`);
   } catch (err) {
     if (err.code === '23505') {
       if (err.message && err.message.includes('uq_investigators_phone')) {
@@ -4321,15 +4356,15 @@ async function saveNewInvestigator() {
       showToast('A duplicate entry was detected (Phone or Email).', true);
       return;
     }
-    showToast('Failed to save investigator: ' + err.message, true);
-    return;
+    showToast('Failed to save investigator: ' + (err.message || err), true);
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalBtnText;
+    }
   }
-  await loadInvestigatorsFromDB();
-  refreshInvestigatorDropdowns();
-  closeModal('addinv-modal');
-  filterInvestigators();
-  showToast(`${existingName ? 'Updated' : 'Added'} ${name}.`);
 }
+window.saveNewInvestigator = saveNewInvestigator;
 
 // ============================================================
 // RENAME INVESTIGATOR

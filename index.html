@@ -1078,10 +1078,10 @@ tbody tr:hover{background:var(--line);}
       </div>
     </div>
     <div class="modal-foot">
-      <button class="btn btn-danger" id="delete-case-btn" style="display:none;margin-right:auto;" onclick="deleteCurrentCase()">Delete Case</button>
-      <button class="btn btn-warning" id="mark-exception-btn" style="display:none; margin-right: 8px;" onclick="openExceptionModal()">Mark as Exception</button>
-      <button class="btn" id="modal-dispatch-foot-btn" style="display:none;margin-right:8px;background:#25D366;color:#fff;border:none;" onclick="openCaseDispatchModal(editingDocCode)">📲 Dispatch WhatsApp</button>
-      <button class="btn btn-ghost" onclick="closeModal('case-modal')">Cancel</button>
+      <button type="button" class="btn btn-danger" id="delete-case-btn" style="display:none;margin-right:auto;" onclick="deleteCurrentCase()">Delete Case</button>
+      <button type="button" class="btn btn-warning" id="mark-exception-btn" style="display:none; margin-right: 8px;" onclick="openExceptionModal()">Mark as Exception</button>
+      <button type="button" class="btn" id="modal-dispatch-foot-btn" style="display:none;margin-right:8px;background:#25D366;color:#fff;border:none;" onclick="openCaseDispatchModal(editingDocCode)">📲 Dispatch WhatsApp</button>
+      <button type="button" class="btn btn-ghost" onclick="closeModal('case-modal')">Cancel</button>
       <button type="submit" class="btn btn-navy" id="case-save-btn">Save Case</button>
     </div>
     </form>
@@ -1293,6 +1293,7 @@ tbody tr:hover{background:var(--line);}
 <div class="overlay" id="addinv-modal">
   <div class="modal" style="max-width:420px;">
     <div class="modal-head"><h3>Add New Investigator</h3><button class="modal-x" onclick="closeModal('addinv-modal')">✕</button></div>
+    <form id="addinv-form" onsubmit="saveNewInvestigator(); return false;" style="margin:0;">
     <div class="modal-body" style="padding:16px;">
       <div class="fg"><label>Investigator Name *</label><input type="text" id="new-inv-name" placeholder="Full name as it should appear everywhere" oninput="checkNewInvestigatorSuggestion()"></div>
       <div id="new-inv-suggestion"></div>
@@ -1308,7 +1309,7 @@ tbody tr:hover{background:var(--line);}
       </div>
       <div class="notice" style="margin-top:12px;">This adds the name to all dropdowns (Investigator 1 / 2, filters, reports, slips). It will show up in the Investigator Report once at least one case is assigned to them.</div>
     </div>
-    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal('addinv-modal')">Cancel</button><button type="submit" class="btn btn-navy">Add Investigator</button></div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal('addinv-modal')">Cancel</button><button type="submit" id="new-inv-submit-btn" class="btn btn-navy" onclick="saveNewInvestigator()">Add Investigator</button></div>
     </form>
   </div>
 </div>
