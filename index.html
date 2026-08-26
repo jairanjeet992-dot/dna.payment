@@ -515,7 +515,7 @@ tbody tr:hover{background:var(--line);}
       </div>
       <div class="panel-head" style="padding-top:0">
         <div class="filters">
-          <input class="fin" placeholder="🔍 Search claim / name / code / invoice / policy / hospital" id="search-case" oninput="debouncedFilterCases()" style="width:260px">
+          <input class="fin" placeholder="🔍 Search claim / name / code / date / invoice / hospital" id="search-case" oninput="debouncedFilterCases()" style="width:260px">
           <select class="fin" id="filter-company" onchange="filterCases()"><option value="">All Companies</option></select>
           <select class="fin" id="filter-casetype" onchange="filterCases()"><option value="">All Types</option></select>
           <select class="fin" id="filter-status" onchange="filterCases()">
@@ -564,15 +564,7 @@ tbody tr:hover{background:var(--line);}
   </div>
 
   <div id="view-investigators" class="view">
-    <div class="panel-head" style="background:#fff;border-radius:4px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
-      <span class="panel-title">Investigator Report <span class="count-chip" id="inv-count">0</span></span>
-      <div style="display:flex;gap:8px;">
-        <input class="fin" placeholder="🔍 Search investigator" id="search-inv" oninput="filterInvestigators()" style="width:200px">
-        <button class="btn btn-navy btn-sm admin-only" onclick="openScorecard()">📊 Scorecard</button>
-        <button class="btn btn-gold btn-sm admin-only" onclick="openAddInvestigator()">+ Add Investigator</button>
-      </div>
-    </div>
-    <div class="inv-grid" id="inv-grid"></div>
+    
   </div>
 
   <div id="view-monthly" class="view">
@@ -1411,7 +1403,7 @@ tbody tr:hover{background:var(--line);}
   <div class="modal" style="max-width:460px;">
     <div class="modal-head"><h3>Merge Investigator</h3><button class="modal-x" onclick="closeModal('merge-modal')">✕</button></div>
     <div class="modal-body" style="padding:16px;">
-      <div class="fg"><label>Merge This Name</label><input type="text" id="merge-source-name" readonly></div>
+      <div class="fg"><label>Merge This Name</label><select id="merge-source-name" onchange="updateMergeTargets()"></select></div>
       <div class="fg" style="margin-top:10px;"><label>Into This Existing Investigator *</label><select id="merge-target-name"></select></div>
       <div class="notice" style="margin-top:12px;">Use this when the same person appears under two different names (e.g. "DR. NEETIRAJ SINGH" and "NEETIRAJ SINGH"). All cases under the source name move to the target name, then the source name is removed from the investigator list. This cannot be undone — download a backup first if unsure.</div>
     </div>
@@ -1666,6 +1658,7 @@ tbody tr:hover{background:var(--line);}
 <script src="https://accounts.google.com/gsi/client" async defer onload="if(typeof window.initGoogleDriveOnLoad === 'function') window.initGoogleDriveOnLoad()"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js"></script>
+<script src="ux-enhancements.js"></script>
 <script src="app.js"></script>
 <script src="realtime-sync.js"></script>
 <script src="role-permissions.js"></script>

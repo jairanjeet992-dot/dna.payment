@@ -1239,7 +1239,8 @@ function filterCases() {
       || (c.doc_code||'').toLowerCase().includes(search)
       || (c.invoice_no||'').toLowerCase().includes(search)
       || (c.policy_no||'').toLowerCase().includes(search)
-      || (c.hospital||'').toLowerCase().includes(search);
+      || (c.hospital||'').toLowerCase().includes(search)
+      || (c.date||'').toLowerCase().includes(search);
     const matchCompany = !company || c.company === company;
     const matchType = !casetype || c.case_type === casetype;
     const matchStatus = !status || (status==='blank' ? (!c.inv1_status && !c.inv2_status) : (c.inv1_status===status || c.inv2_status===status));
@@ -1873,53 +1874,9 @@ function filterInvestigators() {
     executeFilterInvestigators();
   }, 250);
 }
-function executeFilterInvestigators() {
-  const search = (document.getElementById('search-inv').value||'').toLowerCase();
-  const grid = document.getElementById('inv-grid');
-  grid.innerHTML = '';
-  let count = 0;
-
-  let list = INVESTIGATORS;
-  // (Dead 'investigator' role branch removed — see isAdmin note above; no
-  // such role was ever assignable in this app.)
-
-  let __gridHtml = [];
-  list.forEach(name => {
-    if (search && !name.toLowerCase().includes(search)) return;
-    count++;
-    const stats = computeInvStats(name, cases);
-    const phone = INVESTIGATOR_PHONES[name] || '';
-    __gridHtml.push(`
-      <div class="inv-card">
-        <div class="inv-card-head"><div><div class="inv-name">${name}</div></div>
-          <div style="display:flex;gap:4px;">
-            <button class="btn btn-ghost btn-sm admin-only" onclick="openRenameInvestigator('${name.replace(/'/g,"\\'")}')" title="Rename">✏️</button>
-            <button class="btn btn-ghost btn-sm admin-only" onclick="openMergeInvestigator('${name.replace(/'/g,"\\'")}')" title="Merge into another name">🔗</button>
-          </div>
-        </div>
-        <div class="admin-only" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:11px;">
-          <span style="color:var(--sub);">📱</span>
-          <span class="mono" style="color:${phone?'var(--ink)':'var(--sub)'};">${phone || 'No number saved'}</span>
-          <button class="btn btn-ghost btn-sm" style="padding:2px 8px;" onclick="editInvestigatorPhone('${name.replace(/'/g,"\\'")}')">${phone?'Edit':'Add'}</button>
-        </div>
-        <div class="inv-stats">
-          <div><div class="inv-stat-v" style="color:var(--navy)">${stats.totalCases}</div><div class="inv-stat-l">Total</div></div>
-          <div><div class="inv-stat-v" style="color:var(--green)">${stats.paidCases}</div><div class="inv-stat-l">Paid</div></div>
-          <div><div class="inv-stat-v" style="color:var(--red)">${stats.pendingCases}</div><div class="inv-stat-l">Pending</div></div>
-        </div>
-        <div class="inv-amt">
-          <div><div class="inv-amt-v" style="color:var(--navy)">Rs ${fmt(stats.totalPayable)}</div><div class="inv-amt-l">Payable</div></div>
-          <div><div class="inv-amt-v" style="color:var(--green)">Rs ${fmt(stats.paidAmt)}</div><div class="inv-amt-l">Paid</div></div>
-          <div><div class="inv-amt-v" style="color:var(--red)">Rs ${fmt(stats.pendingAmt)}</div><div class="inv-amt-l">Pending</div></div>
-        </div>
-        <div class="inv-actions">
-          <button class="btn btn-navy btn-sm" style="flex:1;" onclick="openInvestigator360ByName('${name.replace(/'/g,"\\'")}')" title="Open full 360° profile — workload, payments, cases, documents, activity">👁 360° View</button>
-        </div>
-      </div>`);
-  });
-  grid.innerHTML += __gridHtml.join('');
-  document.getElementById('inv-count').textContent = count;
-  if (!grid.innerHTML) grid.innerHTML = '<div class="empty-state">No investigators found</div>';
+function executeFilterInvestigators() { 
+  // Function logic removed, handled by new investigator 360 UI. 
+  // Empty stub to prevent errors from other parts of the code.
 }
 
 // ============================================================
@@ -4423,10 +4380,24 @@ async function confirmRenameInvestigator() {
 // ============================================================
 // MERGE INVESTIGATOR
 // ============================================================
-function openMergeInvestigator(name) {
-  document.getElementById('merge-source-name').value = name;
+function updateMergeTargets() {
+  const sourceName = document.getElementById('merge-source-name').value;
   const targetSel = document.getElementById('merge-target-name');
-  targetSel.innerHTML = getAllInvestigators().filter(n => n !== name).map(n => `<option>${n}</option>`).join('');
+  targetSel.innerHTML = getAllInvestigators().filter(n => n !== sourceName).map(n => `<option value="${n}">${n}</option>`).join('');
+}
+
+function openMergeInvestigator(name) {
+  const allInvs = getAllInvestigators();
+  const sourceSel = document.getElementById('merge-source-name');
+  sourceSel.innerHTML = allInvs.map(n => `<option value="${n}">${n}</option>`).join('');
+  
+  if (name && typeof name === 'string') {
+    sourceSel.value = name;
+  } else if (allInvs.length > 0) {
+    sourceSel.selectedIndex = 0;
+  }
+  
+  updateMergeTargets();
   document.getElementById('merge-modal').classList.add('open');
 }
 
@@ -6148,14 +6119,6 @@ function showToast(msg, isError) {
   setTimeout(()=> t.style.display='none', 3200);
 }
 
-document.getElementById('case-modal').addEventListener('click', function(e){ if(e.target===this) closeModal('case-modal'); });
-document.getElementById('dispatch-modal')?.addEventListener('click', function(e){ if(e.target===this) closeModal('dispatch-modal'); });
-document.getElementById('bulk-modal').addEventListener('click', function(e){ if(e.target===this) closeModal('bulk-modal'); });
-document.getElementById('preview-modal').addEventListener('click', function(e){ if(e.target===this) closeModal('preview-modal'); });
-document.getElementById('addinv-modal').addEventListener('click', function(e){ if(e.target===this) closeModal('addinv-modal'); });
-document.getElementById('rename-modal').addEventListener('click', function(e){ if(e.target===this) closeModal('rename-modal'); });
-document.getElementById('merge-modal').addEventListener('click', function(e){ if(e.target===this) closeModal('merge-modal'); });
-document.getElementById('bulkpay-modal').addEventListener('click', function(e){ if(e.target===this) closeModal('bulkpay-modal'); });
 document.addEventListener('click', function(e){
   const panel = document.getElementById('notif-panel');
   if (panel.classList.contains('open') && !panel.contains(e.target) && !e.target.closest('.icon-btn')) panel.classList.remove('open');
@@ -6812,6 +6775,3 @@ window.viewHospitalCases = function(hName) {
     document.getElementById('hospital-cases-modal').style.display = 'flex';
 };
 
-document.getElementById('hospital-cases-modal')?.addEventListener('click', function(e) {
-    if(e.target === this) this.style.display = 'none';
-});
