@@ -101,13 +101,17 @@ function initUXEnhancements() {
             // Do not trigger inside Bulk Manager modals
             if (row.closest('#bulkdoc-modal') || row.closest('#bulkpay-modal')) return;
             
+            const id = row.getAttribute('data-id');
             const docCode = row.getAttribute('data-doccode');
             const idx = row.getAttribute('data-idx');
             
-            if (docCode && typeof openEditCase === 'function') {
+            if (id && typeof openEditCase === 'function') {
+                openEditCase(id);
+                e.preventDefault();
+            } else if (docCode && typeof openEditCase === 'function') {
                 openEditCase(docCode);
                 e.preventDefault();
-            } else if (idx && typeof editCase === 'function') {
+            } else if (idx !== null && typeof editCase === 'function') {
                 editCase(idx);
                 e.preventDefault();
             }

@@ -616,6 +616,7 @@ CREATE OR REPLACE FUNCTION public.get_investigator_case_breakdown(
   p_offset integer DEFAULT 0
 )
 RETURNS TABLE(
+  id uuid,
   doc_code text,
   company text,
   case_type text,
@@ -633,6 +634,7 @@ SECURITY DEFINER
 SET search_path=public
 AS $$
   SELECT
+    c.id,
     c.doc_code,
     c.company,
     c.case_type,
@@ -652,13 +654,25 @@ AS $$
       COALESCE(CASE WHEN c.inv1 = i.name AND (COALESCE(i.payment_type,'Per Case') <> 'Salary' OR c.date < i.payment_type_changed_at::date) AND c.inv1_status = 'Paid' THEN c.fee1 + c.ta1 ELSE 0 END,0)
       + COALESCE(CASE WHEN c.inv2 = i.name AND (COALESCE(i.payment_type,'Per Case') <> 'Salary' OR c.date < i.payment_type_changed_at::date) AND c.inv2_status = 'Paid' THEN c.fee2 + c.ta2 ELSE 0 END,0) AS investigator_paid,
       CASE
-        WHEN (c.inv1 = i.name AND COALESCE(c.inv1_status,'') = 'Paid')
-         AND (c.inv2 = i.name AND COALESCE(c.inv2_status,'') = 'Paid') THEN 'Paid'
-        WHEN (c.inv1 = i.name OR c.inv2 = i.name)
-         AND (c.inv1_status = 'Paid' OR c.inv2_status = 'Paid') THEN 'Partial'
-        WHEN (c.inv1 = i.name OR c.inv2 = i.name)
-         AND (c.inv1_status IS NULL OR c.inv1_status = '')
-         AND (c.inv2_status IS NULL OR c.inv2_status = '') THEN 'Not Set'
+        WHEN c.inv1 = i.name AND c.inv2 = i.name THEN
+          CASE
+            WHEN COALESCE(c.inv1_status,'') = 'Paid' AND COALESCE(c.inv2_status,'') = 'Paid' THEN 'Paid'
+            WHEN COALESCE(c.inv1_status,'') = 'Paid' OR COALESCE(c.inv2_status,'') = 'Paid' THEN 'Partial'
+            WHEN (COALESCE(c.inv1_status,'') = '' AND COALESCE(c.inv2_status,'') = '') THEN 'Not Set'
+            ELSE 'Pending'
+          END
+        WHEN c.inv1 = i.name THEN
+          CASE
+            WHEN COALESCE(c.inv1_status,'') = 'Paid' THEN 'Paid'
+            WHEN COALESCE(c.inv1_status,'') = '' THEN 'Not Set'
+            ELSE 'Pending'
+          END
+        WHEN c.inv2 = i.name THEN
+          CASE
+            WHEN COALESCE(c.inv2_status,'') = 'Paid' THEN 'Paid'
+            WHEN COALESCE(c.inv2_status,'') = '' THEN 'Not Set'
+            ELSE 'Pending'
+          END
         ELSE 'Pending'
       END AS investigator_status
   ) calc

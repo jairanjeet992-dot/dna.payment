@@ -1225,10 +1225,10 @@ function resetFilters() {
 
 function filterCases() {
   const search = (document.getElementById('search-case').value||'').toLowerCase();
-  const company = document.getElementById('filter-company').value;
-  const casetype = document.getElementById('filter-casetype').value;
+  const company = (document.getElementById('filter-company').value || '').toLowerCase();
+  const casetype = (document.getElementById('filter-casetype').value || '').toLowerCase();
   const status = document.getElementById('filter-status').value;
-  const inv = document.getElementById('filter-inv').value;
+  const inv = (document.getElementById('filter-inv').value || '').toLowerCase();
 
   let base = getVisibleCases();
 
@@ -1241,10 +1241,10 @@ function filterCases() {
       || (c.policy_no||'').toLowerCase().includes(search)
       || (c.hospital||'').toLowerCase().includes(search)
       || (c.date||'').toLowerCase().includes(search);
-    const matchCompany = !company || c.company === company;
-    const matchType = !casetype || c.case_type === casetype;
+    const matchCompany = !company || (c.company||'').toLowerCase() === company;
+    const matchType = !casetype || (c.case_type||'').toLowerCase() === casetype;
     const matchStatus = !status || (status==='blank' ? (!c.inv1_status && !c.inv2_status) : (c.inv1_status===status || c.inv2_status===status));
-    const matchInv = !inv || c.inv1===inv || c.inv2===inv;
+    const matchInv = !inv || (c.inv1||'').toLowerCase() === inv || (c.inv2||'').toLowerCase() === inv;
     return matchSearch && matchCompany && matchType && matchStatus && matchInv;
   });
 
@@ -2964,7 +2964,7 @@ function renderDocListPage() {
   const tbody = document.getElementById('doc-list-tbody');
   const start = (docListPage-1) * DOC_LIST_PAGE_SIZE;
   const pageRows = docListSorted.slice(start, start + DOC_LIST_PAGE_SIZE);
-  tbody.innerHTML = pageRows.map(c => `<tr data-doccode="${c.doc_code}" style="cursor:pointer;">
+  tbody.innerHTML = pageRows.map(c => `<tr data-id="${c.id}" data-doccode="${c.doc_code || ''}" style="cursor:pointer;">
     <td class="mono" style="font-weight:700;color:var(--navy)">${c.doc_code}</td>
     <td>${c.date||''}</td><td>${c.company||''}</td><td class="mono">${c.claim_no||''}</td><td>${c.insured_name||''}</td>
     <td>${c.inv1||''}${c.inv2 && c.inv2!=='NA' ? ' / '+c.inv2 : ''}</td>
@@ -2999,12 +2999,12 @@ function executeLookupDoc() {
   );
 
   if (!matches.length) {
-    listEl.innerHTML = `<div class="doc-result show" data-doccode="${found.doc_code}" style="cursor:pointer;"><div class="empty-state">No case found matching "${escAttr(q)}"</div></div>`;
+    listEl.innerHTML = `<div class="doc-result show"><div class="empty-state">No case found matching "${escAttr(q)}"</div></div>`;
     return;
   }
 
   listEl.innerHTML = matches.slice(0,25).map(found => `
-    <div class="doc-result show" data-doccode="${found.doc_code}" style="cursor:pointer;">
+    <div class="doc-result show" data-id="${found.id}" data-doccode="${found.doc_code || ''}" style="cursor:pointer;">
       <div class="row"><span>Document Code</span><b class="mono">${found.doc_code}</b></div>
       <div class="row"><span>Company</span><b>${found.company}</b></div>
       <div class="row"><span>Date</span><b>${found.date}</b></div>
@@ -3783,7 +3783,11 @@ async function sendCaseWhatsApp(docCode, role = 'INV1') {
 
   const cleanPhone = cleanPhoneNumber(phone);
   const message = formatCaseDispatchMessage(caseObj, invName, role);
-  const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+  let encodedMsg = encodeURIComponent(message);
+  if (encodedMsg.length > 1800) {
+      encodedMsg = encodeURIComponent(message.substring(0, 1500) + '... (message truncated)');
+  }
+  const waUrl = `https://wa.me/${cleanPhone}?text=${encodedMsg}`;
 
   window.open(waUrl, '_blank');
   showToast(`📲 Opening WhatsApp for ${invName}...`);
@@ -3817,12 +3821,39 @@ function calcTotal() {
   const ta1 = Math.max(0, parseFloat(document.getElementById('f-ta1').value) || 0);
   const ta2 = Math.max(0, parseFloat(document.getElementById('f-ta2').value) || 0);
   const received = Math.max(0, parseFloat(document.getElementById('f-received').value) || 0);
-  const total=fee1+fee2+ta1+ta2;
-  document.getElementById('f-total').value=total;
-  const profit=received-total;
-  const pEl=document.getElementById('f-profit');
-  pEl.value=profit;
-  pEl.style.color = profit>=0 ? 'var(--green)' : 'var(--red)';
+  
+  let effectiveFee1 = fee1, effectiveTa1 = ta1;
+  let effectiveFee2 = fee2, effectiveTa2 = ta2;
+
+  const inv1Name = document.getElementById('f-inv1').value;
+  const inv2Name = document.getElementById('f-inv2').value;
+  const dateStr = document.getElementById('f-date').value;
+  const caseDate = dateStr ? new Date(dateStr) : new Date();
+
+  if (typeof investigatorRows !== 'undefined' && investigatorRows) {
+    const inv1 = investigatorRows.find(r => r.name === inv1Name);
+    if (inv1 && inv1.payment_type === 'Salary') {
+      const typeChangedAt = inv1.payment_type_changed_at ? new Date(inv1.payment_type_changed_at) : null;
+      if (!typeChangedAt || caseDate >= typeChangedAt) {
+        effectiveFee1 = 0; effectiveTa1 = 0;
+      }
+    }
+    const inv2 = investigatorRows.find(r => r.name === inv2Name);
+    if (inv2 && inv2.payment_type === 'Salary') {
+      const typeChangedAt = inv2.payment_type_changed_at ? new Date(inv2.payment_type_changed_at) : null;
+      if (!typeChangedAt || caseDate >= typeChangedAt) {
+        effectiveFee2 = 0; effectiveTa2 = 0;
+      }
+    }
+  }
+
+  const total = effectiveFee1 + effectiveFee2 + effectiveTa1 + effectiveTa2;
+  document.getElementById('f-total').value = total;
+  
+  const profit = received - total;
+  const pEl = document.getElementById('f-profit');
+  pEl.value = profit;
+  pEl.style.color = profit >= 0 ? 'var(--green)' : 'var(--red)';
 }
 
 // ============================================================
@@ -5498,7 +5529,11 @@ function openCurrentQueueChat() {
     `Already Paid: Rs ${fmt(stats.paidAmt)}\n` +
     `*Net Payable Now: Rs ${fmt(stats.pendingAmt)}*\n\n` +
     `Detailed PDF slip has been generated separately — I'll attach it here.\n\nThank you.`;
-  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+  let encodedMsg = encodeURIComponent(message);
+  if (encodedMsg.length > 1800) {
+      encodedMsg = encodeURIComponent(message.substring(0, 1500) + '... (message truncated)');
+  }
+  window.open(`https://wa.me/${phone}?text=${encodedMsg}`, '_blank');
   advanceSlipQueue();
 }
 
@@ -5537,7 +5572,11 @@ function sendSlipWhatsApp() {
     `*Net Payable Now: Rs ${fmt(stats.pendingAmt)}*\n\n` +
     `Detailed PDF slip has been generated separately — I'll attach it here.\n\nThank you.`;
 
-  const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  let encodedMsg = encodeURIComponent(message);
+  if (encodedMsg.length > 1800) {
+      encodedMsg = encodeURIComponent(message.substring(0, 1500) + '... (message truncated)');
+  }
+  const url = `https://wa.me/${phone}?text=${encodedMsg}`;
   window.open(url, '_blank');
   hintEl.textContent = `Opened WhatsApp for ${name} (${phone}). Attach the downloaded PDF manually before sending.`;
   hintEl.style.color = 'var(--green)';
@@ -6844,7 +6883,7 @@ window.viewHospitalCases = function(hName) {
             bg = '#FBF7ED';
         }
 
-        html += `<tr data-doccode="${c.doc_code || ''}" style="background:${bg}; border-bottom:1px solid #E3E8EC; cursor:pointer;">
+        html += `<tr data-id="${c.id}" data-doccode="${c.doc_code || ''}" style="background:${bg}; border-bottom:1px solid #E3E8EC; cursor:pointer;">
             <td class="mono" style="font-weight:600;">${c.doc_code || '—'}</td>
             <td>${c.date || '—'}</td>
             <td class="mono">${c.claim_no || '—'}</td>
