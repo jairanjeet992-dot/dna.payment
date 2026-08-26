@@ -578,3 +578,5 @@ body.dark-mode .inv360-edit-field select {
 .inv360-role, .inv360-location, .inv360-sheet-sub, .inv360-detail label, .inv360-stat span {
   color: var(--dna-muted) !important;
 }
+#cases-tbody tr { cursor: pointer; }
+#doc-list-tbody tr { cursor: pointer; }

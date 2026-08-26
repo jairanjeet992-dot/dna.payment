@@ -93,13 +93,21 @@ function initUXEnhancements() {
 
     // 6. Double Click / Double Tap to Edit
     const handleCaseEdit = (e) => {
-        const tr = e.target.closest('tr[data-idx]');
-        if (tr) {
+        const row = e.target.closest('tr[data-idx], [data-doccode]');
+        if (row) {
             // Prevent if clicked on a button, input, or link inside the row
-            if (['BUTTON', 'INPUT', 'SELECT', 'A', 'TEXTAREA'].includes(e.target.tagName)) return;
+            if (['BUTTON', 'INPUT', 'SELECT', 'A', 'TEXTAREA', 'LABEL'].includes(e.target.tagName)) return;
             
-            const idx = tr.getAttribute('data-idx');
-            if (idx && typeof editCase === 'function') {
+            // Do not trigger inside Bulk Manager modals
+            if (row.closest('#bulkdoc-modal') || row.closest('#bulkpay-modal')) return;
+            
+            const docCode = row.getAttribute('data-doccode');
+            const idx = row.getAttribute('data-idx');
+            
+            if (docCode && typeof openEditCase === 'function') {
+                openEditCase(docCode);
+                e.preventDefault();
+            } else if (idx && typeof editCase === 'function') {
                 editCase(idx);
                 e.preventDefault();
             }

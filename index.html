@@ -836,7 +836,7 @@ tbody tr:hover{background:var(--line);}
 
       </div>
       
-      <div class="panel admin-only" style="padding:18px;">
+      <div class="panel admin-only" style="padding:18px; margin-top:14px;">
         <div class="panel-title" style="margin-bottom:14px;">📋 Companies & Case Types</div>
         <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;">Manage standard dropdown options. Bulk Paste will reject unknown values.</p>
         
@@ -860,6 +860,19 @@ tbody tr:hover{background:var(--line);}
           <div id="settings-casetypes-list" style="border:1px solid var(--line); border-radius:4px; max-height:150px; overflow-y:auto; font-size:11.5px; padding:4px;">
              <div style="padding:10px; color:var(--sub); text-align:center;">Loading...</div>
           </div>
+        </div>
+      </div>
+
+      <div class="panel admin-only" style="padding:18px; margin-top:14px;">
+        <div class="panel-title" style="margin-bottom:6px;">🛠️ Custom Fields (Dynamic)</div>
+        <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;line-height:1.5;">Add custom fields to cases (e.g. Claim Amount, Allocation Date). They appear in forms and mapping.</p>
+        <div style="display:flex; gap:8px; margin-bottom:12px; align-items:end;">
+            <div class="fg" style="flex:2; margin-bottom:0;"><label>Field Name</label><input type="text" id="new-customfield-name" placeholder="e.g. Allocation Date"></div>
+            <div class="fg" style="flex:1; margin-bottom:0;"><label>Type</label><select id="new-customfield-type"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option></select></div>
+            <button class="btn btn-navy btn-sm" onclick="addCustomField()">Add</button>
+        </div>
+        <div id="settings-customfields-list" style="border:1px solid var(--line); border-radius:4px; max-height:200px; overflow-y:auto; font-size:11.5px; padding:4px;">
+            <div style="padding:10px; color:var(--sub); text-align:center;">Loading...</div>
         </div>
       </div>
 
@@ -1067,6 +1080,7 @@ tbody tr:hover{background:var(--line);}
           </select>
         </div>
         <div class="fg" style="margin-top:12px;"><label>Remarks</label><textarea id="f-remarks" rows="2"></textarea></div>
+        <div id="dynamic-custom-fields" class="form-grid" style="margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 12px; display: none;"></div>
       </div>
     </div>
     <div class="modal-foot">
@@ -1667,6 +1681,7 @@ tbody tr:hover{background:var(--line);}
 <script src="frontend/investigator-360/investigator-360.js"></script>
 <script src="investigator-case-breakdown.js"></script>
 <script src="plugins-manager.js"></script>
+<script src="custom-fields.js"></script>
 
 </body>
 </html>

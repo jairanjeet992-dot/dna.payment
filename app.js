@@ -1304,6 +1304,17 @@ pageRows.forEach(c => {
     // Inline-editable cells (admin only). Clicking opens an in-place editor.
     const ed = isAdmin ? 'data-edit="1" onclick="startInlineEdit(this)"' : '';
     const money = v => `Rs ${fmt(v)}`;
+    
+    let customTds = '';
+    if (window.CUSTOM_FIELDS && window.CUSTOM_FIELDS.length > 0) {
+      window.CUSTOM_FIELDS.forEach(cf => {
+        let val = c.custom_data ? (c.custom_data[cf.id] || '') : '';
+        let displayVal = val;
+        if (cf.type === 'number' && val) displayVal = money(val);
+        customTds += `<td ${ed} data-field="custom_${cf.id}" data-val="${escAttr(val)}" data-type="${cf.type}">${escAttr(displayVal)}</td>`;
+      });
+    }
+
     __html.push(`<tr data-idx="${idx}">
       <td class="admin-only">${isAdmin ? `<input type="checkbox" data-doc="${c.doc_code}" ${checked} onchange="toggleCaseSelect('${c.doc_code}',this.checked)">` : ''}</td>
       <td class="mono" style="font-weight:700;color:var(--navy)">${escAttr(c.doc_code||'—')}</td>
@@ -1316,6 +1327,7 @@ pageRows.forEach(c => {
       <td ${ed} data-field="insured_name" data-val="${escAttr(c.insured_name||'')}" data-type="text">${escAttr(c.insured_name||'')}</td>
       <td ${ed} data-field="hospital" data-val="${escAttr(c.hospital||'')}" data-type="text">${escAttr(c.hospital||'')}</td>
       <td ${ed} data-field="location" data-val="${escAttr(c.location||'')}" data-type="text">${escAttr(c.location||'')}</td>
+      ${customTds}
       <td class="mono" ${ed} data-field="invoice_no" data-val="${escAttr(c.invoice_no||'')}" data-type="text">${escAttr(c.invoice_no||'')}</td>
       <td ${ed} data-field="inv1" data-val="${escAttr(c.inv1||'')}" data-type="text">${escAttr(c.inv1||'')}</td>
       <td ${ed} data-field="inv2" data-val="${escAttr(c.inv2 === 'NA' ? '' : c.inv2||'')}" data-type="text">${escAttr(c.inv2||'')}</td>
@@ -2952,7 +2964,7 @@ function renderDocListPage() {
   const tbody = document.getElementById('doc-list-tbody');
   const start = (docListPage-1) * DOC_LIST_PAGE_SIZE;
   const pageRows = docListSorted.slice(start, start + DOC_LIST_PAGE_SIZE);
-  tbody.innerHTML = pageRows.map(c => `<tr>
+  tbody.innerHTML = pageRows.map(c => `<tr data-doccode="${c.doc_code}" style="cursor:pointer;">
     <td class="mono" style="font-weight:700;color:var(--navy)">${c.doc_code}</td>
     <td>${c.date||''}</td><td>${c.company||''}</td><td class="mono">${c.claim_no||''}</td><td>${c.insured_name||''}</td>
     <td>${c.inv1||''}${c.inv2 && c.inv2!=='NA' ? ' / '+c.inv2 : ''}</td>
@@ -2987,12 +2999,12 @@ function executeLookupDoc() {
   );
 
   if (!matches.length) {
-    listEl.innerHTML = `<div class="doc-result show"><div class="empty-state">No case found matching "${escAttr(q)}"</div></div>`;
+    listEl.innerHTML = `<div class="doc-result show" data-doccode="${found.doc_code}" style="cursor:pointer;"><div class="empty-state">No case found matching "${escAttr(q)}"</div></div>`;
     return;
   }
 
   listEl.innerHTML = matches.slice(0,25).map(found => `
-    <div class="doc-result show">
+    <div class="doc-result show" data-doccode="${found.doc_code}" style="cursor:pointer;">
       <div class="row"><span>Document Code</span><b class="mono">${found.doc_code}</b></div>
       <div class="row"><span>Company</span><b>${found.company}</b></div>
       <div class="row"><span>Date</span><b>${found.date}</b></div>
@@ -3222,6 +3234,7 @@ function editCase(idx) {
   document.getElementById('f-fee2').value = c.fee2||'';
   document.getElementById('f-ta1').value = c.ta1||'';
   document.getElementById('f-ta2').value = c.ta2||'';
+  if (typeof window.populateCustomFieldsInForm === 'function') window.populateCustomFieldsInForm(c.custom_data);
   document.getElementById('f-received').value = c.received||'';
   document.getElementById('f-invoice').value = c.invoice_no||'';
   document.getElementById('f-inv1status').value = c.inv1_status||'';
@@ -3272,7 +3285,13 @@ function startInlineEdit(cell) {
   // Create overlay editor (wider than cell for amount fields)
   const isNumber = type === 'number';
   let editor;
-  if (type === 'date') {
+  if (field.startsWith('custom_')) {
+      const cfId = field.replace('custom_', '');
+      const cfDef = window.CUSTOM_FIELDS.find(x => x.id === cfId);
+      if (cfDef && cfDef.type === 'number') editor = `<input type="number" step="any" value="${val}">`;
+      else if (cfDef && cfDef.type === 'date') editor = `<input type="date" value="${val}">`;
+      else editor = `<input type="text" value="${val}">`;
+  } else if (type === 'date') {
     editor = `<input type="date" value="${val}">`;
   } else if (type === 'number') {
     editor = `<input type="number" value="${val}" step="1" min="0">`;
@@ -3320,8 +3339,21 @@ async function finishInlineEdit(cell, cancelled) {
   // Save to DB
   try {
     const update = {};
-    update[field] = (type === 'number' ? parseFloat(newVal) : newVal);
-    if (Number.isNaN(update[field])) throw new Error('Invalid number');
+    const parsedVal = (type === 'number' ? parseFloat(newVal) : newVal);
+    if (type === 'number' && Number.isNaN(parsedVal)) throw new Error('Invalid number');
+    
+    if (field.startsWith('custom_')) {
+        const cfId = field.replace('custom_', '');
+        update.custom_data = c.custom_data ? { ...c.custom_data } : {};
+        if (parsedVal === '' || parsedVal === null) {
+            delete update.custom_data[cfId];
+        } else {
+            update.custom_data[cfId] = parsedVal;
+        }
+    } else {
+        update[field] = parsedVal;
+    }
+    
     await updateCaseDB(c.doc_code, update);
     if (window.logActivity) window.logActivity('Cases', `inline updated ${field} on case ${c.doc_code}`); showToast('Updated.');
     await loadCasesFromDB();
@@ -3348,11 +3380,18 @@ function renderCellDisplay(c, field, type, val) {
       temp[field] = val;
       return hardcopyStatusCell(temp);
     }
-    default: return escAttr(val);
+    default: 
+      if (field.startsWith('custom_')) {
+          const cfId = field.replace('custom_', '');
+          const cfDef = window.CUSTOM_FIELDS.find(x => x.id === cfId);
+          if (cfDef && cfDef.type === 'number' && val) return money(val);
+      }
+      return escAttr(val);
   }
 }
 
 function clearForm() {
+  if (typeof window.populateCustomFieldsInForm === 'function') window.populateCustomFieldsInForm(null);
   ['f-company','f-date','f-casetype','f-claim','f-policy','f-insured','f-hospital','f-location','f-sla',
    'f-inv1','f-inv2','f-fee1','f-fee2','f-ta1','f-ta2','f-received','f-invoice',
    'f-inv1status','f-inv2status','f-hardcopy1status','f-hardcopy2status','f-companyawb','f-remarks'].forEach(id => {
@@ -3983,6 +4022,12 @@ async function saveCase() {
     exception_at: existingExAt,
     exception_by: existingExBy
   };
+  
+  if (typeof window.extractCustomFieldValuesFromForm === 'function') {
+      const customData = window.extractCustomFieldValuesFromForm();
+      if (customData) caseFields.custom_data = customData;
+  }
+
   // total_payable and profit are DB-generated columns — never sent on write.
 
   const saveBtn = document.querySelector('#case-modal .modal-foot .btn-navy');
@@ -4879,6 +4924,13 @@ function parseCsvRows(text) {
     inv1_status: ['inv1_status','inv1 status','inv1 pay status'], inv2_status: ['inv2_status','inv2 status','inv2 pay status'],
     remarks: ['remarks']
   };
+  
+  if (window.CUSTOM_FIELDS && window.CUSTOM_FIELDS.length > 0) {
+      window.CUSTOM_FIELDS.forEach(cf => {
+          colMap['custom_' + cf.id] = [cf.name.toLowerCase()];
+      });
+  }
+
   const idx = {};
   Object.keys(colMap).forEach(f => { idx[f] = -1; for (const name of colMap[f]) { const i = header.indexOf(name); if (i>=0) { idx[f]=i; break; } } });
   const existingClaims = new Set(cases.map(c => c.claim_no));
@@ -4911,6 +4963,19 @@ function parseCsvRows(text) {
     const fee1 = cleanNum(get('fee1')), fee2 = cleanNum(get('fee2'));
     const ta1 = cleanNum(get('ta1')), ta2 = cleanNum(get('ta2'));
     const received = cleanNum(get('received'));
+    
+    let custom_data = {};
+    let hasCustomData = false;
+    if (window.CUSTOM_FIELDS) {
+        window.CUSTOM_FIELDS.forEach(cf => {
+            const val = get('custom_' + cf.id);
+            if (val) {
+                custom_data[cf.id] = cf.type === 'number' ? cleanNum(val) : val;
+                hasCustomData = true;
+            }
+        });
+    }
+
     // See parseBulkPasteRows for why the same-batch check matters — a
     // duplicate claim within one import batch fails the entire insert, not
     // just that row, if it isn't caught here first.
@@ -4925,7 +4990,8 @@ function parseCsvRows(text) {
       inv1: get('inv1'), inv2: get('inv2'),
       fee1, fee2, ta1, ta2, total_payable: fee1+fee2+ta1+ta2, received,
       invoice_no: get('invoice_no'), profit: received-(fee1+fee2+ta1+ta2),
-      inv1_status: get('inv1_status'), inv2_status: get('inv2_status'), remarks: get('remarks')
+      inv1_status: get('inv1_status'), inv2_status: get('inv2_status'), remarks: get('remarks'),
+      custom_data: hasCustomData ? custom_data : null
     });
   }
   return rows;
@@ -5148,7 +5214,8 @@ async function commitImportPreview() {
         policy_no: r.policy_no, insured_name: r.insured_name, hospital: r.hospital, location: r.location,
         inv1, inv2, fee1: r.fee1, fee2: r.fee2, ta1: r.ta1, ta2: r.ta2,
         received: r.received, invoice_no: r.invoice_no,
-        inv1_status: r.inv1_status, inv2_status: r.inv2_status, remarks: r.remarks
+        inv1_status: r.inv1_status, inv2_status: r.inv2_status, remarks: r.remarks,
+        custom_data: r.custom_data || null
       });
       [inv1, inv2].forEach(n => {
         if (n && n!=='NA' && !getAllInvestigators().some(x=>x.toLowerCase()===n.toLowerCase())) genuinelyNew.add(n);
@@ -5787,6 +5854,11 @@ async function loadSettingsFromDB() {
   if (data.case_types && Array.isArray(data.case_types)) CASE_TYPES = data.case_types;
   refreshDynamicCompanies();
   if (typeof renderSettingsLists === 'function') renderSettingsLists();
+  
+  if (data.custom_fields_config && Array.isArray(data.custom_fields_config)) window.CUSTOM_FIELDS = data.custom_fields_config;
+  if (typeof window.renderCustomFieldsSettings === 'function') window.renderCustomFieldsSettings();
+  if (typeof window.injectCustomHeadersIntoTable === 'function') window.injectCustomHeadersIntoTable();
+  if (typeof window.injectCustomFieldsIntoForm === 'function') window.injectCustomFieldsIntoForm();
 
   settings = { agencyName: data.agency_name, agencyAddress: data.agency_address || '', logo: data.logo || null, fieldPermissions: data.field_permissions || {} };
   if(typeof renderPermissionsMatrix === 'function') renderPermissionsMatrix();
@@ -5902,16 +5974,20 @@ function exportExcel() {
     showToast('Excel export needs an internet connection (loads a library from CDN). Use CSV export instead if offline.', true);
     return;
   }
-  const rows = cases.map(c => ({
-    'Doc Code': c.doc_code, 'Company': c.company, 'Date': c.date, 'Case Type': c.case_type,
-    'Claim No': c.claim_no, 'Policy No': c.policy_no, 'Insured Name': c.insured_name, 'Hospital': c.hospital, 'Location': c.location,
-    'Invoice No': c.invoice_no, 'INV1': c.inv1, 'INV2': c.inv2, 'Fee1': c.fee1, 'Fee2': c.fee2, 'TA1': c.ta1, 'TA2': c.ta2,
-    'Total Payable': c.total_payable, 'Received': c.received, 'Profit': c.profit,
-    'INV1 Status': c.inv1_status, 'INV2 Status': c.inv2_status,
-    'INV1 Hard Copy': c.hardcopy1_status, 'INV2 Hard Copy': c.hardcopy2_status, 'Company Dispatch': c.company_hardcopy_status, 'AWB No': c.company_hardcopy_awb,
-    'Outcome': c.outcome || 'Pending', 'SLA (Hours)': c.sla_hours || '', 'Due Date': c.due_date || '', 'Risk Level': c.risk_level || '',
-    'Completed At': c.completed_at || '', 'Exception': c.exception_type || '', 'Remarks': c.remarks || ''
-  }));
+  const rows = cases.map(c => {
+    const r = {
+        'Doc Code': c.doc_code, 'Company': c.company, 'Date': c.date, 'Case Type': c.case_type,
+        'Claim No': c.claim_no, 'Policy No': c.policy_no, 'Insured Name': c.insured_name, 'Hospital': c.hospital, 'Location': c.location,
+        'Invoice No': c.invoice_no, 'INV1': c.inv1, 'INV2': c.inv2, 'Fee1': c.fee1, 'Fee2': c.fee2, 'TA1': c.ta1, 'TA2': c.ta2,
+        'Total Payable': c.total_payable, 'Received': c.received, 'Profit': c.profit,
+        'INV1 Status': c.inv1_status, 'INV2 Status': c.inv2_status,
+        'INV1 Hard Copy': c.hardcopy1_status, 'INV2 Hard Copy': c.hardcopy2_status, 'Company Dispatch': c.company_hardcopy_status, 'AWB No': c.company_hardcopy_awb,
+        'Outcome': c.outcome || 'Pending', 'SLA (Hours)': c.sla_hours || '', 'Due Date': c.due_date || '', 'Risk Level': c.risk_level || '',
+        'Completed At': c.completed_at || '', 'Exception': c.exception_type || '', 'Remarks': c.remarks || ''
+    };
+    if (window.CUSTOM_FIELDS) window.CUSTOM_FIELDS.forEach(cf => r[cf.name] = c.custom_data ? (c.custom_data[cf.id]||'') : '');
+    return r;
+  });
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Cases');
@@ -5929,9 +6005,16 @@ async function exportPDF() {
 }
 
 function exportForSheets() {
+  const headers = ['Doc Code','Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','Invoice No','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable','Received','Profit','INV1 Status','INV2 Status','INV1 Hard Copy','INV2 Hard Copy','Company Dispatch','AWB No','Outcome','SLA (Hours)','Due Date','Risk Level','Completed At','Exception','Remarks'];
+  if (window.CUSTOM_FIELDS) window.CUSTOM_FIELDS.forEach(cf => headers.push(cf.name));
+  
   const csv = [
-    ['Doc Code','Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','Invoice No','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable','Received','Profit','INV1 Status','INV2 Status','INV1 Hard Copy','INV2 Hard Copy','Company Dispatch','AWB No','Outcome','SLA (Hours)','Due Date','Risk Level','Completed At','Exception','Remarks'],
-    ...cases.map(c => [c.doc_code,c.company,c.date,c.case_type,c.claim_no,c.policy_no,c.insured_name,c.hospital,c.location,c.invoice_no,c.inv1,c.inv2,c.fee1,c.fee2,c.ta1,c.ta2,c.total_payable,c.received,c.profit,c.inv1_status,c.inv2_status,c.hardcopy1_status,c.hardcopy2_status,c.company_hardcopy_status,c.company_hardcopy_awb,c.outcome||'Pending',c.sla_hours||'',c.due_date||'',c.risk_level||'',c.completed_at||'',c.exception_type||'',c.remarks||''])
+    headers,
+    ...cases.map(c => {
+        const row = [c.doc_code,c.company,c.date,c.case_type,c.claim_no,c.policy_no,c.insured_name,c.hospital,c.location,c.invoice_no,c.inv1,c.inv2,c.fee1,c.fee2,c.ta1,c.ta2,c.total_payable,c.received,c.profit,c.inv1_status,c.inv2_status,c.hardcopy1_status,c.hardcopy2_status,c.company_hardcopy_status,c.company_hardcopy_awb,c.outcome||'Pending',c.sla_hours||'',c.due_date||'',c.risk_level||'',c.completed_at||'',c.exception_type||'',c.remarks||''];
+        if (window.CUSTOM_FIELDS) window.CUSTOM_FIELDS.forEach(cf => row.push(c.custom_data ? (c.custom_data[cf.id]||'') : ''));
+        return row;
+    })
   ].map(r => r.map(v => `"${(v==null?'':v).toString().replace(/"/g,'""')}"`).join(',')).join('\n');
   downloadFile('DNA_Cases_Export.csv', csv, 'text/csv');
   showToast('CSV exported — paste this into Google Sheets.');
@@ -6761,7 +6844,7 @@ window.viewHospitalCases = function(hName) {
             bg = '#FBF7ED';
         }
 
-        html += `<tr style="background:${bg}; border-bottom:1px solid #E3E8EC;">
+        html += `<tr data-doccode="${c.doc_code || ''}" style="background:${bg}; border-bottom:1px solid #E3E8EC; cursor:pointer;">
             <td class="mono" style="font-weight:600;">${c.doc_code || '—'}</td>
             <td>${c.date || '—'}</td>
             <td class="mono">${c.claim_no || '—'}</td>
