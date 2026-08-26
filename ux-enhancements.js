@@ -91,8 +91,8 @@ function initUXEnhancements() {
         observer.observe(overlay, { attributes: true });
     });
 
-    // 6. Double Click to Edit
-    document.addEventListener('dblclick', (e) => {
+    // 6. Double Click / Double Tap to Edit
+    const handleCaseEdit = (e) => {
         const tr = e.target.closest('tr[data-idx]');
         if (tr) {
             // Prevent if clicked on a button, input, or link inside the row
@@ -101,8 +101,22 @@ function initUXEnhancements() {
             const idx = tr.getAttribute('data-idx');
             if (idx && typeof editCase === 'function') {
                 editCase(idx);
+                e.preventDefault();
             }
         }
+    };
+
+    document.addEventListener('dblclick', handleCaseEdit);
+
+    let lastTapTime = 0;
+    document.addEventListener('touchend', (e) => {
+        const currentTime = new Date().getTime();
+        const tapLength = currentTime - lastTapTime;
+        if (tapLength > 0 && tapLength < 350) {
+            // Double tap detected
+            handleCaseEdit(e);
+        }
+        lastTapTime = currentTime;
     });
 
     // 7. Auto-Capitalization & Formatting

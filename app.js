@@ -6775,3 +6775,32 @@ window.viewHospitalCases = function(hName) {
     document.getElementById('hospital-cases-modal').style.display = 'flex';
 };
 
+
+
+window.renderAll = renderAll;
+window.handleRealtimePayload = (payload) => {
+  if (typeof cases === 'undefined') return;
+  const processRow = (row) => ({
+    ...row, 
+    total_payable: Number(row.total_payable || 0), 
+    profit: Number(row.profit || 0),
+    fee1: Number(row.fee1 || 0), 
+    fee2: Number(row.fee2 || 0), 
+    ta1: Number(row.ta1 || 0), 
+    ta2: Number(row.ta2 || 0), 
+    received: Number(row.received || 0)
+  });
+
+  if (payload.eventType === 'INSERT') {
+    const exists = cases.some(c => c.id === payload.new.id);
+    if (!exists) cases.unshift(processRow(payload.new));
+  } else if (payload.eventType === 'UPDATE') {
+    const idx = cases.findIndex(c => c.id === payload.new.id);
+    if (idx !== -1) cases[idx] = processRow(payload.new);
+  } else if (payload.eventType === 'DELETE') {
+    const idx = cases.findIndex(c => c.id === payload.old.id);
+    if (idx !== -1) cases.splice(idx, 1);
+  }
+  window.cases = cases;
+  renderAll();
+};
