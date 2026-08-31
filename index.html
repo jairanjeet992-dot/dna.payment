@@ -539,6 +539,7 @@ tbody tr:hover{background:var(--line);}
             <th onclick="sortCases('insured_name')" style="cursor:pointer">Insured ⇅</th>
             <th>Hospital</th><th>Location</th>
             <th onclick="sortCases('invoice_no')" style="cursor:pointer">Invoice No ⇅</th>
+            <th class="col-finance" onclick="sortCases('invoice_amount')" style="cursor:pointer">Invoice Amt ⇅</th>
             <th>INV1</th><th>INV2</th><th class="col-finance">Fee1</th><th class="col-finance">Fee2</th><th class="col-finance">TA1</th><th class="col-finance">TA2</th>
             <th class="col-finance" onclick="sortCases('total_payable')" style="cursor:pointer">Payable ⇅</th>
             <th class="col-finance">Received</th><th class="col-finance">Profit</th><th class="col-finance">Margin</th><th>INV1 St.</th><th>INV2 St.</th><th>Hard Copy</th><th></th>
@@ -679,17 +680,20 @@ tbody tr:hover{background:var(--line);}
     <div class="panel" style="padding:18px;">
       <div class="panel-title" style="margin-bottom:4px;">🔍 Google Form Data Match</div>
       <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;line-height:1.5;">
-        Paste rows copied from your Google Form response sheet below (Claim No, Company, Case Type, Insured Name — comma separated, one case per line).
-        This checks each row against your existing cases and flags matches, mismatches and brand-new entries.<br>
-        <b style="color:var(--red)">Note:</b> this is manual paste-and-check — it does not pull from Google Forms automatically (that needs a live Google API connection).
+        Paste rows copied from your Google Form or Excel sheet below. <b style="color:var(--navy)">You MUST include the Header row.</b> The system will auto-detect columns like <i>Claim, Company, Invoice, Amount</i>.<br>
+        This checks each row against existing cases and flags matches. You can then instantly bulk-update missing Invoices or Amounts.
       </p>
-      <textarea id="match-input" rows="6" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:3px;font-family:var(--mono);font-size:11.5px;" placeholder="97647620, CARE, REIMBURSEMENT, AVYANSH NAMDEO
-97623380, CARE, REIMBURSEMENT, AYUSH CHOUHAN"></textarea>
+      <textarea id="match-input" rows="6" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:3px;font-family:var(--mono);font-size:11.5px;" placeholder="Claim No, Company, Invoice No, Invoice Amount, Received Amount
+97647620, CARE, INV-001, 2000, 1800
+97623380, CARE, INV-002, 1500, "></textarea>
       <button class="btn btn-navy" style="margin-top:10px;" onclick="runMatch()">Run Match Check</button>
     </div>
     <div class="panel" id="match-results-panel" style="display:none;">
-      <div class="panel-head"><span class="panel-title">Match Results</span></div>
-      <div class="tbl-scroll"><table><thead><tr><th>Claim No</th><th>Company (Form)</th><th>Insured (Form)</th><th>Status</th><th>Note</th></tr></thead>
+      <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;">
+        <span class="panel-title">Match Results</span>
+        <button class="btn btn-gold btn-sm" onclick="applyBulkMatchUpdates()">Update All Matches</button>
+      </div>
+      <div class="tbl-scroll"><table><thead><tr><th>Claim No</th><th>Company (Form)</th><th>Insured (Form)</th><th>Status</th><th>Updates / Note</th><th>Action</th></tr></thead>
       <tbody id="match-tbody"></tbody></table></div>
     </div>
   </div>
@@ -1055,6 +1059,7 @@ tbody tr:hover{background:var(--line);}
           <div class="fg"><label>Total Payable (auto)</label><input type="number" id="f-total" readonly></div>
           <div class="fg"><label>Payment Received (₹)</label><input type="number" id="f-received" oninput="calcTotal()"></div>
           <div class="fg"><label>Invoice No</label><input type="text" id="f-invoice"></div>
+          <div class="fg"><label>Invoice Amount (₹)</label><input type="number" id="f-invoice-amount"></div>
           <div class="fg"><label>Profit (auto)</label><input type="number" id="f-profit" readonly></div>
           <div class="fg"><label>INV1 Pay Status</label><select id="f-inv1status"><option value="">-- Not Set --</option><option>Paid</option><option>Pending</option></select></div>
           <div class="fg"><label>INV2 Pay Status</label><select id="f-inv2status"><option value="">-- Not Set --</option><option>Paid</option><option>Pending</option></select></div>

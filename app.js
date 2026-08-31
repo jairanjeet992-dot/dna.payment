@@ -1329,6 +1329,7 @@ pageRows.forEach(c => {
       <td ${ed} data-field="location" data-val="${escAttr(c.location||'')}" data-type="text">${escAttr(c.location||'')}</td>
       ${customTds}
       <td class="mono" ${ed} data-field="invoice_no" data-val="${escAttr(c.invoice_no||'')}" data-type="text">${escAttr(c.invoice_no||'')}</td>
+      <td class="col-finance" ${ed} data-field="invoice_amount" data-val="${c.invoice_amount||0}" data-type="number">${money(c.invoice_amount)}</td>
       <td ${ed} data-field="inv1" data-val="${escAttr(c.inv1||'')}" data-type="text">${escAttr(c.inv1||'')}</td>
       <td ${ed} data-field="inv2" data-val="${escAttr(c.inv2 === 'NA' ? '' : c.inv2||'')}" data-type="text">${escAttr(c.inv2||'')}</td>
       <td class="col-finance" ${ed} data-field="fee1" data-val="${c.fee1||0}" data-type="number">${money(c.fee1)}</td>
@@ -3237,6 +3238,7 @@ function editCase(idx) {
   if (typeof window.populateCustomFieldsInForm === 'function') window.populateCustomFieldsInForm(c.custom_data);
   document.getElementById('f-received').value = c.received||'';
   document.getElementById('f-invoice').value = c.invoice_no||'';
+  document.getElementById('f-invoice-amount').value = c.invoice_amount||'';
   document.getElementById('f-inv1status').value = c.inv1_status||'';
   document.getElementById('f-inv2status').value = c.inv2_status||'';
   document.getElementById('f-hardcopy1status').value = c.hardcopy1_status||'';
@@ -4040,6 +4042,7 @@ async function saveCase() {
     inv1, inv2: document.getElementById('f-inv2').value,
     fee1, fee2, ta1, ta2, received,
     invoice_no: document.getElementById('f-invoice').value,
+    invoice_amount: parseFloat(document.getElementById('f-invoice-amount').value) || null,
     inv1_status: document.getElementById('f-inv1status').value,
     inv2_status: document.getElementById('f-inv2status').value,
     hardcopy1_status: document.getElementById('f-hardcopy1status').value,
@@ -4171,6 +4174,7 @@ function collectFormData() {
     ta2: parseFloat(document.getElementById('f-ta2').value)||0,
     received: parseFloat(document.getElementById('f-received').value)||0,
     invoice_no: document.getElementById('f-invoice').value,
+    invoice_amount: parseFloat(document.getElementById('f-invoice-amount').value) || null,
     inv1_status: document.getElementById('f-inv1status').value,
     inv2_status: document.getElementById('f-inv2status').value,
     hardcopy1_status: document.getElementById('f-hardcopy1status').value,

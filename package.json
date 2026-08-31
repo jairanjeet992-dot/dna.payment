@@ -14,7 +14,6 @@
     "@supabase/supabase-js": "^2.112.3",
     "acorn": "^8.18.0",
     "express": "^4.19.2",
-    "puppeteer": "^25.8.0",
     "ws": "^8.21.3"
   }
 }
