@@ -35,7 +35,8 @@ function initUXEnhancements() {
             e.preventDefault(); 
             const activeView = document.querySelector('.view.active');
             if (activeView && activeView.id === 'view-cases') {
-                document.getElementById('search-cases')?.focus();
+                const searchEl = document.getElementById('search-case') || document.getElementById('search-cases');
+                searchEl?.focus();
             } else if (activeView && activeView.id === 'view-investigators') {
                 document.getElementById('inv360-search')?.focus();
             }

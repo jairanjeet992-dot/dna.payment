@@ -1240,6 +1240,7 @@ function filterCases() {
       || (c.invoice_no||'').toLowerCase().includes(search)
       || (c.policy_no||'').toLowerCase().includes(search)
       || (c.hospital||'').toLowerCase().includes(search)
+      || (c.outcome||'').toLowerCase().includes(search)
       || (c.date||'').toLowerCase().includes(search);
     const matchCompany = !company || (c.company||'').toLowerCase() === company;
     const matchType = !casetype || (c.case_type||'').toLowerCase() === casetype;
@@ -1343,6 +1344,7 @@ pageRows.forEach(c => {
       <td ${ed} data-field="inv1_status" data-val="${escAttr(c.inv1_status||'')}" data-type="status">${statusBadge(c.inv1_status)}</td>
       <td ${ed} data-field="inv2_status" data-val="${escAttr(c.inv2_status||'')}" data-type="status">${statusBadge(c.inv2_status)}</td>
       <td ${ed} data-field="hardcopy1_status" data-val="${escAttr(c.hardcopy1_status||'')}" data-type="hardcopy">${hardcopyStatusCell(c)}</td>
+      <td ${ed} data-field="outcome" data-val="${escAttr(c.outcome||'Pending')}" data-type="outcome">${outcomeBadge(c.outcome)}</td>
       <td style="white-space:nowrap;">${isAdmin ? `<div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-ghost btn-sm" onclick="editCase(${idx})" title="Edit Case">Edit</button><button class="btn btn-sm" style="padding:2px 6px;background:#25D366;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;" onclick="openCaseDispatchModal('${c.doc_code}')" title="Dispatch WhatsApp / Email">📲</button></div>` : ''}</td>
     </tr>`);
   });
@@ -1357,6 +1359,23 @@ function statusBadge(s) {
   if (s==='Paid') return '<span class="badge success">Paid</span>';
   if (s==='Pending') return '<span class="badge warning">Pending</span>';
   return '<span class="badge na">—</span>';
+}
+
+function outcomeBadge(o) {
+  const norm = (o || 'Pending').toLowerCase();
+  if (norm.includes('fraud') || norm.includes('repudiat') || norm.includes('fake') || norm.includes('reject')) {
+    return `<span class="badge danger" style="font-weight:700;">${escAttr(o||'Fraud')}</span>`;
+  }
+  if (norm.includes('genuine') || norm.includes('approved')) {
+    return `<span class="badge success" style="font-weight:700;">${escAttr(o||'Genuine')}</span>`;
+  }
+  if (norm.includes('settled') || norm.includes('closed') || norm.includes('paid')) {
+    return `<span class="badge paid" style="font-weight:700;">${escAttr(o||'Settled')}</span>`;
+  }
+  if (norm.includes('suspicious') || norm.includes('doubt') || norm.includes('not found')) {
+    return `<span class="badge warning" style="font-weight:700;">${escAttr(o||'Suspicious')}</span>`;
+  }
+  return `<span class="badge na">${escAttr(o||'Pending')}</span>`;
 }
 
 function slaBadge(c) {
@@ -1809,6 +1828,7 @@ function onBulkEditFieldChange() {
     inv2_status: ['', 'Paid', 'Pending'],
     hardcopy1_status: ['', 'Received', 'Not Received'],
     hardcopy2_status: ['', 'Received', 'Not Received'],
+    outcome: ['Pending', 'Genuine', 'Fraud', 'Suspicious', 'Not Found', 'Settled'],
   };
   if (options[field]) {
     sel.innerHTML = options[field].map(o => `<option value="${escAttr(o)}">${o || '— Not set —'}</option>`).join('');
@@ -1863,9 +1883,19 @@ async function applyBulkEdit() {
 async function bulkDeleteSelected() {
   const n = selectedDocCodes.size;
   if (!n) return;
-  if (!confirm(`Delete ${n} selected case(s)? This cannot be undone.`)) return;
+  if (!confirm(`Delete ${n} selected case(s)? You can restore them anytime using Rollback Log.`)) return;
+
+  const docCodes = Array.from(selectedDocCodes);
+  if (typeof recordBatchSnapshot === 'function') {
+    recordBatchSnapshot({
+      action: `Bulk Delete: removed ${n} cases`,
+      type: 'delete',
+      docCodes
+    });
+  }
+
   try {
-    await deleteCasesDB(Array.from(selectedDocCodes));
+    await deleteCasesDB(docCodes);
   } catch (err) {
     showToast('Delete failed: ' + err.message, true);
     return;
@@ -1874,7 +1904,8 @@ async function bulkDeleteSelected() {
   await loadCasesFromDB();
   renderAll();
   checkOverdueAlerts();
-  if (window.logActivity) window.logActivity('Cases', `bulk deleted ${n} cases`); showToast(`${n} case(s) deleted.`);
+  if (window.logActivity) window.logActivity('Cases', `bulk deleted ${n} cases`);
+  showToast(`${n} case(s) deleted. (Undo available in Rollback Log)`);
 }
 
 // ============================================================
@@ -2230,6 +2261,15 @@ async function saveBulkPayment() {
     updates.push({ doc_code: docCode, fields });
   });
 
+  const docCodes = updates.map(u => u.doc_code);
+  if (typeof recordBatchSnapshot === 'function' && docCodes.length) {
+    recordBatchSnapshot({
+      action: `Bulk Payment: recorded payments for ${updates.length} case(s) (${name})`,
+      type: 'update',
+      docCodes
+    });
+  }
+
   try {
     // Each row can have different field values, so this has to be one
     // update call per row rather than a single batch update.
@@ -2245,7 +2285,8 @@ async function saveBulkPayment() {
   renderAll();
   checkOverdueAlerts();
   closeModal('bulkpay-modal');
-  if (window.logActivity) window.logActivity('Cases', `bulk processed payments for ${updates.length} cases for ${name}`); showToast(`Updated ${updates.length} case(s) for ${name}.`);
+  if (window.logActivity) window.logActivity('Cases', `bulk processed payments for ${updates.length} cases for ${name}`);
+  showToast(`Updated ${updates.length} case(s) for ${name}. (Undo available in Rollback Log)`);
 }
 
 // ============================================================
@@ -3299,6 +3340,9 @@ function startInlineEdit(cell) {
     editor = `<input type="number" value="${val}" step="1" min="0">`;
   } else if (type === 'status') {
     editor = `<select>${['','Paid','Pending'].map(o=>`<option ${o===val?'selected':''}>${o}</option>`).join('')}</select>`;
+  } else if (type === 'outcome') {
+    const opts = ['Pending','Genuine','Fraud','Suspicious','Not Found','Settled'];
+    editor = `<select>${opts.map(o=>`<option value="${escAttr(o)}" ${(o.toLowerCase()===(val||'').toLowerCase())?'selected':''}>${o}</option>`).join('')}</select>`;
   } else if (type === 'hardcopy') {
     editor = `<select>${['','Received','Not Received'].map(o=>`<option ${o===val?'selected':''}>${o}</option>`).join('')}</select>`;
   } else {
@@ -3373,8 +3417,9 @@ async function finishInlineEdit(cell, cancelled) {
 function renderCellDisplay(c, field, type, val) {
   const money = v => `Rs ${fmt(v)}`;
   switch (field) {
-    case 'fee1': case 'fee2': case 'ta1': case 'ta2': case 'received': return money(val);
+    case 'fee1': case 'fee2': case 'ta1': case 'ta2': case 'received': case 'invoice_amount': return money(val);
     case 'inv1_status': case 'inv2_status': return statusBadge(val);
+    case 'outcome': return outcomeBadge(val);
     case 'hardcopy1_status':
     case 'hardcopy2_status': {
       // Create a temp case with the override value for rendering
@@ -3395,7 +3440,7 @@ function renderCellDisplay(c, field, type, val) {
 function clearForm() {
   if (typeof window.populateCustomFieldsInForm === 'function') window.populateCustomFieldsInForm(null);
   ['f-company','f-date','f-casetype','f-claim','f-policy','f-insured','f-hospital','f-location','f-sla',
-   'f-inv1','f-inv2','f-fee1','f-fee2','f-ta1','f-ta2','f-received','f-invoice',
+   'f-inv1','f-inv2','f-fee1','f-fee2','f-ta1','f-ta2','f-received','f-invoice','f-invoice-amount',
    'f-inv1status','f-inv2status','f-hardcopy1status','f-hardcopy2status','f-companyawb','f-remarks'].forEach(id => {
      const el = document.getElementById(id);
      if (el) el.value = '';
@@ -4873,6 +4918,13 @@ function findClosestCompany(name) {
 // ============================================================
 function parseBulkPasteRows(raw) {
   const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
+  if (!lines.length) return [];
+  const firstLineNorm = (lines[0] || '').toLowerCase();
+  const hasHeader = firstLineNorm.includes('claim') || firstLineNorm.includes('company') || firstLineNorm.includes('insured') || firstLineNorm.includes('policy');
+  if (hasHeader) {
+    return parseCsvRows(raw);
+  }
+
   const existingClaims = new Set(cases.map(c => c.claim_no));
   const seenInThisBatch = new Set(); // claim numbers already used earlier in this same paste
   const rows = [];
@@ -4885,6 +4937,21 @@ function parseBulkPasteRows(raw) {
           fee1=parts[10], fee2=parts[11], ta1=parts[12], ta2=parts[13],
           received=parts[15], invoice_no=parts[16],
           inv1_status=parts[18], inv2_status=parts[19], remarks=parts[20];
+    
+    let outcome = 'Pending';
+    let invoice_amount = null;
+    if (parts[21]) {
+      const p21Norm = parts[21].toLowerCase();
+      const validOutcomes = ['pending','genuine','fraud','suspicious','not found','settled','repudiated','rejected'];
+      if (validOutcomes.some(vo => p21Norm.includes(vo))) {
+        outcome = parts[21];
+      }
+    }
+    if (parts[22] && !Number.isNaN(cleanNum(parts[22])) && cleanNum(parts[22]) > 0) {
+      invoice_amount = cleanNum(parts[22]);
+    } else if (parts[17] && !Number.isNaN(cleanNum(parts[17])) && cleanNum(parts[17]) > 0 && parts.length > 20) {
+      invoice_amount = cleanNum(parts[17]);
+    }
           
     if (!claim_no || !company || !insured_name) { rows.push({error:'Missing required field (claim/company/insured name)', raw:line}); return; }
     
@@ -4919,7 +4986,8 @@ function parseBulkPasteRows(raw) {
       company: compUpper, date: useDate, case_type: cTypeUpper, claim_no, policy_no: policy_no||'',
       insured_name, hospital: hospital||'', location: location||'', inv1: inv1||'', inv2: inv2||'',
       fee1: f1, fee2: f2, ta1: t1, ta2: t2, total_payable: f1+f2+t1+t2, received: rec,
-      invoice_no: invoice_no||'', profit: rec-(f1+f2+t1+t2),
+      invoice_no: invoice_no||'', invoice_amount: invoice_amount || null, outcome: outcome || 'Pending',
+      profit: rec-(f1+f2+t1+t2),
       inv1_status: (inv1_status==='Paid'||inv1_status==='Pending') ? inv1_status : '',
       inv2_status: (inv2_status==='Paid'||inv2_status==='Pending') ? inv2_status : '',
       remarks: remarks||''
@@ -4933,6 +5001,9 @@ function parseBulkPasteRows(raw) {
 // ============================================================
 function parseCsvRows(text) {
   function parseCsvLine(line) {
+    if (line.includes('\t')) {
+      return line.split('\t').map(x => x.replace(/^"|"$/g, '').trim());
+    }
     const out = []; let cur=''; let inQ=false;
     for (let i=0;i<line.length;i++) {
       const ch = line[i];
@@ -4947,17 +5018,20 @@ function parseCsvRows(text) {
   if (!rawRows.length) return [];
   const header = rawRows[0].map(h => h.trim().toLowerCase());
   const colMap = {
-    company: ['company','company name'], date: ['date','allocation date'],
-    case_type: ['case_type','case type'], claim_no: ['claim_no','claim no','claim no.'],
-    policy_no: ['policy_no','policy no','policy no.'], insured_name: ['insured_name','insured name'],
-    hospital: ['hospital','hospital / address','hospital/address'], location: ['location','insured location'],
-    inv1: ['inv1','investigator 1','investigator1'], inv2: ['inv2','investigator 2','investigator2'],
-    fee1: ['fee1','payment fee 1','payment (fee)'], fee2: ['fee2','payment fee 2'],
-    ta1: ['ta1','other expense','other expense 1','other expense 1 (inv1 ta)'],
-    ta2: ['ta2','other expense 2','other expense 2 (inv2 ta)'],
-    received: ['received','payment received'], invoice_no: ['invoice_no','invoice no','invoice no.'],
+    company: ['company','company name','client','insurance company'], date: ['date','allocation date','assigned date'],
+    case_type: ['case_type','case type','type'], claim_no: ['claim_no','claim no','claim no.','claim','claim number','claim id'],
+    policy_no: ['policy_no','policy no','policy no.','policy','policy number'], insured_name: ['insured_name','insured name','insured','patient name','customer name','name'],
+    hospital: ['hospital','hospital / address','hospital/address','hospital name'], location: ['location','insured location','city','place'],
+    inv1: ['inv1','investigator 1','investigator1','inv 1','field investigator'], inv2: ['inv2','investigator 2','investigator2','inv 2'],
+    fee1: ['fee1','payment fee 1','payment (fee)','inv1 fee','fee 1'], fee2: ['fee2','payment fee 2','inv2 fee','fee 2'],
+    ta1: ['ta1','other expense','other expense 1','other expense 1 (inv1 ta)','ta 1','ta/expense 1','inv1 ta'],
+    ta2: ['ta2','other expense 2','other expense 2 (inv2 ta)','ta 2','ta/expense 2','inv2 ta'],
+    received: ['received','payment received','amount received','received amount','amount paid'],
+    invoice_no: ['invoice_no','invoice no','invoice no.','inv no','inv no.','invoice #','bill no','bill no.'],
+    invoice_amount: ['invoice_amount','invoice amount','invoice amt','inv amt','inv amount','billed','bill amount','billed amount','invoice value'],
+    outcome: ['outcome','investigation outcome','investigation_outcome','case outcome','status outcome','finding','decision','result'],
     inv1_status: ['inv1_status','inv1 status','inv1 pay status'], inv2_status: ['inv2_status','inv2 status','inv2 pay status'],
-    remarks: ['remarks']
+    remarks: ['remarks','remark','comment','comments','notes']
   };
   
   if (window.CUSTOM_FIELDS && window.CUSTOM_FIELDS.length > 0) {
@@ -4998,6 +5072,8 @@ function parseCsvRows(text) {
     const fee1 = cleanNum(get('fee1')), fee2 = cleanNum(get('fee2'));
     const ta1 = cleanNum(get('ta1')), ta2 = cleanNum(get('ta2'));
     const received = cleanNum(get('received'));
+    const invoice_amount = cleanNum(get('invoice_amount')) || null;
+    const outcome = get('outcome') || 'Pending';
     
     let custom_data = {};
     let hasCustomData = false;
@@ -5024,7 +5100,8 @@ function parseCsvRows(text) {
       insured_name, hospital: get('hospital'), location: get('location'),
       inv1: get('inv1'), inv2: get('inv2'),
       fee1, fee2, ta1, ta2, total_payable: fee1+fee2+ta1+ta2, received,
-      invoice_no: get('invoice_no'), profit: received-(fee1+fee2+ta1+ta2),
+      invoice_no: get('invoice_no'), invoice_amount, outcome,
+      profit: received-(fee1+fee2+ta1+ta2),
       inv1_status: get('inv1_status'), inv2_status: get('inv2_status'), remarks: get('remarks'),
       custom_data: hasCustomData ? custom_data : null
     });
@@ -5135,15 +5212,15 @@ function showImportPreview(rows, sourceLabel) {
   }
 
   html += `<div style="max-height:280px;overflow-y:auto;border:1px solid var(--line);border-radius:4px;">
-    <table style="width:100%;"><thead><tr><th>Claim No</th><th>Company</th><th>Insured</th><th>INV1</th><th>INV2</th><th>Payable</th><th>Status</th></tr></thead><tbody>
+    <table style="width:100%;"><thead><tr><th>Claim No</th><th>Company</th><th>Insured</th><th>INV1</th><th>INV2</th><th>Inv Amt</th><th>Payable</th><th>Recv</th><th>Outcome</th><th>Status</th></tr></thead><tbody>
     ${rows.slice(0,300).map(r => {
-      if (r.error) return `<tr style="background:var(--red-bg);"><td colspan="7">⚠ ${r.error} — <span class="mono">${(r.raw||'').slice(0,80)}</span></td></tr>`;
+      if (r.error) return `<tr style="background:var(--red-bg);"><td colspan="10">⚠ ${r.error} — <span class="mono">${(r.raw||'').slice(0,80)}</span></td></tr>`;
       const rowStatus = r.isDuplicate
         ? (r.duplicateReason === 'batch'
             ? '<span class="badge overdue">Duplicate in this paste — skip</span>'
             : '<span class="badge overdue">Already exists — skip</span>')
         : '<span class="badge paid">Will add</span>';
-      return `<tr><td class="mono">${r.claim_no}</td><td>${r.company}</td><td>${r.insured_name}</td><td>${r.inv1||''}</td><td>${r.inv2||''}</td><td>Rs ${fmt(r.total_payable)}</td><td>${rowStatus}</td></tr>`;
+      return `<tr><td class="mono">${escAttr(r.claim_no)}</td><td>${escAttr(r.company)}</td><td>${escAttr(r.insured_name)}</td><td>${escAttr(r.inv1||'')}</td><td>${escAttr(r.inv2||'')}</td><td>${r.invoice_amount ? 'Rs '+fmt(r.invoice_amount) : '—'}</td><td>Rs ${fmt(r.total_payable)}</td><td>${r.received ? 'Rs '+fmt(r.received) : '—'}</td><td>${outcomeBadge(r.outcome||'Pending')}</td><td>${rowStatus}</td></tr>`;
     }).join('')}
   </tbody></table></div>`;
   if (rows.length > 300) html += `<div style="text-align:center;color:var(--sub);font-size:11px;padding:8px;">+${rows.length-300} more rows not shown in preview (all will still be processed)</div>`;
@@ -5249,6 +5326,8 @@ async function commitImportPreview() {
         policy_no: r.policy_no, insured_name: r.insured_name, hospital: r.hospital, location: r.location,
         inv1, inv2, fee1: r.fee1, fee2: r.fee2, ta1: r.ta1, ta2: r.ta2,
         received: r.received, invoice_no: r.invoice_no,
+        invoice_amount: r.invoice_amount || null,
+        outcome: r.outcome || 'Pending',
         inv1_status: r.inv1_status, inv2_status: r.inv2_status, remarks: r.remarks,
         custom_data: r.custom_data || null
       });
@@ -5259,6 +5338,14 @@ async function commitImportPreview() {
 
     const { error } = await supabaseClient.from('cases').insert(toInsert);
     if (error) throw error;
+
+    if (typeof recordBatchSnapshot === 'function' && toInsert.length) {
+      recordBatchSnapshot({
+        action: `Import / Bulk Paste: added ${toInsert.length} cases`,
+        type: 'insert',
+        docCodes: toInsert.map(c => c.doc_code)
+      });
+    }
   } catch (err) {
     btn.disabled = false;
     btn.textContent = 'Confirm & Add';
@@ -5282,7 +5369,7 @@ async function commitImportPreview() {
   closeModal('bulk-modal');
   btn.disabled = false;
   btn.textContent = 'Confirm & Add';
-  showToast(`Added ${toInsert.length} cases. ${skipped} duplicates skipped, ${errors} invalid rows. ${genuinelyNew.size} new investigator(s) confirmed.`);
+  showToast(`Added ${toInsert.length} cases. (Undo available in Rollback Log). ${skipped} duplicates skipped, ${errors} invalid rows.`);
   pendingImportRows = [];
 }
 
@@ -6005,8 +6092,8 @@ function inviteStaff() {
 }
 
 function downloadTemplate() {
-  const headers = ['Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable (leave blank)','Received','Invoice No','Profit (leave blank)','INV1 Status','INV2 Status','Remarks'];
-  const sample = ['CARE','2026-04-15','REIMBURSEMENT','97600000','24500000','SAMPLE NAME','SAMPLE HOSPITAL','SAMPLE CITY','BHOLA YADAV','NA','300','','50','','','','','Pending','',''];
+  const headers = ['Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable (leave blank)','Received','Invoice No','Invoice Amount','Profit (leave blank)','INV1 Status','INV2 Status','Outcome','Remarks'];
+  const sample = ['CARE','2026-04-15','REIMBURSEMENT','97600000','24500000','SAMPLE NAME','SAMPLE HOSPITAL','SAMPLE CITY','BHOLA YADAV','NA','300','','50','','','','','5000','','Pending','','Genuine',''];
   const csv = [headers, sample].map(r => r.map(v=>`"${v}"`).join(',')).join('\n');
   downloadFile('Case_Import_Template.csv', csv, 'text/csv');
   showToast('Template downloaded — fill it in Excel, save as CSV, then use Import Excel/CSV.');
@@ -6021,7 +6108,7 @@ function exportExcel() {
     const r = {
         'Doc Code': c.doc_code, 'Company': c.company, 'Date': c.date, 'Case Type': c.case_type,
         'Claim No': c.claim_no, 'Policy No': c.policy_no, 'Insured Name': c.insured_name, 'Hospital': c.hospital, 'Location': c.location,
-        'Invoice No': c.invoice_no, 'INV1': c.inv1, 'INV2': c.inv2, 'Fee1': c.fee1, 'Fee2': c.fee2, 'TA1': c.ta1, 'TA2': c.ta2,
+        'Invoice No': c.invoice_no, 'Invoice Amount': c.invoice_amount || 0, 'INV1': c.inv1, 'INV2': c.inv2, 'Fee1': c.fee1, 'Fee2': c.fee2, 'TA1': c.ta1, 'TA2': c.ta2,
         'Total Payable': c.total_payable, 'Received': c.received, 'Profit': c.profit,
         'INV1 Status': c.inv1_status, 'INV2 Status': c.inv2_status,
         'INV1 Hard Copy': c.hardcopy1_status, 'INV2 Hard Copy': c.hardcopy2_status, 'Company Dispatch': c.company_hardcopy_status, 'AWB No': c.company_hardcopy_awb,
@@ -6048,13 +6135,13 @@ async function exportPDF() {
 }
 
 function exportForSheets() {
-  const headers = ['Doc Code','Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','Invoice No','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable','Received','Profit','INV1 Status','INV2 Status','INV1 Hard Copy','INV2 Hard Copy','Company Dispatch','AWB No','Outcome','SLA (Hours)','Due Date','Risk Level','Completed At','Exception','Remarks'];
+  const headers = ['Doc Code','Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','Invoice No','Invoice Amount','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable','Received','Profit','INV1 Status','INV2 Status','INV1 Hard Copy','INV2 Hard Copy','Company Dispatch','AWB No','Outcome','SLA (Hours)','Due Date','Risk Level','Completed At','Exception','Remarks'];
   if (window.CUSTOM_FIELDS) window.CUSTOM_FIELDS.forEach(cf => headers.push(cf.name));
   
   const csv = [
     headers,
     ...cases.map(c => {
-        const row = [c.doc_code,c.company,c.date,c.case_type,c.claim_no,c.policy_no,c.insured_name,c.hospital,c.location,c.invoice_no,c.inv1,c.inv2,c.fee1,c.fee2,c.ta1,c.ta2,c.total_payable,c.received,c.profit,c.inv1_status,c.inv2_status,c.hardcopy1_status,c.hardcopy2_status,c.company_hardcopy_status,c.company_hardcopy_awb,c.outcome||'Pending',c.sla_hours||'',c.due_date||'',c.risk_level||'',c.completed_at||'',c.exception_type||'',c.remarks||''];
+        const row = [c.doc_code,c.company,c.date,c.case_type,c.claim_no,c.policy_no,c.insured_name,c.hospital,c.location,c.invoice_no,c.invoice_amount||'',c.inv1,c.inv2,c.fee1,c.fee2,c.ta1,c.ta2,c.total_payable,c.received,c.profit,c.inv1_status,c.inv2_status,c.hardcopy1_status,c.hardcopy2_status,c.company_hardcopy_status,c.company_hardcopy_awb,c.outcome||'Pending',c.sla_hours||'',c.due_date||'',c.risk_level||'',c.completed_at||'',c.exception_type||'',c.remarks||''];
         if (window.CUSTOM_FIELDS) window.CUSTOM_FIELDS.forEach(cf => row.push(c.custom_data ? (c.custom_data[cf.id]||'') : ''));
         return row;
     })
@@ -6617,6 +6704,14 @@ async function processBulkDocs() {
     btn.disabled = false;
     btn.textContent = 'Apply Changes';
     return;
+  }
+
+  if (typeof recordBatchSnapshot === 'function' && updates.length) {
+    recordBatchSnapshot({
+      action: currentDocTab === 'receive' ? `Hardcopy Inward: received docs for ${updates.length} cases` : `Hardcopy Dispatch: dispatched ${updates.length} cases`,
+      type: 'update',
+      docCodes: updates.map(u => u.docCode)
+    });
   }
   
   // Process in parallel chunks to avoid N+1 bottleneck & API limits

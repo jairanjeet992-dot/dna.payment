@@ -510,6 +510,7 @@ tbody tr:hover{background:var(--line);}
           <button class="btn btn-navy btn-sm" id="bulk-pay-btn" onclick="openBulkPayment()">💰 Bulk Payment</button>
           <button class="btn btn-gold btn-sm admin-only" onclick="openReconciliation()">🏦 Reconcile Bank</button>
           <button class="btn btn-ghost btn-sm admin-only" id="bulk-edit-btn" style="display:none;" onclick="openBulkEdit()">✏️ Bulk Edit Selected (<span id="bulk-edit-count">0</span>)</button>
+          <button class="btn btn-ghost btn-sm admin-only" onclick="openRollbackHistoryModal()" title="View Batch Change Logs & 1-Click Rollback">↩ Rollback Log <span class="badge warning" id="rollback-badge-count" style="display:none;padding:1px 5px;font-size:10px;margin-left:2px;">0</span></button>
           <button class="btn btn-gold btn-sm" onclick="openAddCase()">+ New Case</button>
         </div>
       </div>
@@ -542,7 +543,7 @@ tbody tr:hover{background:var(--line);}
             <th class="col-finance" onclick="sortCases('invoice_amount')" style="cursor:pointer">Invoice Amt ⇅</th>
             <th>INV1</th><th>INV2</th><th class="col-finance">Fee1</th><th class="col-finance">Fee2</th><th class="col-finance">TA1</th><th class="col-finance">TA2</th>
             <th class="col-finance" onclick="sortCases('total_payable')" style="cursor:pointer">Payable ⇅</th>
-            <th class="col-finance">Received</th><th class="col-finance">Profit</th><th class="col-finance">Margin</th><th>INV1 St.</th><th>INV2 St.</th><th>Hard Copy</th><th></th>
+            <th class="col-finance">Received</th><th class="col-finance">Profit</th><th class="col-finance">Margin</th><th>INV1 St.</th><th>INV2 St.</th><th>Hard Copy</th><th onclick="sortCases('outcome')" style="cursor:pointer">Outcome ⇅</th><th></th>
           </tr></thead>
           <tbody id="cases-tbody"></tbody>
         </table>
@@ -908,6 +909,7 @@ tbody tr:hover{background:var(--line);}
         <button class="btn btn-ghost btn-sm" onclick="exportExcel()" style="margin-top:8px;">📊 Export Excel (.xlsx)</button>
         <button class="btn btn-ghost btn-sm" onclick="exportPDF()" style="margin-top:8px;">📄 Export PDF (Cases List)</button>
         <button class="btn btn-ghost btn-sm" onclick="exportBackup()" style="margin-top:8px;">💾 Download Full Backup (JSON)</button>
+        <button class="btn btn-ghost btn-sm admin-only" onclick="openRollbackHistoryModal()" style="margin-top:8px;">↩ View Batch Rollback History (Undo)</button>
         <button class="btn btn-navy btn-sm" onclick="backupEntireSystem()" style="margin-top:8px; width:100%;">☁ Backup Entire System to Drive</button>
         <div style="margin-top:8px;"><input type="file" id="restore-file" accept=".json" style="display:none" onchange="restoreBackup(event)"><button class="btn btn-ghost btn-sm" onclick="document.getElementById('restore-file').click()">📤 Restore from Backup</button></div>
       </div>
@@ -1383,6 +1385,8 @@ tbody tr:hover{background:var(--line);}
           <option value="hardcopy1_status">INV1 Hard Copy</option>
           <option value="hardcopy2_status">INV2 Hard Copy</option>
           <option value="invoice_no">Invoice No</option>
+          <option value="invoice_amount">Invoice Amount (₹)</option>
+          <option value="outcome">Investigation Outcome</option>
           <option value="remarks">Remarks</option>
         </select></div>
         <div class="fg" id="bulkedit-value-wrap"><label>New Value</label><input type="text" id="bulkedit-value" placeholder="Enter value"></div>
@@ -1674,11 +1678,54 @@ tbody tr:hover{background:var(--line);}
     </div>
   </div>
 
+  <!-- BATCH ROLLBACK & SNAPSHOT LOG MODAL -->
+  <div class="overlay" id="rollback-modal">
+    <div class="modal" style="max-width:960px; max-height:88vh; display:flex; flex-direction:column;">
+      <div class="modal-head">
+        <div>
+          <h3 style="margin:0; font-size:16px; color:var(--navy); display:flex; align-items:center; gap:8px;">
+            <span>↩ Batch Operations & 1-Click Rollback Log</span>
+          </h3>
+          <p style="margin:4px 0 0 0; font-size:11px; color:var(--sub);">
+            Every bulk edit, import, reconciliation, payment, and deletion is recorded. Rollback any accidental batch in 1 click.
+          </p>
+        </div>
+        <button class="modal-x" onclick="closeModal('rollback-modal')">✕</button>
+      </div>
+      <div class="modal-body" style="padding:16px; flex:1; overflow-y:auto;">
+        <div id="rollback-history-empty" style="display:none; text-align:center; padding:40px 20px; color:var(--sub);">
+          <div style="font-size:36px; margin-bottom:10px;">📋</div>
+          <div style="font-weight:700; font-size:14px; color:var(--navy); margin-bottom:4px;">No Batch Operations Recorded Yet</div>
+          <div style="font-size:12px;">When you perform a bulk edit, Excel import, bank reconciliation, bulk payment, or bulk delete, snapshots will appear here for instant rollback.</div>
+        </div>
+        <div class="tbl-scroll" style="border:1px solid var(--line); border-radius:4px;">
+          <table style="width:100%; border-collapse:collapse;">
+            <thead>
+              <tr style="background:var(--paper); border-bottom:1px solid var(--line);">
+                <th style="padding:10px 12px; text-align:left; font-size:10.5px; text-transform:uppercase; color:var(--sub);">Time</th>
+                <th style="padding:10px 12px; text-align:left; font-size:10.5px; text-transform:uppercase; color:var(--sub);">Action & Summary</th>
+                <th style="padding:10px 12px; text-align:left; font-size:10.5px; text-transform:uppercase; color:var(--sub);">User</th>
+                <th style="padding:10px 12px; text-align:left; font-size:10.5px; text-transform:uppercase; color:var(--sub);">DB Status</th>
+                <th style="padding:10px 12px; text-align:right; font-size:10.5px; text-transform:uppercase; color:var(--sub);">Rollback Action</th>
+              </tr>
+            </thead>
+            <tbody id="rollback-history-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-foot" style="display:flex; justify-content:space-between; align-items:center;">
+        <button class="btn btn-ghost btn-sm" onclick="clearAllBatchSnapshots()" style="color:var(--red);" title="Clear history list">🗑 Clear Log History</button>
+        <button class="btn btn-navy" onclick="closeModal('rollback-modal')">Close</button>
+      </div>
+    </div>
+  </div>
+
 <script src="https://accounts.google.com/gsi/client" async defer onload="if(typeof window.initGoogleDriveOnLoad === 'function') window.initGoogleDriveOnLoad()"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js"></script>
 <script src="ux-enhancements.js"></script>
 <script src="app.js"></script>
+<script src="batch-rollback.js"></script>
 <script src="realtime-sync.js"></script>
 <script src="role-permissions.js"></script>
 <script src="import-pdf-enhancements.js"></script>
