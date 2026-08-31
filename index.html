@@ -1137,15 +1137,15 @@ tbody tr:hover{background:var(--line);}
 
 <!-- BULK PASTE MODAL -->
 <div class="overlay" id="bulk-modal">
-  <div class="modal">
-    <div class="modal-head"><h3>Bulk Paste Cases</h3><button class="modal-x" onclick="closeModal('bulk-modal')">✕</button></div>
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-head"><h3>📋 Universal Bulk Paste & Smart Merge</h3><button class="modal-x" onclick="closeModal('bulk-modal')">✕</button></div>
     <div class="modal-body" style="padding:16px;">
-      <div class="notice">
-        Paste rows copied straight from your Data Entry sheet — one case per line, columns tab-separated, in this exact order:<br>
-        <b>Company, Date, Case Type, Claim No, Policy No, Insured Name, Hospital, INV1, Location, INV2, Fee1, Fee2, TA1, TA2, [Total Payable — skip, auto], Received, Invoice No, [Profit — skip, auto], INV1 Status, INV2 Status, Remarks</b><br>
-        Leave the two auto-calculated columns (Total Payable, Profit) as blank cells in your paste — just copy them as-is from Excel, they'll be ignored. ₹ symbols and commas in amounts are handled automatically. Duplicate Claim No rows are skipped.
+      <div class="notice" style="background:#f0f7ff;border-left:3px solid #0052cc;color:#0747a6;margin-bottom:12px;">
+        <b>✨ Universal Smart Match:</b> Paste any Excel data. If headers are included (<i>Claim No, Outcome, Fraud Reason, Invoice No, Invoice Amount, Received</i>), columns are auto-detected.<br>
+        • <b>Existing Cases:</b> Matching Claim No rows will automatically enrich blank fields (Outcome, Fraud, Invoice, Received) without duplicate errors.<br>
+        • <b>New Cases:</b> Brand new claims will be added with next Doc Code automatically.
       </div>
-      <textarea id="bulk-input" rows="10" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:3px;font-family:var(--mono);font-size:11px;" placeholder="CARE	2026-04-05	REIMBURSEMENT	97647620		AVYANSH NAMDEO	Bansal Hospital	BHOLA YADAV	Indore		300		50		Paid		"></textarea>
+      <textarea id="bulk-input" rows="11" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:4px;font-family:var(--mono);font-size:11px;" placeholder="Copy & paste directly from Excel (with or without headers)...&#10;Example:&#10;Claim No&#9;Company&#9;Insured Name&#9;Outcome&#9;Fraud Reason&#9;Invoice No&#9;Invoice Amt&#9;Received&#10;97647620&#9;CARE&#9;AVYANSH NAMDEO&#9;Fraud&#9;Fake Hospitalization&#9;INV-1092&#9;15000&#9;15000"></textarea>
       <div id="bulk-preview" style="margin-top:12px;font-size:12px;color:var(--sub);"></div>
     </div>
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal('bulk-modal')">Cancel</button><button class="btn btn-navy" onclick="processBulkPaste()">Review & Preview</button></div>
@@ -1734,6 +1734,7 @@ tbody tr:hover{background:var(--line);}
 <script src="investigator-case-breakdown.js"></script>
 <script src="plugins-manager.js"></script>
 <script src="custom-fields.js"></script>
+<script src="smart-merge-engine.js"></script>
 
 </body>
 </html>
