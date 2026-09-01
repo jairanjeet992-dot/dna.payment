@@ -862,6 +862,27 @@ function renderAll() {
     renderMonthly(activeMonth);
     renderSalary();
     renderDocuments();
+    
+    // Extra Realtime Syncs for Active Lookups & Modals
+    if (typeof executeLookupDoc === 'function' && document.getElementById('doc-search')?.value) {
+      executeLookupDoc();
+    }
+    if (document.getElementById('bulkdoc-modal')?.classList.contains('open')) {
+      if (typeof renderBulkDocReceive === 'function') renderBulkDocReceive();
+      if (typeof renderBulkDocDispatch === 'function') renderBulkDocDispatch();
+    }
+    if (document.getElementById('view-match')?.classList.contains('active')) {
+      if (typeof renderMatchList === 'function') renderMatchList();
+    }
+    if (document.getElementById('view-reports')?.classList.contains('active')) {
+      if (typeof buildBulkSlipSummary === 'function') buildBulkSlipSummary();
+    }
+    if (document.getElementById('view-intelligence')?.classList.contains('active')) {
+      if (typeof renderIntelligenceView === 'function') renderIntelligenceView();
+    }
+    if (document.getElementById('view-yearly')?.classList.contains('active')) {
+      if (typeof renderYearly === 'function') renderYearly();
+    }
   }, 50);
 }
 
@@ -1253,12 +1274,19 @@ function resetFilters() {
   filterCases();
 }
 
+let lastFilterState = null;
 function filterCases() {
   const search = (document.getElementById('search-case').value||'').toLowerCase();
   const company = (document.getElementById('filter-company').value || '').toLowerCase();
   const casetype = (document.getElementById('filter-casetype').value || '').toLowerCase();
   const status = document.getElementById('filter-status').value;
   const inv = (document.getElementById('filter-inv').value || '').toLowerCase();
+
+  const currentFilterState = [search, company, casetype, status, inv].join('|');
+  if (lastFilterState !== currentFilterState) {
+    currentPage = 1;
+    lastFilterState = currentFilterState;
+  }
 
   let base = getVisibleCases();
 
@@ -1280,8 +1308,6 @@ function filterCases() {
   });
 
   applySortToFilteredCases();
-
-  currentPage = 1;
   renderCasesTable();
 }
 
@@ -3005,7 +3031,6 @@ const DOC_LIST_PAGE_SIZE = 150;
 function renderDocuments() {
   docListSorted = cases.filter(c => c.doc_code).sort((a,b) => (a.doc_code||'').localeCompare(b.doc_code||''));
   document.getElementById('doc-count').textContent = docListSorted.length;
-  docListPage = 1;
   renderDocListPage();
 }
 
@@ -3033,6 +3058,9 @@ function hardcopyStatusCell(c) {
 }
 
 function renderDocListPage() {
+  const maxPage = Math.max(1, Math.ceil(docListSorted.length / DOC_LIST_PAGE_SIZE));
+  if (docListPage > maxPage) docListPage = maxPage;
+  
   const tbody = document.getElementById('doc-list-tbody');
   const start = (docListPage-1) * DOC_LIST_PAGE_SIZE;
   const pageRows = docListSorted.slice(start, start + DOC_LIST_PAGE_SIZE);
@@ -3042,7 +3070,6 @@ function renderDocListPage() {
     <td>${c.inv1||''}${c.inv2 && c.inv2!=='NA' ? ' / '+c.inv2 : ''}</td>
     <td>${hardcopyStatusCell(c)}</td>
   </tr>`).join('') || '<tr><td colspan="7"><div class="empty-state">No documents yet</div></td></tr>';
-  const maxPage = Math.max(1, Math.ceil(docListSorted.length / DOC_LIST_PAGE_SIZE));
   const rangeEl = document.getElementById('doc-page-range');
   if (rangeEl) rangeEl.textContent = docListSorted.length ? `${start+1}–${Math.min(start+DOC_LIST_PAGE_SIZE, docListSorted.length)} of ${docListSorted.length}` : '0';
   const curEl = document.getElementById('doc-page-current');
@@ -6496,20 +6523,43 @@ function downloadFile(name, content, type) {
 // second or two of any change, instead of finding out only on next reload.
 // ============================================================
 let realtimeReloadTimer = null;
+let realtimeSecondaryTimer = null;
 function subscribeToCasesRealtime() {
+  if (!supabaseClient) return;
   supabaseClient
-    .channel('cases-changes')
+    .channel('db-changes-all')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'cases' }, () => {
-      // Debounced: a single edit can fire multiple change events in quick
-      // succession (e.g. bulk import inserts, or this tab's own write
-      // echoing back), and each mutation function already does its own
-      // immediate reload — this only needs to catch changes from OTHER
-      // sessions, so a short delay collapses bursts into one refetch.
       clearTimeout(realtimeReloadTimer);
       realtimeReloadTimer = setTimeout(async () => {
         await loadCasesFromDB();
         renderAll();
-        checkOverdueAlerts();
+        if (typeof checkOverdueAlerts === 'function') checkOverdueAlerts();
+      }, 400);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'investigators' }, () => {
+      clearTimeout(realtimeSecondaryTimer);
+      realtimeSecondaryTimer = setTimeout(async () => {
+        if (typeof loadInvestigatorsFromDB === 'function') await loadInvestigatorsFromDB();
+        renderAll();
+      }, 400);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'agency_settings' }, () => {
+      setTimeout(async () => {
+        if (typeof loadSettingsFromDB === 'function') await loadSettingsFromDB();
+        renderAll();
+      }, 400);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'investigator_expenses' }, () => {
+      setTimeout(async () => {
+        if (typeof loadInvestigatorExpensesDB === 'function') await loadInvestigatorExpensesDB();
+        renderAll();
+      }, 400);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'user_roles' }, () => {
+      setTimeout(async () => {
+        if (typeof loadAssignedRoles === 'function' && document.getElementById('view-settings')?.classList.contains('active')) {
+           loadAssignedRoles();
+        }
       }, 400);
     })
     .subscribe();
