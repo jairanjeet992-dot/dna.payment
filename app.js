@@ -622,12 +622,19 @@ async function backupEntireSystem() {
 function showView(name, el) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById('view-'+name).classList.add('active');
-  document.getElementById('notif-panel').classList.remove('open');
-  if (name === 'reports') buildBulkSlipSummary();
-  if (name === 'yearly') renderYearly();
+  if (el) el.classList.add('active');
+  const targetView = document.getElementById('view-'+name);
+  if (targetView) targetView.classList.add('active');
+  const notifPanel = document.getElementById('notif-panel');
+  if (notifPanel) notifPanel.classList.remove('open');
+  
+  if (name === 'cases') filterCases();
+  if (name === 'investigators') filterInvestigators();
+  if (name === 'monthly') renderMonthly(activeMonth);
   if (name === 'salary') renderSalary();
+  if (name === 'yearly') renderYearly();
+  if (name === 'documents') renderDocuments();
+  if (name === 'reports') buildBulkSlipSummary();
   if (name === 'intelligence') renderIntelligenceView();
 }
 
@@ -694,11 +701,34 @@ async function loadCasesFromDB() {
   }
 }
 
+function parseDateComponents(dateStr) {
+  if (!dateStr) dateStr = new Date().toISOString().slice(0, 10);
+  const parts = String(dateStr).trim().split(/[-/]/);
+  let y, m;
+  if (parts.length >= 3) {
+    if (parts[0].length === 4) {
+      // YYYY-MM-DD
+      y = parseInt(parts[0], 10);
+      m = parseInt(parts[1], 10);
+    } else {
+      // DD-MM-YYYY or MM-DD-YYYY
+      y = parseInt(parts[2], 10);
+      m = parseInt(parts[1], 10);
+    }
+  } else {
+    const d = new Date(dateStr);
+    y = d.getFullYear();
+    m = d.getMonth() + 1;
+  }
+  const codes = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const monthIdx = (m >= 1 && m <= 12) ? m - 1 : 0;
+  const shortYear = String(y).slice(-2);
+  const code = `${codes[monthIdx]}${shortYear}`;
+  return { y, m, code };
+}
+
 async function genDocCodeDB(dateStr) {
-  if (!dateStr) dateStr = new Date().toISOString().slice(0,10);
-  const d = new Date(dateStr);
-  const mo = MONTHS.find(m => m.m === (d.getMonth()+1) && m.y === d.getFullYear());
-  const monthCode = mo ? mo.code : String(d.getMonth()+1) + d.getFullYear();
+  const { code: monthCode } = parseDateComponents(dateStr);
   // Calls the next_doc_code() Postgres function — an atomic sequence
   // increment, so two staff members adding cases at the same instant can
   // never collide on the same doc_code (the old client-side counter could).
@@ -5307,9 +5337,7 @@ async function commitImportPreview() {
       const inv1 = resolveName(r.inv1), inv2 = resolveName(r.inv2);
       const company = resolveCompany(r.company);
       
-      const d = new Date(r.date || new Date().toISOString().slice(0,10));
-      const mo = MONTHS.find(m => m.m === (d.getMonth()+1) && m.y === d.getFullYear());
-      const monthCode = mo ? mo.code : String(d.getMonth()+1) + d.getFullYear();
+      const { code: monthCode } = parseDateComponents(r.date);
       
       let doc_code;
       if (localMonthCounters[monthCode]) {
@@ -5738,27 +5766,46 @@ async function generateSlip(previewOnly = true) {
   }
 }
 
-// Per-case fee/TA/status attribution for one investigator on one case.
+// Per-case fee/TA/status/hardcopy attribution for one investigator on one case.
 // Handles the case where the same investigator appears as BOTH inv1 and
-// inv2 on a single case (e.g. dual-role assignment) — sums both slots
-// instead of the old classic/compact/detailed templates' ternary, which
-// only ever read one slot and silently dropped the other's fee+TA when
-// inv1===inv2===name.
+// inv2 on a single case (e.g. dual-role assignment) — sums both slots.
 function invAmountOnCase(c, name) {
-  let fee=0, ta=0, statuses=[];
-  if (c.inv1===name) { fee+=c.fee1||0; ta+=c.ta1||0; statuses.push(c.inv1_status||'—'); }
-  if (c.inv2===name) { fee+=c.fee2||0; ta+=c.ta2||0; statuses.push(c.inv2_status||'—'); }
-  return {fee, ta, total: fee+ta, status: statuses.join(' / ')};
+  let fee=0, ta=0, statuses=[], hardcopies=[];
+  if (c.inv1===name) { 
+    fee+=c.fee1||0; 
+    ta+=c.ta1||0; 
+    statuses.push(c.inv1_status||'—'); 
+    hardcopies.push(c.hardcopy1_status||'Not Received');
+  }
+  if (c.inv2===name) { 
+    fee+=c.fee2||0; 
+    ta+=c.ta2||0; 
+    statuses.push(c.inv2_status||'—'); 
+    hardcopies.push(c.hardcopy2_status||'Not Received');
+  }
+  const isHcReceived = hardcopies.length > 0 && hardcopies.every(h => (h||'').toLowerCase() === 'received');
+  return {
+    fee, 
+    ta, 
+    total: fee+ta, 
+    status: statuses.join(' / '), 
+    hardcopy: isHcReceived ? 'Received' : 'Not Received'
+  };
 }
 
 function slipTemplatePremium(name, mo, monthCases, stats) {
   const s = settings;
   const rows = monthCases.map((c, i) => {
     const a = invAmountOnCase(c, name);
+    const isHcReceived = (a.hardcopy || '').toLowerCase() === 'received';
     return `<tr style="border-bottom:1px solid #E4E0D6; page-break-inside: avoid;">
-      <td style="padding:6px 4px;word-break:break-word;font-family:monospace;font-size:10px;color:#657486;">${c.doc_code||''}</td>
+      <td style="padding:6px 4px;word-break:break-word;text-align:center;">
+        <span style="display:inline-block;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;background:${isHcReceived?'#E7F5EC':'#FDF0ED'};color:${isHcReceived?'#1F7A4D':'#C0392B'};border:1px solid ${isHcReceived?'#A3E0BA':'#F5B7B1'};">
+          ${isHcReceived ? '✓ Received' : '✕ Not Received'}
+        </span>
+      </td>
       <td style="padding:6px 4px;word-break:break-word;">${c.date||''}</td>
-      <td style="padding:6px 4px;word-break:break-word;">${c.claim_no||''}</td>
+      <td style="padding:6px 4px;word-break:break-word;font-family:monospace;font-weight:700;color:#0F2942;">${c.claim_no||''}</td>
       <td style="padding:6px 4px;word-break:break-word;">${c.insured_name||''}</td>
       <td style="padding:6px 4px;word-break:break-word;color:#657486;">${c.company||''}</td>
       <td style="padding:6px 4px;word-break:break-word;text-align:right;">Rs ${fmt(a.fee)}</td>
@@ -5889,7 +5936,7 @@ function slipTemplatePremium(name, mo, monthCases, stats) {
       <table style="width:100%;border-collapse:collapse;font-size:9.5px;">
         <thead>
           <tr style="background:#0F2942;color:#fff;">
-            <th style="padding:6px 4px;text-align:left;">Doc Code</th>
+            <th style="padding:6px 4px;text-align:center;">Hard Copy</th>
             <th style="padding:6px 4px;text-align:left;">Date</th>
             <th style="padding:6px 4px;text-align:left;">Claim No</th>
             <th style="padding:6px 4px;text-align:left;">Insured</th>
@@ -6224,8 +6271,174 @@ async function restoreBackup(e) {
     } catch(err) { showToast('Restore failed: ' + err.message, true); }
   };
   reader.readAsText(file);
-  e.target.value = '';
 }
+
+// Automatically scans database and fixes malformed doc_codes (e.g. 72026-0222 -> JUL26-0222)
+async function fixMalformedDocCodes() {
+  const btn = document.getElementById('fix-doc-codes-btn');
+  const oldText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Scanning & Fixing...';
+  }
+
+  showToast('🔍 Scanning database for malformed document codes...');
+  
+  try {
+    // Ensure we have the latest cases list
+    let targetCases = window.cases || (typeof cases !== 'undefined' ? cases : []);
+    if (!targetCases || targetCases.length === 0) {
+      try {
+        const { data } = await supabaseClient.from('cases').select('*');
+        if (data && data.length > 0) targetCases = data;
+      } catch(e) {
+        console.warn('Could not fetch cases from DB:', e);
+      }
+    }
+
+    const codes = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    
+    function getStandardDocCode(docCode, dateStr) {
+      if (!docCode) return null;
+      const str = String(docCode).trim();
+      // If it's already perfectly valid (e.g., JUL26-0222, JUN26-0001), skip
+      if (/^[A-Z]{3}\d{2}-\d{3,}$/i.test(str)) {
+        return null;
+      }
+
+      // Pattern 1: e.g. 72026-0222, 072026-0222, 112026-0001
+      const p1 = str.match(/^(\d{1,2})20(\d{2})[-_](\d+)$/);
+      if (p1) {
+        const monthNum = parseInt(p1[1], 10);
+        const shortYear = p1[2];
+        const seq = p1[3].padStart(4, '0');
+        if (monthNum >= 1 && monthNum <= 12) {
+          return `${codes[monthNum - 1]}${shortYear}-${seq}`;
+        }
+      }
+
+      // Pattern 2: e.g. 7-2026-0222 or 07/2026-0222
+      const p2 = str.match(/^(\d{1,2})[-/](?:20)?(\d{2})[-_](\d+)$/);
+      if (p2) {
+        const monthNum = parseInt(p2[1], 10);
+        const shortYear = p2[2];
+        const seq = p2[3].padStart(4, '0');
+        if (monthNum >= 1 && monthNum <= 12) {
+          return `${codes[monthNum - 1]}${shortYear}-${seq}`;
+        }
+      }
+
+      // Pattern 3: Starts with number before hyphen, e.g. 726-0222 or any numeric prefix
+      const p3 = str.match(/^(\d{1,2})(\d{2})[-_](\d+)$/);
+      if (p3) {
+        const monthNum = parseInt(p3[1], 10);
+        const shortYear = p3[2];
+        const seq = p3[3].padStart(4, '0');
+        if (monthNum >= 1 && monthNum <= 12) {
+          return `${codes[monthNum - 1]}${shortYear}-${seq}`;
+        }
+      }
+
+      // Fallback: If docCode is malformed but we have dateStr
+      if (dateStr) {
+        const { code: monthCode } = parseDateComponents(dateStr);
+        const seqMatch = str.match(/(\d+)$/);
+        const seq = seqMatch ? seqMatch[1].padStart(4, '0') : '0001';
+        const candidate = `${monthCode}-${seq}`;
+        if (candidate.toLowerCase() !== str.toLowerCase()) {
+          return candidate;
+        }
+      }
+
+      return null;
+    }
+
+    const malformedList = [];
+    for (const c of targetCases) {
+      const fixed = getStandardDocCode(c.doc_code, c.date);
+      if (fixed && fixed !== c.doc_code) {
+        malformedList.push({
+          id: c.id,
+          oldDocCode: c.doc_code,
+          newDocCode: fixed,
+          claim_no: c.claim_no
+        });
+      }
+    }
+
+    if (malformedList.length === 0) {
+      showToast('✓ All document codes are already formatted correctly (e.g. JUL26-XXXX)!');
+      return;
+    }
+
+    showToast(`Fixing ${malformedList.length} malformed doc code(s)...`);
+    let fixedCount = 0;
+
+    for (const item of malformedList) {
+      try {
+        let query = supabaseClient.from('cases').update({ doc_code: item.newDocCode });
+        if (item.id) {
+          query = query.eq('id', item.id);
+        } else {
+          query = query.eq('doc_code', item.oldDocCode);
+        }
+        const { error } = await query;
+        if (!error) {
+          fixedCount++;
+          // Update local object
+          const local = targetCases.find(x => (item.id && x.id === item.id) || x.doc_code === item.oldDocCode);
+          if (local) local.doc_code = item.newDocCode;
+        } else {
+          console.error(`Failed to update ${item.oldDocCode} -> ${item.newDocCode}:`, error);
+        }
+      } catch (err) {
+        console.error(`Exception updating case ${item.oldDocCode}:`, err);
+      }
+    }
+
+    if (typeof loadCasesFromDB === 'function') {
+      await loadCasesFromDB();
+    }
+    if (typeof renderAll === 'function') {
+      renderAll();
+    }
+    if (typeof renderDocuments === 'function') {
+      renderDocuments();
+    }
+    if (typeof filterCases === 'function') {
+      filterCases();
+    }
+    if (typeof filterInvestigators === 'function') {
+      filterInvestigators();
+    }
+    if (typeof renderMonthly === 'function') {
+      renderMonthly(activeMonth);
+    }
+    if (typeof renderSalary === 'function') {
+      renderSalary();
+    }
+    if (typeof renderYearly === 'function') {
+      renderYearly();
+    }
+    if (typeof executeLookupDoc === 'function' && document.getElementById('doc-search')?.value) {
+      executeLookupDoc();
+    }
+    if (document.getElementById('bulkdoc-modal')?.classList.contains('open')) {
+      if (typeof renderBulkDocReceive === 'function') renderBulkDocReceive();
+      if (typeof renderBulkDocDispatch === 'function') renderBulkDocDispatch();
+    }
+    
+    showToast(`✓ Successfully converted ${fixedCount} of ${malformedList.length} code(s) (e.g. ${malformedList[0].oldDocCode} → ${malformedList[0].newDocCode})!`);
+  } catch (err) {
+    showToast('Error during fix: ' + (err.message || err), true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || '🔧 Fix Malformed Doc Codes';
+    }
+  }
+}
+window.fixMalformedDocCodes = fixMalformedDocCodes;
 
 async function clearAllData() {
   if (!confirm('This will permanently delete ALL cases, activity logs, and investigators from the database. This cannot be undone. Continue?')) return;
@@ -6508,6 +6721,8 @@ window.initGoogleDriveOnLoad = function() {
 // ============================================================
 // BULK DOCUMENT & DISPATCH MANAGER
 // ============================================================
+// BULK DOCUMENT & DISPATCH MANAGER (HARD COPY INWARD / OUTWARD)
+// ============================================================
 let currentDocTab = 'receive';
 
 function openBulkDocManager() {
@@ -6516,18 +6731,18 @@ function openBulkDocManager() {
     return;
   }
   
-  // Populate Investigator Dropdown
+  // Populate Investigator Dropdown with 'ALL' as default
   const invSelect = document.getElementById('bulkdoc-receive-inv');
-  invSelect.innerHTML = '<option value="">-- Choose Investigator --</option>' + 
+  invSelect.innerHTML = '<option value="ALL">★ All Investigators (Pending Hard Copies)</option>' + 
     INVESTIGATORS.map(n => `<option value="${escAttr(n)}">${escAttr(n)}</option>`).join('');
+  invSelect.value = 'ALL';
     
-  // Populate Company Dropdown
+  // Populate Company Dropdown with 'ALL' as default
   const coSelect = document.getElementById('bulkdoc-dispatch-co');
-  coSelect.innerHTML = '<option value="">-- Choose Company --</option>' + 
+  coSelect.innerHTML = '<option value="ALL">★ All Companies (Pending Dispatch)</option>' + 
     COMPANIES.map(c => `<option value="${escAttr(c)}">${escAttr(c)}</option>`).join('');
+  coSelect.value = 'ALL';
 
-  document.getElementById('bulkdoc-receive-table').querySelector('tbody').innerHTML = '';
-  document.getElementById('bulkdoc-dispatch-table').querySelector('tbody').innerHTML = '';
   document.getElementById('bulkdoc-dispatch-awb').value = '';
   document.getElementById('bulkdoc-receive-paste').value = '';
   document.getElementById('bulkdoc-dispatch-paste').value = '';
@@ -6535,6 +6750,9 @@ function openBulkDocManager() {
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('bulkdoc-receive-date').value = today;
   document.getElementById('bulkdoc-dispatch-date').value = today;
+  
+  renderBulkDocReceive();
+  renderBulkDocDispatch();
   
   switchDocTab('receive');
   document.getElementById('bulkdoc-modal').classList.add('open');
@@ -6571,12 +6789,77 @@ function autoSelectDocs(tab) {
   const rawText = document.getElementById(pasteId).value;
   if (!rawText.trim()) return;
 
-  // Split by commas or newlines, clean up whitespace, uppercase
-  const searchTerms = rawText.split(/[\n,]+/).map(s => s.trim().toUpperCase()).filter(s => s);
+  // Split by commas, tabs, newlines or spaces, clean up whitespace, uppercase
+  const searchTerms = rawText.split(/[\n,\t\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
   if (searchTerms.length === 0) return;
 
-  const rows = document.querySelectorAll(`#${tableId} tbody tr`);
+  let rows = document.querySelectorAll(`#${tableId} tbody tr`);
   let matchCount = 0;
+
+  // If table is empty or missing terms, try rendering across all cases
+  const allCases = window.cases || cases || [];
+  const tbody = document.getElementById(tableId).querySelector('tbody');
+
+  if (tab === 'receive') {
+    // Find matching cases that might not be in the current filtered table
+    const matchedCases = allCases.filter(c => {
+      if (!c || c.exception_type === 'Withdrawn') return false;
+      const docCode = (c.doc_code || '').toUpperCase();
+      const claimNo = (c.claim_no || '').toUpperCase();
+      const polNo = (c.policy_no || '').toUpperCase();
+      return searchTerms.some(t => t === docCode || t === claimNo || t === polNo);
+    });
+
+    if (matchedCases.length > 0) {
+      // Re-populate table with these matched cases if needed
+      const existingDocCodes = new Set(Array.from(rows).map(r => r.getAttribute('data-doccode')));
+      matchedCases.forEach(c => {
+        if (!existingDocCodes.has(c.doc_code)) {
+          let roles = [];
+          if (c.inv1 && c.inv1 !== 'NA') roles.push('INV1');
+          if (c.inv2 && c.inv2 !== 'NA') roles.push('INV2');
+          const trHtml = `<tr data-doccode="${c.doc_code}" data-claim="${c.claim_no||''}" data-roles="${roles.join(',') || 'INV1'}">
+            <td><input type="checkbox" checked onchange="updateBulkDocSelectionCount()"></td>
+            <td style="font-family:var(--mono); font-weight:700;">${c.doc_code}</td>
+            <td>${c.date||''}</td>
+            <td style="font-family:var(--mono); font-weight:700; color:var(--navy);">${c.claim_no||''}</td>
+            <td>${c.insured_name||''}</td>
+            <td>${roles.join(' & ') || c.inv1 || '—'}</td>
+            <td><span style="color:var(--red); font-weight:600;">Not Received</span></td>
+          </tr>`;
+          tbody.insertAdjacentHTML('afterbegin', trHtml);
+        }
+      });
+      rows = document.querySelectorAll(`#${tableId} tbody tr`);
+    }
+  } else {
+    // Dispatch tab
+    const matchedCases = allCases.filter(c => {
+      if (!c || c.exception_type === 'Withdrawn') return false;
+      const docCode = (c.doc_code || '').toUpperCase();
+      const claimNo = (c.claim_no || '').toUpperCase();
+      const polNo = (c.policy_no || '').toUpperCase();
+      return searchTerms.some(t => t === docCode || t === claimNo || t === polNo);
+    });
+
+    if (matchedCases.length > 0) {
+      const existingDocCodes = new Set(Array.from(rows).map(r => r.getAttribute('data-doccode')));
+      matchedCases.forEach(c => {
+        if (!existingDocCodes.has(c.doc_code)) {
+          const trHtml = `<tr data-doccode="${c.doc_code}" data-claim="${c.claim_no||''}">
+            <td><input type="checkbox" checked onchange="updateBulkDocSelectionCount()"></td>
+            <td style="font-family:var(--mono); font-weight:700;">${c.doc_code}</td>
+            <td>${c.date||''}</td>
+            <td style="font-family:var(--mono); font-weight:700; color:var(--navy);">${c.claim_no||''}</td>
+            <td>${c.insured_name||''}</td>
+            <td>${c.inv1||'—'}</td>
+          </tr>`;
+          tbody.insertAdjacentHTML('afterbegin', trHtml);
+        }
+      });
+      rows = document.querySelectorAll(`#${tableId} tbody tr`);
+    }
+  }
 
   // Uncheck header checkbox
   const headerCb = document.querySelector(`#${tableId} thead input[type="checkbox"]`);
@@ -6589,14 +6872,17 @@ function autoSelectDocs(tab) {
     const docCode = (tr.getAttribute('data-doccode') || '').toUpperCase();
     const claimNo = (tr.getAttribute('data-claim') || '').toUpperCase();
     
-    // Check if doc code or claim no matches any pasted term
     const matches = searchTerms.some(term => term === docCode || term === claimNo);
-    
     cb.checked = matches;
-    if (matches) matchCount++;
+    if (matches) {
+      matchCount++;
+      tr.style.backgroundColor = 'rgba(217, 119, 6, 0.12)';
+    } else {
+      tr.style.backgroundColor = '';
+    }
   });
 
-  showToast(`${matchCount} of ${rows.length} cases matched and selected!`);
+  showToast(`✓ ${matchCount} case(s) matched and selected!`);
   updateBulkDocSelectionCount();
 }
 
@@ -6605,34 +6891,44 @@ function renderBulkDocReceive() {
   const tbody = document.getElementById('bulkdoc-receive-table').querySelector('tbody');
   tbody.innerHTML = '';
   
-  if (!name) return;
+  const allCases = window.cases || cases || [];
   
   // Find cases where this person is INV1 (and HC isn't Received) OR INV2 (and HC isn't Received)
-  const pendingCases = cases.filter(c => {
-    if (c.exception_type === 'Withdrawn') return false;
-    const isInv1 = (c.inv1 === name && c.hardcopy1_status !== 'Received');
-    const isInv2 = (c.inv2 === name && c.hardcopy2_status !== 'Received');
-    return isInv1 || isInv2;
+  const pendingCases = allCases.filter(c => {
+    if (!c || c.exception_type === 'Withdrawn') return false;
+    const isInv1Pending = c.inv1 && c.inv1 !== 'NA' && (c.hardcopy1_status || '').toLowerCase() !== 'received';
+    const isInv2Pending = c.inv2 && c.inv2 !== 'NA' && (c.hardcopy2_status || '').toLowerCase() !== 'received';
+    
+    if (!isInv1Pending && !isInv2Pending) return false;
+    if (!name || name === 'ALL') return true;
+    return (c.inv1 === name && isInv1Pending) || (c.inv2 === name && isInv2Pending);
   });
   
   if (pendingCases.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;">No pending hard copies for this investigator.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:24px;">No pending hard copies found.</td></tr>';
     updateBulkDocSelectionCount(); return;
   }
   
   tbody.innerHTML = pendingCases.map(c => {
     let roles = [];
-    if (c.inv1 === name) roles.push('INV1');
-    if (c.inv2 === name) roles.push('INV2');
+    const isInv1Pending = c.inv1 && c.inv1 !== 'NA' && (c.hardcopy1_status || '').toLowerCase() !== 'received';
+    const isInv2Pending = c.inv2 && c.inv2 !== 'NA' && (c.hardcopy2_status || '').toLowerCase() !== 'received';
+    if (name === 'ALL' || !name) {
+      if (isInv1Pending) roles.push(`INV1: ${c.inv1}`);
+      if (isInv2Pending) roles.push(`INV2: ${c.inv2}`);
+    } else {
+      if (c.inv1 === name && isInv1Pending) roles.push('INV1');
+      if (c.inv2 === name && isInv2Pending) roles.push('INV2');
+    }
     
-    return `<tr data-doccode="${c.doc_code}" data-claim="${c.claim_no||''}" data-roles="${roles.join(',')}">
+    return `<tr data-doccode="${c.doc_code}" data-claim="${c.claim_no||''}" data-roles="${(name==='ALL'||!name)?'INV1,INV2':roles.join(',')}">
       <td><input type="checkbox" checked onchange="updateBulkDocSelectionCount()"></td>
-      <td style="font-family:var(--mono);">${c.doc_code}</td>
+      <td style="font-family:var(--mono);font-weight:700;">${c.doc_code}</td>
       <td>${c.date||''}</td>
-      <td>${c.claim_no||''}</td>
+      <td style="font-family:var(--mono);font-weight:700;color:var(--navy);">${c.claim_no||''}</td>
       <td>${c.insured_name||''}</td>
-      <td>${roles.join(' & ')}</td>
-      <td><span style="color:var(--red);">Not Received</span></td>
+      <td>${roles.join(' & ') || c.inv1 || '—'}</td>
+      <td><span style="color:var(--red);font-weight:600;">Not Received</span></td>
     </tr>`;
   }).join('');
   updateBulkDocSelectionCount();
@@ -6643,26 +6939,26 @@ function renderBulkDocDispatch() {
   const tbody = document.getElementById('bulkdoc-dispatch-table').querySelector('tbody');
   tbody.innerHTML = '';
   
-  if (!comp) return;
+  const allCases = window.cases || cases || [];
   
   // Find cases for this company that aren't Dispatched or Delivered
-  const pendingCases = cases.filter(c => {
-    if (c.exception_type === 'Withdrawn') return false;
-    if (c.company !== comp) return false;
+  const pendingCases = allCases.filter(c => {
+    if (!c || c.exception_type === 'Withdrawn') return false;
+    if (comp && comp !== 'ALL' && c.company !== comp) return false;
     return (c.company_hardcopy_status !== 'Dispatched' && c.company_hardcopy_status !== 'Delivered');
   });
   
   if (pendingCases.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;">No pending dispatches for this company.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">No pending dispatches found.</td></tr>';
     updateBulkDocSelectionCount(); return;
   }
   
   tbody.innerHTML = pendingCases.map(c => {
     return `<tr data-doccode="${c.doc_code}" data-claim="${c.claim_no||''}">
       <td><input type="checkbox" checked onchange="updateBulkDocSelectionCount()"></td>
-      <td style="font-family:var(--mono);">${c.doc_code}</td>
+      <td style="font-family:var(--mono);font-weight:700;">${c.doc_code}</td>
       <td>${c.date||''}</td>
-      <td>${c.claim_no||''}</td>
+      <td style="font-family:var(--mono);font-weight:700;color:var(--navy);">${c.claim_no||''}</td>
       <td>${c.insured_name||''}</td>
       <td>${c.inv1||'—'}</td>
     </tr>`;
@@ -6670,10 +6966,27 @@ function renderBulkDocDispatch() {
   updateBulkDocSelectionCount();
 }
 
+async function safeUpdateCaseInDB(docCode, toUpdate) {
+  // First attempt with full update payload
+  let res = await supabaseClient.from('cases').update(toUpdate).eq('doc_code', docCode);
+  if (res.error) {
+    console.warn(`[SafeUpdate] Full update failed for ${docCode}, falling back to core fields:`, res.error.message);
+    const coreUpdate = { ...toUpdate };
+    delete coreUpdate.hardcopy_receive_date;
+    delete coreUpdate.company_dispatch_date;
+    const retryRes = await supabaseClient.from('cases').update(coreUpdate).eq('doc_code', docCode);
+    if (retryRes.error) {
+      console.error(`[SafeUpdate] Fallback update failed for ${docCode}:`, retryRes.error);
+      throw retryRes.error;
+    }
+  }
+  return true;
+}
+
 async function processBulkDocs() {
   const btn = document.getElementById('bulkdoc-process-btn');
   btn.disabled = true;
-  btn.textContent = 'Processing...';
+  btn.textContent = 'Processing & Syncing...';
   
   let updates = [];
   
@@ -6684,11 +6997,18 @@ async function processBulkDocs() {
       const cb = tr.querySelector('input[type="checkbox"]');
       if (cb && cb.checked) {
         const docCode = tr.getAttribute('data-doccode');
-        const roles = tr.getAttribute('data-roles').split(',');
+        const roles = (tr.getAttribute('data-roles') || '').split(',');
         
         let toUpdate = {};
-        if (roles.includes('INV1')) toUpdate.hardcopy1_status = 'Received';
-        if (roles.includes('INV2')) toUpdate.hardcopy2_status = 'Received';
+        if (roles.includes('INV1') || roles.length === 0 || roles.some(r => r.includes('INV1'))) {
+          toUpdate.hardcopy1_status = 'Received';
+        }
+        if (roles.includes('INV2') || roles.some(r => r.includes('INV2'))) {
+          toUpdate.hardcopy2_status = 'Received';
+        }
+        if (!toUpdate.hardcopy1_status && !toUpdate.hardcopy2_status) {
+          toUpdate.hardcopy1_status = 'Received';
+        }
         if (recDate) toUpdate.hardcopy_receive_date = recDate;
         
         updates.push({ docCode, toUpdate });
@@ -6728,30 +7048,51 @@ async function processBulkDocs() {
     });
   }
   
-  // Process in parallel chunks to avoid N+1 bottleneck & API limits
+  // Apply optimistic updates locally immediately for instantaneous UI feedback
+  const targetList = window.cases || cases || [];
+  updates.forEach(u => {
+    const found = targetList.find(c => c && c.doc_code === u.docCode);
+    if (found) {
+      Object.assign(found, u.toUpdate);
+    }
+  });
+  window.cases = targetList;
+  cases = targetList;
+  renderAll();
+
+  // Process in parallel chunks to save to database
   try {
     let successCount = 0;
+    let failedCount = 0;
     const chunkSize = 10;
     
     for (let i = 0; i < updates.length; i += chunkSize) {
       const chunk = updates.slice(i, i + chunkSize);
       const promises = chunk.map(u => 
-        supabaseClient.from('cases').update(u.toUpdate).eq('doc_code', u.docCode)
-          .then(({ error }) => {
-            if (error) console.error('Update failed for', u.docCode, error);
-            else successCount++;
+        safeUpdateCaseInDB(u.docCode, u.toUpdate)
+          .then(() => { successCount++; })
+          .catch(err => {
+            console.error('Failed to update DB for', u.docCode, err);
+            failedCount++;
           })
       );
       await Promise.all(promises);
     }
     
-    showToast(`Successfully updated ${successCount} cases!`);
-    await loadCasesFromDB(); // Reload local cache
+    if (successCount > 0) {
+      showToast(`✓ Successfully updated & saved ${successCount} cases to database!`);
+    }
+    if (failedCount > 0) {
+      showToast(`⚠️ ${failedCount} cases failed to update on database`, true);
+    }
+    
+    // Refresh authoritative data from DB and re-render
+    await loadCasesFromDB();
     renderAll();
     closeModal('bulkdoc-modal');
   } catch (err) {
     console.error('Bulk Doc Error', err);
-    showToast('An error occurred during update', true);
+    showToast('An error occurred during update: ' + err.message, true);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Apply Changes';

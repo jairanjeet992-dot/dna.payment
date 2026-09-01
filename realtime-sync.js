@@ -1,5 +1,5 @@
 // realtime-sync.js
-// Handles Supabase Realtime functionality for live multiplayer sync
+// Handles Supabase Realtime functionality for live multi-user sync
 
 if (window.supabaseClient) {
   console.log('[REALTIME] Connecting to Supabase Realtime...');
@@ -11,7 +11,8 @@ if (window.supabaseClient) {
       (payload) => {
         console.log('[REALTIME] Payload received!', payload);
         
-        if (!window.cases) return;
+        const targetCases = window.cases || (typeof cases !== 'undefined' ? cases : null);
+        if (!targetCases) return;
 
         const processRow = (row) => ({
           ...row, 
@@ -24,23 +25,38 @@ if (window.supabaseClient) {
           received: Number(row.received || 0)
         });
 
-        if (payload.eventType === 'INSERT') {
-          const exists = window.cases.some(c => c.id === payload.new.id);
+        if (payload.eventType === 'INSERT' && payload.new) {
+          const exists = targetCases.some(c => 
+            (payload.new.id && String(c.id) === String(payload.new.id)) ||
+            (payload.new.doc_code && c.doc_code === payload.new.doc_code)
+          );
           if (!exists) {
-            window.cases.unshift(processRow(payload.new));
+            targetCases.unshift(processRow(payload.new));
           }
         } 
-        else if (payload.eventType === 'UPDATE') {
-          const idx = window.cases.findIndex(c => c.id === payload.new.id);
+        else if (payload.eventType === 'UPDATE' && payload.new) {
+          const idx = targetCases.findIndex(c => 
+            (payload.new.id && String(c.id) === String(payload.new.id)) ||
+            (payload.new.doc_code && c.doc_code === payload.new.doc_code)
+          );
           if (idx !== -1) {
-            window.cases[idx] = processRow(payload.new);
+            targetCases[idx] = { ...targetCases[idx], ...processRow(payload.new) };
           }
         } 
-        else if (payload.eventType === 'DELETE') {
-          window.cases = window.cases.filter(c => c.id !== payload.old.id);
+        else if (payload.eventType === 'DELETE' && payload.old) {
+          const deleteIdx = targetCases.findIndex(c => 
+            (payload.old.id && String(c.id) === String(payload.old.id)) ||
+            (payload.old.doc_code && c.doc_code === payload.old.doc_code)
+          );
+          if (deleteIdx !== -1) {
+            targetCases.splice(deleteIdx, 1);
+          }
         }
         
-        // Re-render UI efficiently
+        window.cases = targetCases;
+        if (typeof cases !== 'undefined') cases = targetCases;
+        
+        // Re-render UI immediately
         if (typeof window.renderAll === 'function') {
           window.renderAll();
         }
@@ -50,3 +66,4 @@ if (window.supabaseClient) {
       console.log('[REALTIME] Subscription status:', status);
     });
 }
+

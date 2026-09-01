@@ -835,9 +835,13 @@
           const inv1 = resolveName(r.inv1);
           const inv2 = resolveName(r.inv2);
 
-          const d = new Date(r.date || new Date().toISOString().slice(0, 10));
-          const mo = window.MONTHS ? window.MONTHS.find(m => m.m === (d.getMonth() + 1) && m.y === d.getFullYear()) : null;
-          const monthCode = mo ? mo.code : String(d.getMonth() + 1) + d.getFullYear();
+          const monthCode = typeof parseDateComponents === 'function' 
+            ? parseDateComponents(r.date).code 
+            : (() => {
+                const d = new Date(r.date || new Date().toISOString().slice(0, 10));
+                const codes = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+                return `${codes[d.getMonth()]}${String(d.getFullYear()).slice(-2)}`;
+              })();
 
           let doc_code;
           if (localMonthCounters[monthCode]) {

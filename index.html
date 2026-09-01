@@ -909,6 +909,7 @@ tbody tr:hover{background:var(--line);}
         <button class="btn btn-ghost btn-sm" onclick="exportExcel()" style="margin-top:8px;">📊 Export Excel (.xlsx)</button>
         <button class="btn btn-ghost btn-sm" onclick="exportPDF()" style="margin-top:8px;">📄 Export PDF (Cases List)</button>
         <button class="btn btn-ghost btn-sm" onclick="exportBackup()" style="margin-top:8px;">💾 Download Full Backup (JSON)</button>
+        <button id="fix-doc-codes-btn" class="btn btn-ghost btn-sm" onclick="fixMalformedDocCodes()" style="margin-top:8px; border-color:var(--gold); color:var(--gold); font-weight:600;" title="Fixes doc codes with numeric month prefixes like 72026-XXXX into JUL26-XXXX">🔧 Fix Malformed Doc Codes (e.g. 72026-XXXX → JUL26-XXXX)</button>
         <button class="btn btn-ghost btn-sm admin-only" onclick="openRollbackHistoryModal()" style="margin-top:8px;">↩ View Batch Rollback History (Undo)</button>
         <button class="btn btn-navy btn-sm" onclick="backupEntireSystem()" style="margin-top:8px; width:100%;">☁ Backup Entire System to Drive</button>
         <div style="margin-top:8px;"><input type="file" id="restore-file" accept=".json" style="display:none" onchange="restoreBackup(event)"><button class="btn btn-ghost btn-sm" onclick="document.getElementById('restore-file').click()">📤 Restore from Backup</button></div>
