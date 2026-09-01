@@ -1,5 +1,6 @@
 // =============================================================================
 // smart-merge-engine.js — Universal Smart Bulk Paste, Merge & Outcome Engine
+// Bulletproof Duplicate Handling & Safe DB-Enriched Conflict Resolution
 // =============================================================================
 (() => {
   'use strict';
@@ -63,7 +64,7 @@
   /**
    * Smart Parser for both Tab-Separated Bulk Paste & CSV
    */
-  window.parseUniversalRows = function(text) {
+  window.parseUniversalRows = function(text, liveDbMatches = null) {
     if (!text || !text.trim()) return [];
 
     const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
@@ -104,26 +105,30 @@
       });
     }
 
-    // Build DB Lookup maps for instant matching
-    const existingCases = window.cases || [];
+    // Build DB Lookup maps for instant matching (combining in-memory & live DB queries)
+    const existingCases = [...(window.cases || [])];
+    if (Array.isArray(liveDbMatches) && liveDbMatches.length > 0) {
+      existingCases.push(...liveDbMatches);
+    }
+
     const dbByClaimKey = new Map(); // cleanKey(claim_no) -> case
     const dbByCompanyClaimKey = new Map(); // cleanKey(company) + '|' + cleanKey(claim_no) -> case
     const dbByDocCode = new Map(); // cleanKey(doc_code) -> case
 
     existingCases.forEach(c => {
-      if (c.claim_no) {
+      if (c && c.claim_no) {
         dbByClaimKey.set(cleanKey(c.claim_no), c);
         if (c.company) {
           dbByCompanyClaimKey.set(cleanKey(c.company) + '|' + cleanKey(c.claim_no), c);
         }
       }
-      if (c.doc_code) {
+      if (c && c.doc_code) {
         dbByDocCode.set(cleanKey(c.doc_code), c);
       }
     });
 
     const parsedRows = [];
-    const seenClaimKeys = new Set();
+    const seenBatchKeys = new Map(); // cleanKey(company) + '|' + cleanKey(claim_no) -> index in parsedRows
 
     for (let i = startIdx; i < rawRows.length; i++) {
       const r = rawRows[i];
@@ -188,11 +193,12 @@
         continue;
       }
 
-      // Check if matching case exists in DB
+      // Check if matching case exists in DB (Exact Company+Claim > Claim > DocCode)
       const claimK = cleanKey(claim_no);
       const compK = cleanKey(company);
-      let matchedExisting = null;
+      const batchCompositeKey = compK ? (compK + '|' + claimK) : claimK;
 
+      let matchedExisting = null;
       if (compK && claimK && dbByCompanyClaimKey.has(compK + '|' + claimK)) {
         matchedExisting = dbByCompanyClaimKey.get(compK + '|' + claimK);
       } else if (claimK && dbByClaimKey.has(claimK)) {
@@ -216,12 +222,20 @@
       }
 
       const isMerge = Boolean(matchedExisting);
-      const isBatchDup = !isMerge && seenClaimKeys.has(claimK);
-      if (claimK) seenClaimKeys.add(claimK);
+      
+      // Intra-Batch Deduplication Check:
+      // If two rows in the same Excel file share the same (company, claim_no), the 2nd row is marked as a batch duplicate
+      // so it never causes unique constraint collisions during batch insertion!
+      let isBatchDup = false;
+      if (batchCompositeKey && seenBatchKeys.has(batchCompositeKey)) {
+        isBatchDup = true;
+      } else if (batchCompositeKey) {
+        seenBatchKeys.set(batchCompositeKey, parsedRows.length);
+      }
 
       // Validation errors ONLY if creating brand new case without essentials
       let error = null;
-      if (!isMerge) {
+      if (!isMerge && !isBatchDup) {
         if (!claim_no) error = 'Missing Claim No';
         else if (!company) error = 'Missing Company name';
         else if (!insured_name) error = 'Missing Insured / Patient name';
@@ -264,9 +278,75 @@
   };
 
   /**
+   * Pre-fetch matching cases from DB for any claim_no or doc_code in incoming rows
+   */
+  async function prefetchCasesForRows(rawTextOrRows) {
+    if (!window.supabaseClient) return [];
+    try {
+      let claimNumbers = [];
+      let docCodes = [];
+
+      if (typeof rawTextOrRows === 'string') {
+        const initial = window.parseUniversalRows(rawTextOrRows);
+        claimNumbers = initial.map(r => r.claim_no).filter(Boolean);
+        docCodes = initial.map(r => r.matchedDocCode).filter(Boolean);
+      } else if (Array.isArray(rawTextOrRows)) {
+        claimNumbers = rawTextOrRows.map(r => r.claim_no).filter(Boolean);
+        docCodes = rawTextOrRows.map(r => r.matchedDocCode).filter(Boolean);
+      }
+
+      const uniqueClaims = [...new Set(claimNumbers.map(c => String(c).trim()))].filter(Boolean);
+      const uniqueDocs = [...new Set(docCodes.map(d => String(d).trim()))].filter(Boolean);
+
+      const dbMatches = [];
+      // Fetch in chunks of 100 to avoid PostgREST query length limits
+      for (let i = 0; i < uniqueClaims.length; i += 100) {
+        const chunk = uniqueClaims.slice(i, i + 100);
+        const { data, error } = await supabaseClient.from('cases').select('*').in('claim_no', chunk);
+        if (!error && data && data.length) {
+          dbMatches.push(...data);
+        }
+      }
+
+      for (let i = 0; i < uniqueDocs.length; i += 100) {
+        const chunk = uniqueDocs.slice(i, i + 100);
+        const { data, error } = await supabaseClient.from('cases').select('*').in('doc_code', chunk);
+        if (!error && data && data.length) {
+          dbMatches.push(...data);
+        }
+      }
+
+      return dbMatches;
+    } catch (e) {
+      console.warn('[Smart Merge] DB prefetch warning:', e);
+      return [];
+    }
+  }
+
+  /**
    * Render Comprehensive Smart Preview Modal with Old -> New Diff Viewer
    */
-  window.showSmartImportPreview = function(rows, sourceLabel) {
+  window.showSmartImportPreview = async function(rowsOrText, sourceLabel) {
+    let rows = [];
+    if (typeof rowsOrText === 'string') {
+      const dbMatches = await prefetchCasesForRows(rowsOrText);
+      rows = window.parseUniversalRows(rowsOrText, dbMatches);
+    } else if (Array.isArray(rowsOrText)) {
+      // Check if rows have DB matches already or need pre-fetching
+      const needsLookup = rowsOrText.some(r => r && r.claim_no && !r.isMerge);
+      if (needsLookup) {
+        const dbMatches = await prefetchCasesForRows(rowsOrText);
+        if (dbMatches.length > 0) {
+          const rawText = rowsOrText.map(r => r.raw || Object.values(r).join('\t')).join('\n');
+          rows = window.parseUniversalRows(rawText, dbMatches);
+        } else {
+          rows = rowsOrText;
+        }
+      } else {
+        rows = rowsOrText;
+      }
+    }
+
     window.pendingSmartRows = rows;
 
     const newRows = rows.filter(r => !r.error && !r.isMerge && !r.isBatchDup);
@@ -356,7 +436,7 @@
           <div style="font-size:18px;font-weight:800;color:#b91c1c;margin-top:2px;">${outcomeCounts.Fraud}</div>
         </div>
         <div style="background:rgba(245,158,11,0.1);border:1px solid #f59e0b;border-radius:6px;padding:8px 12px;text-align:center;">
-          <div style="font-size:9.5px;text-transform:uppercase;color:#92400e;font-weight:700;">Warnings / Skip</div>
+          <div style="font-size:9.5px;text-transform:uppercase;color:#92400e;font-weight:700;">Batch Dup / Skip</div>
           <div style="font-size:18px;font-weight:800;color:#b45309;margin-top:2px;">${errorRows.length + batchDupRows.length}</div>
         </div>
       </div>
@@ -364,7 +444,7 @@
       <!-- Merge Mode Options & Legend -->
       <div class="notice" style="background:#f0f7ff;border-left:3px solid #0052cc;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
         <div style="font-size:11.5px;color:#0747a6;">
-          <b>🔄 Smart Merge Active:</b> Inspecting differences below. Blank fields are auto-filled. Original customer details remain safely protected.
+          <b>🔄 Smart Merge Active:</b> Live database matched. Blank fields are auto-filled. Original customer details remain safely protected without duplicate errors.
         </div>
         <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--navy);cursor:pointer;">
           <input type="checkbox" id="smart-overwrite-toggle" onchange="window.reRenderSmartDiffPreview()">
@@ -432,7 +512,7 @@
               if (r.isMerge) {
                 actionBadge = `<span class="badge" style="background:#e0f2fe;color:#0369a1;font-weight:700;font-family:var(--mono);">🔄 MERGE (${r.matchedDocCode})</span>`;
               } else if (r.isBatchDup) {
-                actionBadge = '<span class="badge overdue">SKIP DUP</span>';
+                actionBadge = '<span class="badge overdue">BATCH DUP (SKIP)</span>';
               }
 
               let outcomeBadge = `<span class="badge pending">${r.outcome || 'Pending'}</span>`;
@@ -458,30 +538,27 @@
                     </div>
                   `;
                 } else {
-                  diffHtml = `<span style="color:#64748b;font-style:italic;font-size:10.5px;">✓ No field changes detected (Data matches existing)</span>`;
+                  diffHtml = `<span style="color:#64748b;font-style:italic;font-size:10.5px;">✓ No field changes (Data matches existing)</span>`;
                 }
+              } else if (r.isBatchDup) {
+                diffHtml = `<span style="color:#b45309;font-style:italic;font-size:10.5px;">Duplicate row within the same file (automatically omitted from new inserts to prevent collisions)</span>`;
               } else {
-                diffHtml = `<span style="color:#059669;font-size:10.5px;font-weight:600;">➕ Complete new record will be created</span>`;
+                diffHtml = `<span style="color:#047857;font-size:10.5px;font-weight:600;">➕ New record ready to insert</span>`;
               }
 
+              const displayDocCode = r.isMerge ? r.matchedDocCode : 'Auto';
+
               return `
-                <tr class="smart-row-${rowType}" style="border-bottom:1px solid var(--line);background:${r.isMerge ? '#fafcff' : 'transparent'};">
-                  <td style="padding:8px 10px;vertical-align:top;">${actionBadge}</td>
-                  <td class="mono" style="padding:8px 10px;vertical-align:top;font-weight:700;">${r.claim_no}</td>
-                  <td style="padding:8px 10px;vertical-align:top;">
-                    <div style="font-weight:700;color:var(--navy);">${r.insured_name}</div>
-                    <div style="font-size:10px;color:var(--sub);">${r.company} · ${r.hospital || 'No hospital'}</div>
+                <tr class="smart-row-${rowType}" style="border-bottom:1px solid var(--line);">
+                  <td style="padding:8px 10px;vertical-align:middle;">${actionBadge}<div class="mono" style="font-size:9.5px;color:var(--sub);margin-top:2px;">${displayDocCode}</div></td>
+                  <td class="mono" style="padding:8px 10px;vertical-align:middle;font-weight:700;">${r.claim_no || '—'}</td>
+                  <td style="padding:8px 10px;vertical-align:middle;"><b>${r.insured_name || '—'}</b><div style="font-size:10px;color:var(--sub);">${r.company || '—'}</div></td>
+                  <td style="padding:8px 10px;vertical-align:middle;">${outcomeBadge}${r.remarks ? `<div style="font-size:9.5px;color:#64748b;margin-top:2px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${r.remarks}">${r.remarks}</div>` : ''}</td>
+                  <td style="padding:8px 10px;vertical-align:middle;">
+                    <div style="font-weight:600;">${r.invoice_amount ? '₹' + Number(r.invoice_amount).toLocaleString('en-IN') : '—'}</div>
+                    <div style="font-size:9.5px;color:var(--sub);">${r.invoice_no ? '#' + r.invoice_no : ''} ${r.received ? '(Recv: ₹' + Number(r.received).toLocaleString('en-IN') + ')' : ''}</div>
                   </td>
-                  <td style="padding:8px 10px;vertical-align:top;">
-                    <div>${outcomeBadge}</div>
-                    ${r.remarks ? `<div style="font-size:10px;color:var(--sub);margin-top:2px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${r.remarks}">${r.remarks}</div>` : ''}
-                  </td>
-                  <td style="padding:8px 10px;vertical-align:top;font-size:10.5px;">
-                    <div><b>Inv:</b> <span class="mono">${r.invoice_no || '—'}</span></div>
-                    <div><b>Billed:</b> ${r.invoice_amount ? '₹' + Number(r.invoice_amount).toLocaleString('en-IN') : '—'}</div>
-                    <div><b>Recv:</b> ${r.received ? '₹' + Number(r.received).toLocaleString('en-IN') : '—'}</div>
-                  </td>
-                  <td style="padding:8px 10px;vertical-align:top;" id="smart-diff-cell-${rowIdx}">
+                  <td style="padding:8px 10px;vertical-align:middle;" id="smart-diff-cell-${rowIdx}">
                     ${diffHtml}
                   </td>
                 </tr>
@@ -493,7 +570,7 @@
     `;
 
     if (rows.length > 300) {
-      html += `<div style="text-align:center;color:var(--sub);font-size:11px;padding:8px;">+ ${rows.length - 300} more rows will be processed in background.</div>`;
+      html += `<div style="text-align:center;color:var(--sub);font-size:11px;padding:8px;">+ ${rows.length - 300} more rows will be processed safely in background.</div>`;
     }
 
     const previewBody = document.getElementById('preview-body');
@@ -545,7 +622,7 @@
     }
   };
 
-  // Re-render Diffs when Overwrite Toggle is clicked
+  // Live toggle for overwrite mode
   window.reRenderSmartDiffPreview = function() {
     const rows = window.pendingSmartRows || [];
     const overwrite = document.getElementById('smart-overwrite-toggle')?.checked || false;
@@ -606,7 +683,47 @@
   };
 
   /**
-   * Commit Import with 1-Click Rollback Snapshot & Atomic Upsert
+   * Helper to build single-case update payload safely
+   */
+  function buildMergePayload(mr, ex, overwrite) {
+    const payload = {};
+    const setField = (key, newVal, isNumber = false) => {
+      if (isNumber) {
+        if (overwrite && newVal !== undefined) payload[key] = newVal;
+        else if ((!ex[key] || ex[key] === 0) && newVal > 0) payload[key] = newVal;
+      } else {
+        if (overwrite && newVal) payload[key] = newVal;
+        else if (!ex[key] && newVal) payload[key] = newVal;
+      }
+    };
+
+    setField('outcome', mr.outcome);
+    setField('invoice_no', mr.invoice_no);
+    setField('invoice_amount', mr.invoice_amount, true);
+    setField('received', mr.received, true);
+    setField('policy_no', mr.policy_no);
+    setField('hospital', mr.hospital);
+    setField('location', mr.location);
+    setField('inv1_status', mr.inv1_status);
+    setField('inv2_status', mr.inv2_status);
+
+    if (mr.remarks) {
+      if (overwrite) payload.remarks = mr.remarks;
+      else if (!ex.remarks) payload.remarks = mr.remarks;
+      else if (!ex.remarks.includes(mr.remarks)) payload.remarks = `${ex.remarks} | ${mr.remarks}`;
+    }
+
+    const f1 = ex.fee1 || 0, f2 = ex.fee2 || 0, t1 = ex.ta1 || 0, t2 = ex.ta2 || 0;
+    const payable = f1 + f2 + t1 + t2;
+    const recv = payload.received !== undefined ? payload.received : (ex.received || 0);
+    payload.total_payable = payable;
+    payload.profit = recv - payable;
+
+    return payload;
+  }
+
+  /**
+   * Commit Import with 1-Click Rollback Snapshot & Bulletproof Constraint Safety
    */
   async function commitSmartImportPreview() {
     const rows = window.pendingSmartRows || [];
@@ -631,8 +748,20 @@
       return nameResolution[n] !== undefined ? nameResolution[n] : n;
     };
 
-    const newRows = rows.filter(r => !r.error && !r.isMerge && !r.isBatchDup);
-    const mergeRows = rows.filter(r => !r.error && r.isMerge);
+    let newRows = rows.filter(r => !r.error && !r.isMerge && !r.isBatchDup);
+    let mergeRows = rows.filter(r => !r.error && r.isMerge);
+
+    // Intra-batch unique deduplication for newRows (guarantees no 2 rows with same company+claim in toInsert)
+    const dedupedNewRows = [];
+    const seenNewKeys = new Set();
+    newRows.forEach(r => {
+      const key = cleanKey(r.company) + '|' + cleanKey(r.claim_no);
+      if (!seenNewKeys.has(key)) {
+        seenNewKeys.add(key);
+        dedupedNewRows.push(r);
+      }
+    });
+    newRows = dedupedNewRows;
 
     if (!newRows.length && !mergeRows.length) {
       if (typeof showToast === 'function') showToast('No valid rows to process.', true);
@@ -649,6 +778,39 @@
     const insertedDocCodes = [];
 
     try {
+      // PRE-FLIGHT LIVE CHECK FOR newRows to prevent ANY race-condition unique violations
+      if (newRows.length > 0 && window.supabaseClient) {
+        const claimsToCheck = newRows.map(r => r.claim_no).filter(Boolean);
+        for (let i = 0; i < claimsToCheck.length; i += 100) {
+          const chunk = claimsToCheck.slice(i, i + 100);
+          const { data: dbConflicts } = await supabaseClient.from('cases').select('*').in('claim_no', chunk);
+          if (dbConflicts && dbConflicts.length > 0) {
+            const conflictMap = new Map();
+            dbConflicts.forEach(c => {
+              conflictMap.set(cleanKey(c.company) + '|' + cleanKey(c.claim_no), c);
+              conflictMap.set(cleanKey(c.claim_no), c);
+            });
+
+            // Dynamically transfer conflicting new rows into merge rows
+            const stillNew = [];
+            newRows.forEach(nr => {
+              const k1 = cleanKey(nr.company) + '|' + cleanKey(nr.claim_no);
+              const k2 = cleanKey(nr.claim_no);
+              const match = conflictMap.get(k1) || conflictMap.get(k2);
+              if (match) {
+                nr.isMerge = true;
+                nr.existingCase = match;
+                nr.matchedDocCode = match.doc_code;
+                mergeRows.push(nr);
+              } else {
+                stillNew.push(nr);
+              }
+            });
+            newRows = stillNew;
+          }
+        }
+      }
+
       // 1. PROCESS SMART MERGES (UPDATE EXISTING)
       if (mergeRows.length > 0) {
         for (const mr of mergeRows) {
@@ -658,42 +820,7 @@
           previousStates.push(JSON.parse(JSON.stringify(ex)));
           updatedDocCodes.push(ex.doc_code);
 
-          const payload = {};
-
-          // Field merge logic: overwrite OR only fill if existing was empty/zero
-          const setField = (key, newVal, isNumber = false) => {
-            if (isNumber) {
-              if (overwrite && newVal !== undefined) payload[key] = newVal;
-              else if ((!ex[key] || ex[key] === 0) && newVal > 0) payload[key] = newVal;
-            } else {
-              if (overwrite && newVal) payload[key] = newVal;
-              else if (!ex[key] && newVal) payload[key] = newVal;
-            }
-          };
-
-          setField('outcome', mr.outcome);
-          setField('invoice_no', mr.invoice_no);
-          setField('invoice_amount', mr.invoice_amount, true);
-          setField('received', mr.received, true);
-          setField('policy_no', mr.policy_no);
-          setField('hospital', mr.hospital);
-          setField('location', mr.location);
-          setField('inv1_status', mr.inv1_status);
-          setField('inv2_status', mr.inv2_status);
-
-          if (mr.remarks) {
-            if (overwrite) payload.remarks = mr.remarks;
-            else if (!ex.remarks) payload.remarks = mr.remarks;
-            else if (!ex.remarks.includes(mr.remarks)) payload.remarks = `${ex.remarks} | ${mr.remarks}`;
-          }
-
-          // Recalculate totals if financial values updated
-          const f1 = ex.fee1 || 0, f2 = ex.fee2 || 0, t1 = ex.ta1 || 0, t2 = ex.ta2 || 0;
-          const payable = f1 + f2 + t1 + t2;
-          const recv = payload.received !== undefined ? payload.received : (ex.received || 0);
-          payload.total_payable = payable;
-          payload.profit = recv - payable;
-
+          const payload = buildMergePayload(mr, ex, overwrite);
           const { error: updateErr } = await supabaseClient.from('cases').update(payload).eq('doc_code', ex.doc_code);
           if (updateErr) throw updateErr;
         }
@@ -751,8 +878,36 @@
           insertedDocCodes.push(doc_code);
         }
 
+        // Try batch insertion with intelligent resilience fallback
         const { error: insErr } = await supabaseClient.from('cases').insert(toInsert);
-        if (insErr) throw insErr;
+        if (insErr) {
+          // If a constraint error occurs (e.g. 23505 / uq_cases_company_claim), fall back to graceful per-item safe upsert
+          if (insErr.code === '23505' || String(insErr.message).includes('uq_cases_company_claim') || String(insErr.message).includes('duplicate key')) {
+            console.warn('[Smart Merge] Batch hit unique constraint, switching to resilient per-row upsert...');
+            for (const item of toInsert) {
+              // Check if case with same company + claim_no exists
+              const { data: existingMatch } = await supabaseClient
+                .from('cases')
+                .select('*')
+                .eq('company', item.company)
+                .eq('claim_no', item.claim_no)
+                .maybeSingle();
+
+              if (existingMatch) {
+                // Enrich existing record instead of crashing
+                previousStates.push(JSON.parse(JSON.stringify(existingMatch)));
+                updatedDocCodes.push(existingMatch.doc_code);
+                const mergePayload = buildMergePayload(item, existingMatch, overwrite);
+                await supabaseClient.from('cases').update(mergePayload).eq('doc_code', existingMatch.doc_code);
+              } else {
+                // Insert single record safely
+                await supabaseClient.from('cases').insert([item]);
+              }
+            }
+          } else {
+            throw insErr;
+          }
+        }
       }
 
       // 3. RECORD BATCH SNAPSHOT FOR INSTANT ROLLBACK SAFETY
@@ -765,9 +920,9 @@
             previousState: previousStates
           });
         }
-        if (newRows.length > 0) {
+        if (insertedDocCodes.length > 0) {
           recordBatchSnapshot({
-            action: `Bulk Paste: added ${newRows.length} new cases`,
+            action: `Bulk Paste: added ${insertedDocCodes.length} new cases`,
             type: 'insert',
             docCodes: insertedDocCodes
           });
@@ -782,27 +937,31 @@
         closeModal('bulk-modal');
       }
 
-      const msg = `Done! ➕ ${newRows.length} cases added, 🔄 ${mergeRows.length} existing cases enriched. (Undo available in Rollback Log).`;
+      const msg = `Done! ➕ ${insertedDocCodes.length} cases added, 🔄 ${updatedDocCodes.length} existing cases enriched. (Undo available in Rollback Log).`;
       if (typeof showToast === 'function') showToast(msg);
 
     } catch (err) {
       console.error('[Smart Merge Error]', err);
       btn.disabled = false;
       btn.textContent = 'Confirm & Process';
-      if (typeof showToast === 'function') showToast('Process failed: ' + (err.message || err), true);
+      const userMsg = (err.code === '23505' || String(err.message).includes('uq_cases_company_claim'))
+        ? 'A duplicate claim number was detected. Please review your entries or use Smart Merge.'
+        : 'Process failed: ' + (err.message || err);
+      if (typeof showToast === 'function') showToast(userMsg, true);
     }
   }
 
   // Hook into Bulk Paste & CSV Handlers safely
   ready(() => {
-    window.processBulkPaste = function() {
+    window.processBulkPaste = async function() {
       const raw = document.getElementById('bulk-input')?.value.trim();
       if (!raw) {
         if (typeof showToast === 'function') showToast('Please paste Excel data first.', true);
         return;
       }
-      const rows = window.parseUniversalRows(raw);
-      window.showSmartImportPreview(rows, 'Universal Bulk Paste');
+      if (typeof window.showSmartImportPreview === 'function') {
+        await window.showSmartImportPreview(raw, 'Universal Bulk Paste');
+      }
     };
 
     window.parseBulkPasteRows = window.parseUniversalRows;

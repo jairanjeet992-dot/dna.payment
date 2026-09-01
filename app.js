@@ -5337,7 +5337,21 @@ async function commitImportPreview() {
     }
 
     const { error } = await supabaseClient.from('cases').insert(toInsert);
-    if (error) throw error;
+    if (error) {
+      if (error.code === '23505' || String(error.message).includes('uq_cases_company_claim') || String(error.message).includes('duplicate key')) {
+        console.warn('[Import] Batch hit duplicate constraint, recovering row-by-row...');
+        for (const item of toInsert) {
+          const { data: existing } = await supabaseClient.from('cases').select('id, doc_code').eq('company', item.company).eq('claim_no', item.claim_no).maybeSingle();
+          if (existing) {
+            await supabaseClient.from('cases').update(item).eq('doc_code', existing.doc_code);
+          } else {
+            await supabaseClient.from('cases').insert([item]);
+          }
+        }
+      } else {
+        throw error;
+      }
+    }
 
     if (typeof recordBatchSnapshot === 'function' && toInsert.length) {
       recordBatchSnapshot({
