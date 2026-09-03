@@ -727,6 +727,7 @@ tbody tr:hover{background:var(--line);}
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center;">
         <button class="btn btn-gold" onclick="generateSlip()">🖨 Generate Payment Slip PDF</button>
         <button class="btn btn-navy" onclick="sendSlipWhatsApp()">💬 Send via WhatsApp</button>
+        <button class="btn" style="background:var(--green);color:#fff;" type="button" onclick="window.markStatementPaid()">✅ Mark Statement as Paid</button>
         <span style="font-size:11px;color:var(--sub);" id="slip-wp-hint"></span>
       </div>
     </div>
@@ -1725,11 +1726,11 @@ tbody tr:hover{background:var(--line);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js"></script>
 <script src="ux-enhancements.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=3"></script>
 <script src="batch-rollback.js"></script>
 <script src="realtime-sync.js"></script>
 <script src="role-permissions.js"></script>
-<script src="import-pdf-enhancements.js"></script>
+<script src="import-pdf-enhancements.js?v=2"></script>
 <script src="dna-bugfixes.js"></script>
 <script src="frontend/investigator-360/investigator-360.js"></script>
 <script src="investigator-case-breakdown.js"></script>

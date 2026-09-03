@@ -416,7 +416,7 @@ window.logActivity = async function(module, actionStr, referenceId = null) {
      username = window.currentUser.email ? window.currentUser.email.split('@')[0] : 'Admin';
   }
   const action = `${username} ${actionStr}`;
-  await window.supabaseClient.from('activity_log').insert({
+  await supabaseClient.from('activity_log').insert({
     user_id: window.currentUser ? window.currentUser.id : null,
     module: module,
     action: action,
@@ -5702,6 +5702,82 @@ function advanceSlipQueue() {
   renderSlipQueueStep();
 }
 
+
+async function markStatementPaid() {
+  const name = document.getElementById('slip-inv').value;
+  const monthCode = document.getElementById('slip-month').value;
+  if (!name || !monthCode) {
+    showToast('Please select investigator and month', true);
+    return;
+  }
+  
+  if (!confirm(`Are you sure you want to mark all cases and vouchers for ${name} in ${monthCode} as PAID?`)) {
+    return;
+  }
+
+  const mo = MONTHS.find(m => m.code === monthCode);
+  const btn = document.querySelector('button[onclick="markStatementPaid()"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
+
+  try {
+    const casesToUpdate = cases.filter(c => {
+      if (!c.date) return false;
+      const d = new Date(c.date);
+      const isMonth = (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+      if (!isMonth) return false;
+      
+      const asInv1 = (c.inv1 === name && c.inv1_status !== 'Paid');
+      const asInv2 = (c.inv2 === name && c.inv2_status !== 'Paid');
+      return asInv1 || asInv2;
+    });
+
+    const expensesToUpdate = (window.investigatorExpenses || []).filter(e => {
+      if (e.investigator_name !== name || !e.date || e.status === 'Paid') return false;
+      const d = new Date(e.date);
+      return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+    });
+
+    if (casesToUpdate.length === 0 && expensesToUpdate.length === 0) {
+      showToast('All cases and vouchers are already paid for this period.');
+      if (btn) { btn.disabled = false; btn.textContent = '✅ Mark Statement as Paid'; }
+      return;
+    }
+
+    // Update Cases
+    if (casesToUpdate.length > 0) {
+      for (const c of casesToUpdate) {
+        let update = {};
+        if (c.inv1 === name) { update.inv1_status = 'Paid'; c.inv1_status = 'Paid'; }
+        if (c.inv2 === name) { update.inv2_status = 'Paid'; c.inv2_status = 'Paid'; }
+        if (supabaseClient) {
+          const { error } = await supabaseClient.from('cases').update(update).eq('id', c.id);
+          if (error) throw error;
+        }
+      }
+    }
+
+    // Update Expenses
+    if (expensesToUpdate.length > 0) {
+      for (const e of expensesToUpdate) {
+        e.status = 'Paid';
+        if (supabaseClient) {
+          const { error } = await supabaseClient.from('investigator_expenses').update({ status: 'Paid' }).eq('id', e.id);
+          if (error) throw error;
+        }
+      }
+      localStorage.setItem('DNA_INVESTIGATOR_EXPENSES', JSON.stringify(window.investigatorExpenses));
+    }
+
+    showToast(`Successfully marked ${casesToUpdate.length} case(s) and ${expensesToUpdate.length} voucher(s) as Paid.`);
+    renderAll();
+  } catch (err) {
+    console.error('Mark Paid Error:', err);
+    showToast('Error updating status: ' + err.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Mark Statement as Paid'; }
+  }
+}
+
 function sendSlipWhatsApp() {
   const name = document.getElementById('slip-inv').value;
   const monthCode = document.getElementById('slip-month').value;
@@ -5724,9 +5800,26 @@ function sendSlipWhatsApp() {
     return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y && (c.inv1===name || c.inv2===name);
   });
   const stats = computeInvStats(name, monthCases);
+  const monthExpenses = (window.investigatorExpenses || []).filter(e => {
+    if (e.investigator_name !== name || !e.date) return false;
+    const d = new Date(e.date);
+    return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+  });
+  const expTotal = monthExpenses.reduce((s, e) => s + (Number(e.amount)||0), 0);
+  const expPaid = monthExpenses.filter(e => e.status === 'Paid').reduce((s, e) => s + (Number(e.amount)||0), 0);
+  const expPending = monthExpenses.filter(e => e.status !== 'Paid').reduce((s, e) => s + (Number(e.amount)||0), 0);
+  
+  stats.totalPayable += expTotal;
+  stats.paidAmt += expPaid;
+  stats.pendingAmt += expPending;
+
+  let expText = '';
+  if (expTotal > 0) expText = `Vouchers/Expenses: Rs ${fmt(expTotal)}\n`;
 
   const message = `Hello ${name},\n\nYour payment slip for *${mo.label}* from ${settings.agencyName}:\n\n` +
     `Total Cases: ${stats.totalCases}\n` +
+    `Cases Payable: Rs ${fmt(stats.totalPayable - expTotal)}\n` +
+    expText +
     `Total Payable: Rs ${fmt(stats.totalPayable)}\n` +
     `Already Paid: Rs ${fmt(stats.paidAmt)}\n` +
     `*Net Payable Now: Rs ${fmt(stats.pendingAmt)}*\n\n` +
@@ -5764,7 +5857,22 @@ async function generateSlip(previewOnly = true) {
     return;
   }
   const stats = computeInvStats(name, monthCases);
-  const html = slipTemplatePremium(name, mo, monthCases, stats);
+  const monthExpenses = (window.investigatorExpenses || []).filter(e => {
+    if (e.investigator_name !== name || !e.date) return false;
+    const d = new Date(e.date);
+    return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+  });
+  const expTotal = monthExpenses.reduce((s, e) => s + (Number(e.amount)||0), 0);
+  const expPaid = monthExpenses.filter(e => e.status === 'Paid').reduce((s, e) => s + (Number(e.amount)||0), 0);
+  const expPending = monthExpenses.filter(e => e.status !== 'Paid').reduce((s, e) => s + (Number(e.amount)||0), 0);
+  
+  stats.totalPayable += expTotal;
+  stats.paidAmt += expPaid;
+  stats.pendingAmt += expPending;
+
+  const html = typeof window.slipTemplatePremium === 'function' 
+    ? window.slipTemplatePremium(name, mo, monthCases, stats, monthExpenses)
+    : slipTemplatePremium(name, mo, monthCases, stats);
   const filename = `Payment_Slip_${name.replace(/\s+/g, '_')}_${mo.label.replace(/\s+/g, '_')}.pdf`;
 
   if (previewOnly) {
@@ -7430,3 +7538,7 @@ window.handleRealtimePayload = (payload) => {
   window.cases = cases;
   renderAll();
 };
+
+
+
+window.markStatementPaid = markStatementPaid;
