@@ -7558,3 +7558,38 @@ window.handleRealtimePayload = (payload) => {
 
 
 window.markStatementPaid = markStatementPaid;
+
+
+// ============================================================
+// SMART SEARCH: Monthly Tab
+// ============================================================
+window.filterMonthlyInvestigators = function() {
+  const input = document.getElementById('monthly-smart-search');
+  if (!input) return;
+  const query = input.value.toLowerCase().trim();
+  const rows = document.querySelectorAll('#monthly-tbody tr');
+  
+  rows.forEach(row => {
+    // Don't filter empty state row
+    if (row.querySelector('.empty-state')) return;
+    
+    // Check investigator name in the first column
+    const name = row.cells[0] ? row.cells[0].textContent.toLowerCase() : '';
+    if (name.includes(query) || !query) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+};
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && (e.ctrlKey || e.metaKey)) {
+    const searchBox = document.getElementById('monthly-smart-search');
+    // only focus if it's visible on screen (meaning we are on the monthly tab)
+    if (searchBox && searchBox.offsetParent !== null) {
+      e.preventDefault();
+      searchBox.focus();
+    }
+  }
+});
