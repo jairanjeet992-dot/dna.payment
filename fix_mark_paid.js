@@ -1,10 +1,12 @@
 const fs = require('fs');
-let appJs = fs.readFileSync('app.js', 'utf8');
+let code = fs.readFileSync('app.js', 'utf8');
 
-appJs = appJs.replace(
-  "const expensesToUpdate = window.investigatorExpenses.filter(e => {",
-  "const expensesToUpdate = (window.investigatorExpenses || []).filter(e => {"
+code = code.replace(
+  /c\.inv1_status !== 'Paid'/g,
+  "(c.inv1_status || '').trim() !== 'Paid'"
+).replace(
+  /c\.inv2_status !== 'Paid'/g,
+  "(c.inv2_status || '').trim() !== 'Paid'"
 );
 
-fs.writeFileSync('app.js', appJs);
-console.log('Fixed window.investigatorExpenses check.');
+fs.writeFileSync('app.js', code);

@@ -656,20 +656,20 @@ AS $$
       CASE
         WHEN c.inv1 = i.name AND c.inv2 = i.name THEN
           CASE
-            WHEN COALESCE(c.inv1_status,'') = 'Paid' AND COALESCE(c.inv2_status,'') = 'Paid' THEN 'Paid'
-            WHEN COALESCE(c.inv1_status,'') = 'Paid' OR COALESCE(c.inv2_status,'') = 'Paid' THEN 'Partial'
+            WHEN TRIM(COALESCE(c.inv1_status,'')) = 'Paid' AND TRIM(COALESCE(c.inv2_status,'')) = 'Paid' THEN 'Paid'
+            WHEN TRIM(COALESCE(c.inv1_status,'')) = 'Paid' OR TRIM(COALESCE(c.inv2_status,'')) = 'Paid' THEN 'Partial'
             WHEN (COALESCE(c.inv1_status,'') = '' AND COALESCE(c.inv2_status,'') = '') THEN 'Not Set'
             ELSE 'Pending'
           END
         WHEN c.inv1 = i.name THEN
           CASE
-            WHEN COALESCE(c.inv1_status,'') = 'Paid' THEN 'Paid'
+            WHEN TRIM(COALESCE(c.inv1_status,'')) = 'Paid' THEN 'Paid'
             WHEN COALESCE(c.inv1_status,'') = '' THEN 'Not Set'
             ELSE 'Pending'
           END
         WHEN c.inv2 = i.name THEN
           CASE
-            WHEN COALESCE(c.inv2_status,'') = 'Paid' THEN 'Paid'
+            WHEN TRIM(COALESCE(c.inv2_status,'')) = 'Paid' THEN 'Paid'
             WHEN COALESCE(c.inv2_status,'') = '' THEN 'Not Set'
             ELSE 'Pending'
           END

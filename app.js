@@ -916,8 +916,8 @@ function renderDashboard() {
   let outstandingInv = 0;
   visibleCases.forEach(c => {
       let paidAmt = 0;
-      if (c.inv1_status === 'Paid') paidAmt += (c.fee1||0) + (c.ta1||0);
-      if (c.inv2_status === 'Paid') paidAmt += (c.fee2||0) + (c.ta2||0);
+      if ((c.inv1_status || '').trim() === 'Paid') paidAmt += (c.fee1||0) + (c.ta1||0);
+      if ((c.inv2_status || '').trim() === 'Paid') paidAmt += (c.fee2||0) + (c.ta2||0);
       outstandingInv += ((c.total_payable||0) - paidAmt);
   });
   
@@ -1057,7 +1057,7 @@ CASE_TYPES.forEach(ct => {
   if (!ctTbody.innerHTML) ctTbody.innerHTML = '<tr><td colspan="4" class="empty-state">No data yet</td></tr>';
 
   // Payment status split — reuses visibleCases already in memory, no extra query.
-  const paidCount = visibleCases.filter(c => c.inv1_status==='Paid' || c.inv2_status==='Paid').length;
+  const paidCount = visibleCases.filter(c => (c.inv1_status || '').trim() === 'Paid' || (c.inv2_status || '').trim() === 'Paid').length;
   const pendingCount = total - paidCount;
   renderStatusRing(paidCount, pendingCount, total);
 
@@ -2031,7 +2031,7 @@ async function openInvestigator360ByName(name) {
               const totalAssigned = myCases.length;
               let qualityScore = 100, completedCount = 0;
               myCases.forEach(c => {
-                  if ((c.inv1 === inv.name && c.inv1_status === 'Paid') || (c.inv2 === inv.name && c.inv2_status === 'Paid')) completedCount++;
+                  if ((c.inv1 === inv.name && (c.inv1_status || '').trim() === 'Paid') || (c.inv2 === inv.name && (c.inv2_status || '').trim() === 'Paid')) completedCount++;
               });
               if (totalAssigned > 0) qualityScore = (completedCount / totalAssigned) * 100;
               let slaScore = 100, overdueCount = 0;
@@ -2152,12 +2152,12 @@ function computeInvStats(name, caseList) {
     else if (onlyAsInv1 || onlyAsInv2) totalCases += 0.5;
 
     if (!isActuallySalary) {
-      if (both && c.inv1_status==='Paid' && c.inv2_status==='Paid') paidCases += 1;
-      else if (onlyAsInv1 && c.inv1_status==='Paid') paidCases += 0.5;
-      else if (onlyAsInv2 && c.inv2_status==='Paid') paidCases += 0.5;
+      if (both && (c.inv1_status || '').trim() === 'Paid' && (c.inv2_status || '').trim() === 'Paid') paidCases += 1;
+      else if (onlyAsInv1 && (c.inv1_status || '').trim() === 'Paid') paidCases += 0.5;
+      else if (onlyAsInv2 && (c.inv2_status || '').trim() === 'Paid') paidCases += 0.5;
 
-      if (c.inv1===name) { totalPayable += (c.fee1||0)+(c.ta1||0); if (c.inv1_status==='Paid') paidAmt += (c.fee1||0)+(c.ta1||0); }
-      if (c.inv2===name) { totalPayable += (c.fee2||0)+(c.ta2||0); if (c.inv2_status==='Paid') paidAmt += (c.fee2||0)+(c.ta2||0); }
+      if (c.inv1===name) { totalPayable += (c.fee1||0)+(c.ta1||0); if ((c.inv1_status || '').trim() === 'Paid') paidAmt += (c.fee1||0)+(c.ta1||0); }
+      if (c.inv2===name) { totalPayable += (c.fee2||0)+(c.ta2||0); if ((c.inv2_status || '').trim() === 'Paid') paidAmt += (c.fee2||0)+(c.ta2||0); }
     }
   });
   return {
@@ -3210,8 +3210,8 @@ function updateInvestigatorRecommendations() {
           }
       };
       
-      updateStats(i1, c.hardcopy1_status === 'Received', c.inv1_status === 'Paid');
-      updateStats(i2, c.hardcopy2_status === 'Received', c.inv2_status === 'Paid');
+      updateStats(i1, c.hardcopy1_status === 'Received', (c.inv1_status || '').trim() === 'Paid');
+      updateStats(i2, c.hardcopy2_status === 'Received', (c.inv2_status || '').trim() === 'Paid');
   });
   
   let maxWorkload = 0;
@@ -4135,6 +4135,16 @@ async function saveCase() {
   const existingExAt = (editingDocCode && cases[editIdx]) ? cases[editIdx].exception_at : null;
   const existingExBy = (editingDocCode && cases[editIdx]) ? cases[editIdx].exception_by : null;
 
+  
+  // Auto-sync INV2 status if INV1 and INV2 are the same person
+  let finalInv2Status = document.getElementById('f-inv2status').value;
+  let finalHc2Status = document.getElementById('f-hardcopy2status').value;
+  
+  if (inv1 && inv1 !== 'NA' && inv1 === document.getElementById('f-inv2').value) {
+    finalInv2Status = document.getElementById('f-inv1status').value;
+    finalHc2Status = document.getElementById('f-hardcopy1status').value;
+  }
+
   const caseFields = {
     sla_hours, due_date, risk_level, completed_at,
     company, date, case_type: document.getElementById('f-casetype').value,
@@ -4146,9 +4156,9 @@ async function saveCase() {
     invoice_no: document.getElementById('f-invoice').value,
     invoice_amount: parseFloat(document.getElementById('f-invoice-amount').value) || null,
     inv1_status: document.getElementById('f-inv1status').value,
-    inv2_status: document.getElementById('f-inv2status').value,
+    inv2_status: finalInv2Status,
     hardcopy1_status: document.getElementById('f-hardcopy1status').value,
-    hardcopy2_status: document.getElementById('f-hardcopy2status').value,
+    hardcopy2_status: finalHc2Status,
     company_hardcopy_status: document.getElementById('f-companyhardcopy') ? document.getElementById('f-companyhardcopy').value : 'Pending',
     company_hardcopy_awb: document.getElementById('f-companyawb') ? document.getElementById('f-companyawb').value : '',
     outcome: document.getElementById('f-outcome') ? document.getElementById('f-outcome').value : 'Pending',
@@ -5362,6 +5372,12 @@ async function commitImportPreview() {
   try {
     for (const r of validRows) {
       const inv1 = resolveName(r.inv1), inv2 = resolveName(r.inv2);
+      
+      let finalInv2Status = r.inv2_status;
+      if (inv1 && inv1 !== 'NA' && inv1 === inv2) {
+         finalInv2Status = r.inv1_status;
+      }
+
       const company = resolveCompany(r.company);
       
       const { code: monthCode } = parseDateComponents(r.date);
@@ -5383,7 +5399,7 @@ async function commitImportPreview() {
         received: r.received, invoice_no: r.invoice_no,
         invoice_amount: r.invoice_amount || null,
         outcome: r.outcome || 'Pending',
-        inv1_status: r.inv1_status, inv2_status: r.inv2_status, remarks: r.remarks,
+        inv1_status: r.inv1_status, inv2_status: finalInv2Status, remarks: r.remarks,
         custom_data: r.custom_data || null
       });
       [inv1, inv2].forEach(n => {
@@ -5726,8 +5742,8 @@ async function markStatementPaid() {
       const isMonth = (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
       if (!isMonth) return false;
       
-      const asInv1 = (c.inv1 === name && c.inv1_status !== 'Paid');
-      const asInv2 = (c.inv2 === name && c.inv2_status !== 'Paid');
+      const asInv1 = (c.inv1 === name && (c.inv1_status || '').trim() !== 'Paid');
+      const asInv2 = (c.inv2 === name && (c.inv2_status || '').trim() !== 'Paid');
       return asInv1 || asInv2;
     });
 
