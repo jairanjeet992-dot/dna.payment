@@ -2257,7 +2257,7 @@ function renderBulkPaymentList() {
   Object.keys(groups).forEach(caseType => {
     html += `<div style="font-weight:700;color:var(--navy);font-size:11px;text-transform:uppercase;margin:14px 0 6px;padding-bottom:4px;border-bottom:2px solid var(--gold);">${caseType} (${groups[caseType].length})</div>`;
     html += `<table style="width:100%;margin-bottom:6px;"><thead><tr>
-      <th>Doc Code</th><th>Date</th><th>Claim No</th><th>Insured</th><th>Role</th><th>Fee (₹)</th><th>TA (₹)</th><th>Mark Paid</th>
+      <th>Company</th><th>Date</th><th>Claim No</th><th>Insured</th><th>Role</th><th>Fee (₹)</th><th>TA (₹)</th><th>Mark Paid</th>
     </tr></thead><tbody>`;
     groups[caseType].forEach(c => {
       const caseDate = c.date ? new Date(c.date) : (c.created_at ? new Date(c.created_at) : new Date());
@@ -2284,7 +2284,7 @@ function renderBulkPaymentList() {
          existingStatus = role===1 ? c.inv1_status : c.inv2_status;
       }
       html += `<tr data-doccode="${c.doc_code||''}" data-role="${role}" data-salary="${isActuallySalary}">
-        <td class="mono">${c.doc_code||''}</td>
+        <td>${c.company||''}</td>
         <td>${c.date||''}</td>
         <td class="mono">${c.claim_no||''}</td>
         <td>${c.insured_name||''}</td>
@@ -3105,10 +3105,10 @@ function renderDocListPage() {
   const pageRows = docListSorted.slice(start, start + DOC_LIST_PAGE_SIZE);
   tbody.innerHTML = pageRows.map(c => `<tr data-id="${c.id}" data-doccode="${c.doc_code || ''}" style="cursor:pointer;">
     <td class="mono" style="font-weight:700;color:var(--navy)">${c.doc_code}</td>
-    <td>${c.date||''}</td><td>${c.company||''}</td><td class="mono">${c.claim_no||''}</td><td>${c.insured_name||''}</td>
+    <td>${c.date||''}</td><td>${c.company||''}</td><td>${c.case_type||''}</td><td class="mono">${c.claim_no||''}</td><td>${c.insured_name||''}</td>
     <td>${c.inv1||''}${c.inv2 && c.inv2!=='NA' ? ' / '+c.inv2 : ''}</td>
     <td>${hardcopyStatusCell(c)}</td>
-  </tr>`).join('') || '<tr><td colspan="7"><div class="empty-state">No documents yet</div></td></tr>';
+  </tr>`).join('') || '<tr><td colspan="8"><div class="empty-state">No documents yet</div></td></tr>';
   const rangeEl = document.getElementById('doc-page-range');
   if (rangeEl) rangeEl.textContent = docListSorted.length ? `${start+1}–${Math.min(start+DOC_LIST_PAGE_SIZE, docListSorted.length)} of ${docListSorted.length}` : '0';
   const curEl = document.getElementById('doc-page-current');
