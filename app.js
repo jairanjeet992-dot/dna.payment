@@ -2204,9 +2204,13 @@ function renderBulkPaymentList() {
   let rows = cases.filter(c => c.inv1===name || c.inv2===name);
   if (caseType) rows = rows.filter(c => c.case_type === caseType);
   rows = rows.filter(c => {
+    if (statusFilter === 'all') return true;
+    if (c.inv1 === name && c.inv2 === name) {
+        return (c.inv1_status || '').trim() !== 'Paid' || (c.inv2_status || '').trim() !== 'Paid';
+    }
     const role = c.inv1===name ? 1 : 2;
     const st = role===1 ? c.inv1_status : c.inv2_status;
-    return statusFilter==='all' ? true : st !== 'Paid';
+    return st !== 'Paid';
   });
   rows.sort((a,b) => (a.case_type||'').localeCompare(b.case_type||'') || (a.date||'').localeCompare(b.date||''));
 
@@ -2252,9 +2256,18 @@ function renderBulkPaymentList() {
       if (otherIsBlank) { badgeLabel = 'Half (0.5)'; badgeClass = 'pending'; }
       else if (otherIsSameName) { badgeLabel = 'Full (1) — solo, both slots'; badgeClass = 'paid'; }
       else { badgeLabel = 'Half (0.5) — shared w/ '+otherInv; badgeClass = 'na'; }
-      const existingFee = role===1 ? c.fee1 : c.fee2;
-      const existingTa = role===1 ? c.ta1 : c.ta2;
-      const existingStatus = role===1 ? c.inv1_status : c.inv2_status;
+      let existingFee, existingTa, existingStatus;
+      if (otherIsSameName) {
+         existingFee = (c.fee1 || 0) + (c.fee2 || 0);
+         existingFee = existingFee === 0 ? '' : existingFee;
+         existingTa = (c.ta1 || 0) + (c.ta2 || 0);
+         existingTa = existingTa === 0 ? '' : existingTa;
+         existingStatus = ((c.inv1_status || '').trim() === 'Paid' && (c.inv2_status || '').trim() === 'Paid') ? 'Paid' : 'Pending';
+      } else {
+         existingFee = role===1 ? c.fee1 : c.fee2;
+         existingTa = role===1 ? c.ta1 : c.ta2;
+         existingStatus = role===1 ? c.inv1_status : c.inv2_status;
+      }
       html += `<tr data-doccode="${c.doc_code||''}" data-role="${role}" data-salary="${isActuallySalary}">
         <td class="mono">${c.doc_code||''}</td>
         <td>${c.date||''}</td>
@@ -2311,9 +2324,20 @@ async function saveBulkPayment() {
     const fee = isActuallySalary ? 0 : (parseFloat(tr.querySelector('.bp-fee').value) || 0);
     const ta = parseFloat(tr.querySelector('.bp-ta').value) || 0;
     const paid = isActuallySalary ? true : tr.querySelector('.bp-paid').checked;
-    const fields = role===1
-      ? { fee1: fee, ta1: ta, inv1_status: paid ? 'Paid' : 'Pending' }
-      : { fee2: fee, ta2: ta, inv2_status: paid ? 'Paid' : 'Pending' };
+    const cData = cases.find(x => x.doc_code === docCode);
+    const holdsBothSlots = cData && cData.inv1 === name && cData.inv2 === name;
+    
+    let fields = {};
+    if (holdsBothSlots) {
+        fields = {
+            fee1: fee, ta1: ta, inv1_status: paid ? 'Paid' : 'Pending',
+            fee2: 0, ta2: 0, inv2_status: paid ? 'Paid' : 'Pending'
+        };
+    } else if (role === 1) {
+        fields = { fee1: fee, ta1: ta, inv1_status: paid ? 'Paid' : 'Pending' };
+    } else {
+        fields = { fee2: fee, ta2: ta, inv2_status: paid ? 'Paid' : 'Pending' };
+    }
     updates.push({ doc_code: docCode, fields });
   });
 
