@@ -101,3 +101,29 @@ CREATE TABLE investigator_documents (
     document_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- 7. Investigator Payout Settlements & TDS Tax Ledger
+CREATE TABLE investigator_payouts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    investigator_name VARCHAR(255) NOT NULL,
+    month_code VARCHAR(20) NOT NULL,
+    month_label VARCHAR(50),
+    payout_date DATE DEFAULT CURRENT_DATE,
+    total_cases NUMERIC(10,1) DEFAULT 0,
+    gross_fees NUMERIC(10,2) DEFAULT 0,
+    gross_ta NUMERIC(10,2) DEFAULT 0,
+    expenses_amount NUMERIC(10,2) DEFAULT 0,
+    gross_total NUMERIC(10,2) DEFAULT 0,
+    taxable_base NUMERIC(10,2) DEFAULT 0,
+    tds_rate NUMERIC(5,2) DEFAULT 0,
+    tds_section VARCHAR(100) DEFAULT '0%',
+    tds_amount NUMERIC(10,2) DEFAULT 0,
+    net_disbursable NUMERIC(10,2) DEFAULT 0,
+    status VARCHAR(50) DEFAULT 'Paid',
+    payment_mode VARCHAR(50) DEFAULT 'Bank Transfer',
+    reference_no VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_by VARCHAR(255),
+    CONSTRAINT unique_inv_month_payout UNIQUE (investigator_name, month_code)
+);
+

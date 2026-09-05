@@ -2146,6 +2146,8 @@ function computeInvStats(name, caseList) {
   const typeChangedAt = invRow && invRow.payment_type_changed_at ? new Date(invRow.payment_type_changed_at) : null;
 
   let totalCases=0, paidCases=0, totalPayable=0, paidAmt=0;
+  let totalFees=0, totalTA=0, paidFees=0, paidTA=0;
+
   myCases.forEach(c => {
     if (c.exception_type === 'Withdrawn') return; 
     
@@ -2165,28 +2167,59 @@ function computeInvStats(name, caseList) {
       const s1Pending = (c.inv1_status || '').trim().toLowerCase() === 'pending';
       const s2Pending = (c.inv2_status || '').trim().toLowerCase() === 'pending';
 
-      if (c.inv1===name) totalPayable += (c.fee1||0)+(c.ta1||0);
-      if (c.inv2===name) totalPayable += (c.fee2||0)+(c.ta2||0);
+      if (c.inv1===name) {
+        totalPayable += (c.fee1||0)+(c.ta1||0);
+        totalFees += (c.fee1||0);
+        totalTA += (c.ta1||0);
+      }
+      if (c.inv2===name) {
+        totalPayable += (c.fee2||0)+(c.ta2||0);
+        totalFees += (c.fee2||0);
+        totalTA += (c.ta2||0);
+      }
 
       if (both) {
          const bothPaid = (s1Paid || s2Paid) && !s1Pending && !s2Pending;
          if (bothPaid) {
             paidCases += 1;
             paidAmt += (c.fee1||0)+(c.ta1||0) + (c.fee2||0)+(c.ta2||0);
+            paidFees += (c.fee1||0) + (c.fee2||0);
+            paidTA += (c.ta1||0) + (c.ta2||0);
          } else {
-            if (s1Paid) paidAmt += (c.fee1||0)+(c.ta1||0);
-            if (s2Paid) paidAmt += (c.fee2||0)+(c.ta2||0);
+            if (s1Paid) {
+              paidAmt += (c.fee1||0)+(c.ta1||0);
+              paidFees += (c.fee1||0);
+              paidTA += (c.ta1||0);
+            }
+            if (s2Paid) {
+              paidAmt += (c.fee2||0)+(c.ta2||0);
+              paidFees += (c.fee2||0);
+              paidTA += (c.ta2||0);
+            }
          }
       } else {
-         if (onlyAsInv1 && s1Paid) { paidCases += 0.5; paidAmt += (c.fee1||0)+(c.ta1||0); }
-         if (onlyAsInv2 && s2Paid) { paidCases += 0.5; paidAmt += (c.fee2||0)+(c.ta2||0); }
+         if (onlyAsInv1 && s1Paid) { 
+           paidCases += 0.5; 
+           paidAmt += (c.fee1||0)+(c.ta1||0); 
+           paidFees += (c.fee1||0);
+           paidTA += (c.ta1||0);
+         }
+         if (onlyAsInv2 && s2Paid) { 
+           paidCases += 0.5; 
+           paidAmt += (c.fee2||0)+(c.ta2||0); 
+           paidFees += (c.fee2||0);
+           paidTA += (c.ta2||0);
+         }
       }
     }
   });
   return {
     totalCases: round1(totalCases), paidCases: round1(paidCases),
     pendingCases: round1(totalCases-paidCases),
-    totalPayable, paidAmt, pendingAmt: totalPayable-paidAmt
+    totalPayable, paidAmt, pendingAmt: totalPayable-paidAmt,
+    totalFees, totalTA, paidFees, paidTA,
+    pendingFees: Math.max(0, totalFees - paidFees),
+    pendingTA: Math.max(0, totalTA - paidTA)
   };
 }
 function round1(n){ return Math.round(n*10)/10; }
@@ -4913,6 +4946,9 @@ function refreshInvestigatorDropdowns() {
   rebuild('f-inv2', [{value:'',label:'-- None --'},{value:'NA',label:'NA'}]);
   rebuild('report-target', []);
   rebuild('slip-inv', []);
+  if (typeof updateSlipTaxPreview === 'function') {
+    try { updateSlipTaxPreview(); } catch (_) {}
+  }
 }
 
 // ============================================================
@@ -5845,6 +5881,62 @@ async function markStatementPaid() {
       localStorage.setItem('DNA_INVESTIGATOR_EXPENSES', JSON.stringify(window.investigatorExpenses));
     }
 
+    // Persist Settlement & Statutory TDS Record in Supabase
+    try {
+      const tax = typeof getSlipTaxConfig === 'function' ? getSlipTaxConfig() : { rate: 0, label: '0%', base: 'fees_only' };
+      const allMonthCases = cases.filter(c => {
+        if (!c.date) return false;
+        const d = new Date(c.date);
+        return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y && (c.inv1===name || c.inv2===name);
+      });
+      const stats = computeInvStats(name, allMonthCases);
+      const allMonthExpenses = (window.investigatorExpenses || []).filter(e => {
+        if (e.investigator_name !== name || !e.date) return false;
+        const d = new Date(e.date);
+        return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+      });
+      const expTotal = allMonthExpenses.reduce((s, e) => s + (Number(e.amount)||0), 0);
+      const taxableBase = tax.base === 'fees_only' ? (stats.totalFees || 0) : (stats.totalPayable + expTotal);
+      const tdsAmount = tax.rate > 0 ? Math.round((taxableBase * tax.rate) / 100) : 0;
+      const grossTotal = (stats.totalPayable || 0) + expTotal;
+      const netDisbursable = Math.max(0, grossTotal - tdsAmount);
+
+      const settlementPayload = {
+        investigator_name: name,
+        month_code: monthCode,
+        month_label: mo.label,
+        payout_date: new Date().toISOString().slice(0, 10),
+        total_cases: stats.totalCases,
+        gross_fees: stats.totalFees,
+        gross_ta: stats.totalTA,
+        expenses_amount: expTotal,
+        gross_total: grossTotal,
+        taxable_base: taxableBase,
+        tds_rate: tax.rate,
+        tds_section: tax.label,
+        tds_amount: tdsAmount,
+        net_disbursable: netDisbursable,
+        status: 'Paid',
+        created_at: new Date().toISOString()
+      };
+
+      if (supabaseClient) {
+        // Attempt to upsert into investigator_payouts table
+        supabaseClient.from('investigator_payouts').upsert(settlementPayload, { onConflict: 'investigator_name,month_code' }).then(({ error }) => {
+          if (error) console.info('Note: investigator_payouts table optional record:', error.message);
+        }).catch(err => console.info('Settlement log note:', err));
+
+        // Also record in activity_log for permanent audit trail
+        supabaseClient.from('activity_log').insert({
+          action: 'PAYMENT_SETTLEMENT_RECORDED',
+          module: 'Payouts & TDS',
+          details: `Settlement for ${name} (${mo.label}): Gross Rs ${grossTotal.toLocaleString('en-IN')}, TDS ${tax.label} (-Rs ${tdsAmount.toLocaleString('en-IN')}), Net Disbursed Rs ${netDisbursable.toLocaleString('en-IN')}`
+        }).then(() => {}).catch(() => {});
+      }
+    } catch (settleErr) {
+      console.warn('Settlement logging warning:', settleErr);
+    }
+
     showToast(`Successfully marked ${casesToUpdate.length} case(s) and ${expensesToUpdate.length} voucher(s) as Paid.`);
     renderAll();
   } catch (err) {
@@ -5854,6 +5946,122 @@ async function markStatementPaid() {
     if (btn) { btn.disabled = false; btn.textContent = '✅ Mark Statement as Paid'; }
   }
 }
+
+function getSlipTaxConfig() {
+  const rateEl = document.getElementById('slip-tds-rate');
+  const customWrap = document.getElementById('slip-tds-custom-wrap');
+  const customEl = document.getElementById('slip-tds-custom');
+  const baseEl = document.getElementById('slip-tds-base');
+
+  if (!rateEl) return { rate: 0, label: '0%', base: 'fees_only' };
+
+  if (rateEl.value === 'custom') {
+    if (customWrap) customWrap.style.display = 'block';
+  } else {
+    if (customWrap) customWrap.style.display = 'none';
+  }
+
+  let rate = 0;
+  let label = '0%';
+  if (rateEl.value === 'custom') {
+    rate = parseFloat(customEl ? customEl.value : 0) || 0;
+    label = `${rate}% (Custom)`;
+  } else {
+    rate = parseFloat(rateEl.value) || 0;
+    const opt = rateEl.options[rateEl.selectedIndex];
+    label = opt ? opt.text.split(' — ')[0] : `${rate}%`;
+  }
+
+  const base = baseEl ? baseEl.value : 'fees_only';
+  return { rate, label, base };
+}
+window.getSlipTaxConfig = getSlipTaxConfig;
+
+function updateSlipTaxPreview() {
+  const previewEl = document.getElementById('slip-tax-preview');
+  if (!previewEl) return;
+
+  const name = document.getElementById('slip-inv')?.value;
+  const monthCode = document.getElementById('slip-month')?.value;
+
+  if (!name || !monthCode) {
+    previewEl.style.display = 'none';
+    return;
+  }
+
+  const mo = MONTHS.find(m => m.code === monthCode);
+  if (!mo) {
+    previewEl.style.display = 'none';
+    return;
+  }
+
+  const monthCases = cases.filter(c => {
+    if (!c.date) return false;
+    const d = new Date(c.date);
+    return (d.getMonth() + 1) === mo.m && d.getFullYear() === mo.y && (c.inv1 === name || c.inv2 === name);
+  });
+
+  const stats = computeInvStats(name, monthCases);
+  const monthExpenses = (window.investigatorExpenses || []).filter(e => {
+    if (e.investigator_name !== name || !e.date) return false;
+    const d = new Date(e.date);
+    return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+  });
+  const expTotal = monthExpenses.reduce((s, e) => s + (Number(e.amount)||0), 0);
+  const expPaid = monthExpenses.filter(e => e.status === 'Paid').reduce((s, e) => s + (Number(e.amount)||0), 0);
+  const expPending = monthExpenses.filter(e => e.status !== 'Paid').reduce((s, e) => s + (Number(e.amount)||0), 0);
+  
+  stats.totalPayable += expTotal;
+  stats.paidAmt += expPaid;
+  stats.pendingAmt += expPending;
+
+  const tax = getSlipTaxConfig();
+  previewEl.style.display = 'block';
+
+  if (tax.rate <= 0) {
+    previewEl.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div>
+          <strong style="color:var(--navy);">${esc(name)}</strong> · Period: <strong>${esc(mo.label)}</strong>
+          <div style="color:var(--sub);font-size:11px;margin-top:2px;">
+            Cases: ${stats.totalCases} | Gross Fees: Rs ${(stats.totalFees||0).toLocaleString('en-IN')} | TA: Rs ${(stats.totalTA||0).toLocaleString('en-IN')}${expTotal > 0 ? ` | Expenses: Rs ${expTotal.toLocaleString('en-IN')}` : ''}
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <span style="color:var(--sub);font-size:11px;">Gross Balance:</span>
+          <strong style="color:var(--navy);font-size:15px;margin-left:6px;">Rs ${stats.pendingAmt.toLocaleString('en-IN')}</strong>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const taxableBase = tax.base === 'fees_only' ? (stats.pendingFees || stats.totalFees) : stats.pendingAmt;
+  const tdsAmount = Math.round((taxableBase * tax.rate) / 100);
+  const netDisbursable = Math.max(0, stats.pendingAmt - tdsAmount);
+
+  previewEl.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div style="font-weight:700;color:var(--navy);display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <span>${esc(name)} · ${esc(mo.label)}</span>
+          <span style="background:#FFF5F3;color:#C53030;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid #FED7D7;">TDS ${esc(tax.label)}</span>
+        </div>
+        <div style="color:var(--sub);font-size:11px;margin-top:3px;">
+          Gross Fees: Rs ${(stats.totalFees||0).toLocaleString('en-IN')} | TA: Rs ${(stats.totalTA||0).toLocaleString('en-IN')} | Already Paid: Rs ${stats.paidAmt.toLocaleString('en-IN')}
+        </div>
+        <div style="color:#C05621;font-size:11.5px;margin-top:3px;font-weight:600;">
+          ⚖️ TDS Deduction (${esc(tax.label)} on Rs ${taxableBase.toLocaleString('en-IN')} ${tax.base === 'fees_only' ? 'Case Fees' : 'Gross'}): <span style="color:#C53030;">- Rs ${tdsAmount.toLocaleString('en-IN')}</span>
+        </div>
+      </div>
+      <div style="text-align:right;background:#F0FDF4;border:1px solid #BBF7D0;padding:6px 14px;border-radius:6px;">
+        <div style="font-size:10px;color:#166534;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;">Net Disbursable Now</div>
+        <div style="font-size:17px;font-weight:800;color:#15803D;">Rs ${netDisbursable.toLocaleString('en-IN')}</div>
+      </div>
+    </div>
+  `;
+}
+window.updateSlipTaxPreview = updateSlipTaxPreview;
 
 function sendSlipWhatsApp() {
   const name = document.getElementById('slip-inv').value;
@@ -5893,13 +6101,25 @@ function sendSlipWhatsApp() {
   let expText = '';
   if (expTotal > 0) expText = `Vouchers/Expenses: Rs ${fmt(expTotal)}\n`;
 
+  const tax = getSlipTaxConfig();
+  let taxText = '';
+  let netLine = `*Net Payable Now: Rs ${fmt(stats.pendingAmt)}*`;
+  if (tax.rate > 0) {
+    const taxableBase = tax.base === 'fees_only' ? (stats.pendingFees || stats.totalFees) : stats.pendingAmt;
+    const tdsAmount = Math.round((taxableBase * tax.rate) / 100);
+    const netDisbursable = Math.max(0, stats.pendingAmt - tdsAmount);
+    taxText = `Gross Balance: Rs ${fmt(stats.pendingAmt)}\nLess TDS (${tax.label}): -Rs ${fmt(tdsAmount)}\n`;
+    netLine = `*Net Disbursable Now: Rs ${fmt(netDisbursable)}*`;
+  }
+
   const message = `Hello ${name},\n\nYour payment slip for *${mo.label}* from ${settings.agencyName}:\n\n` +
     `Total Cases: ${stats.totalCases}\n` +
     `Cases Payable: Rs ${fmt(stats.totalPayable - expTotal)}\n` +
     expText +
-    `Total Payable: Rs ${fmt(stats.totalPayable)}\n` +
+    `Total Gross: Rs ${fmt(stats.totalPayable)}\n` +
     `Already Paid: Rs ${fmt(stats.paidAmt)}\n` +
-    `*Net Payable Now: Rs ${fmt(stats.pendingAmt)}*\n\n` +
+    taxText +
+    `${netLine}\n\n` +
     `Detailed PDF slip has been generated separately — I'll attach it here.\n\nThank you.`;
 
   let encodedMsg = encodeURIComponent(message);
@@ -5946,6 +6166,25 @@ async function generateSlip(previewOnly = true) {
   stats.totalPayable += expTotal;
   stats.paidAmt += expPaid;
   stats.pendingAmt += expPending;
+
+  const tax = getSlipTaxConfig();
+  if (tax.rate > 0) {
+    const taxableBase = tax.base === 'fees_only' ? (stats.pendingFees || stats.totalFees) : stats.pendingAmt;
+    const tdsAmount = Math.round((taxableBase * tax.rate) / 100);
+    const netDisbursable = Math.max(0, stats.pendingAmt - tdsAmount);
+
+    stats.tdsRate = tax.rate;
+    stats.tdsLabel = tax.label;
+    stats.tdsBase = tax.base;
+    stats.tdsTaxableBase = taxableBase;
+    stats.tdsAmount = tdsAmount;
+    stats.netDisbursable = netDisbursable;
+  } else {
+    stats.tdsRate = 0;
+    stats.tdsLabel = '0%';
+    stats.tdsAmount = 0;
+    stats.netDisbursable = stats.pendingAmt;
+  }
 
   const html = typeof window.slipTemplatePremium === 'function' 
     ? window.slipTemplatePremium(name, mo, monthCases, stats, monthExpenses)

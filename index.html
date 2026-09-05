@@ -733,9 +733,34 @@ tbody tr:hover{background:var(--line);}
     <div class="panel" style="padding:18px;">
       <div class="panel-title" style="margin-bottom:14px; color: #4d4d4d; font-family: Arial; font-weight: bold; font-size: 13px;">💳 Generate Payment Slip</div>
       <div class="form-grid">
-        <div class="fg"><label>Investigator</label><select id="slip-inv"></select></div>
-        <div class="fg"><label>Month</label><select id="slip-month"></select></div>
+        <div class="fg"><label>Investigator</label><select id="slip-inv" onchange="typeof updateSlipTaxPreview==='function'&&updateSlipTaxPreview()"></select></div>
+        <div class="fg"><label>Month</label><select id="slip-month" onchange="typeof updateSlipTaxPreview==='function'&&updateSlipTaxPreview()"></select></div>
       </div>
+      <div class="form-grid" style="margin-top:12px;">
+        <div class="fg">
+          <label>TDS / Tax Deduction</label>
+          <select id="slip-tds-rate" onchange="typeof updateSlipTaxPreview==='function'&&updateSlipTaxPreview()">
+            <option value="0" selected>0% — No TDS Deduction (Standard / Default)</option>
+            <option value="1">1% — Sec 194C (Individual Contractor)</option>
+            <option value="2">2% — Sec 194J (Technical / Royalty / Fee)</option>
+            <option value="5">5% — Special Rate</option>
+            <option value="10">10% — Sec 194J (Professional Fee)</option>
+            <option value="custom">Custom %</option>
+          </select>
+        </div>
+        <div class="fg" id="slip-tds-custom-wrap" style="display:none;">
+          <label>Custom TDS %</label>
+          <input type="number" id="slip-tds-custom" min="0" max="50" step="0.1" placeholder="e.g. 7.5" oninput="typeof updateSlipTaxPreview==='function'&&updateSlipTaxPreview()">
+        </div>
+        <div class="fg">
+          <label>Tax Deduction Base</label>
+          <select id="slip-tds-base" onchange="typeof updateSlipTaxPreview==='function'&&updateSlipTaxPreview()">
+            <option value="fees_only" selected>Case Fees Only (TA &amp; Reimbursements Exempt - Recommended)</option>
+            <option value="total_gross">Total Gross (Fees + TA + Expenses)</option>
+          </select>
+        </div>
+      </div>
+      <div id="slip-tax-preview" style="display:none;margin-top:12px;padding:12px 14px;background:var(--card);border:1px solid var(--line);border-radius:8px;font-size:12px;"></div>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center;">
         <button class="btn btn-gold" onclick="generateSlip()">🖨 Generate Payment Slip PDF</button>
         <button class="btn btn-navy" onclick="sendSlipWhatsApp()">💬 Send via WhatsApp</button>
@@ -1797,12 +1822,12 @@ tbody tr:hover{background:var(--line);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js"></script>
 <script src="ux-enhancements.js"></script>
-<script src="app.js?v=21"></script>
+<script src="app.js?v=23"></script>
 <script src="batch-rollback.js?v=2"></script>
 <script src="realtime-sync.js"></script>
 <script src="role-permissions.js"></script>
-<script src="import-pdf-enhancements.js?v=2"></script>
-<script src="dna-bugfixes.js?v=2"></script>
+<script src="import-pdf-enhancements.js?v=3"></script>
+<script src="dna-bugfixes.js?v=3"></script>
 <script src="frontend/investigator-360/investigator-360.js"></script>
 <script src="investigator-case-breakdown.js"></script>
 <script src="plugins-manager.js"></script>

@@ -29,6 +29,9 @@ The app heavily relies on these Supabase tables:
     *   Fields: `id`, `investigator_name`, `date`, `title`, `amount`, `category`, `status`, `month_year` (e.g., '2026-07').
 5.  **`activity_log`** & **`investigator_audit_log`**: Track system history.
 6.  **`case_ownership_transfers`**: Tracking assignment changes.
+7.  **`investigator_payouts`**: Monthly settlement and statutory TDS tax ledger.
+    *   Fields: `id`, `investigator_name`, `month_code`, `month_label`, `payout_date`, `total_cases`, `gross_fees`, `gross_ta`, `expenses_amount`, `gross_total`, `taxable_base`, `tds_rate`, `tds_section`, `tds_amount`, `net_disbursable`, `status`, `payment_mode`, `reference_no`.
+
 
 ## File Structure Map
 *   **`index.html`**: The entire UI layout. It uses a tabbed SPA approach (`#view-dashboard`, `#view-cases`, etc.) navigated via JavaScript (`showView`).

@@ -120,7 +120,28 @@ ready(()=>{
   window.applyMatchUpdate=async function(trEl,docCode){const invInput=trEl.querySelector('.match-inv-input'),invAmtInput=trEl.querySelector('.match-invamt-input'),amtInput=trEl.querySelector('.match-amt-input');const updates={};if(invInput&&invInput.value.trim()!=='')updates.invoice_no=invInput.value.trim();if(invAmtInput&&invAmtInput.value.trim()!==''){const amt=parseFloat(invAmtInput.value.trim().replace(/[^0-9.-]/g,''));if(!isNaN(amt))updates.invoice_amount=amt;}if(amtInput&&amtInput.value.trim()!==''){const amt=parseFloat(amtInput.value.trim().replace(/[^0-9.-]/g,''));if(!isNaN(amt)){updates.received=amt;updates.received_date=new Date().toISOString().slice(0,10)}}if(Object.keys(updates).length===0){toast('No valid updates to apply',true);return false}try{const {error}=await supabaseClient.from('cases').update(updates).eq('doc_code',docCode);if(error)throw error;toast(`Updated case ${docCode}`);trEl.style.backgroundColor='var(--green-bg)';const btn=trEl.querySelector('button');if(btn){btn.textContent='Updated ✓';btn.className='btn btn-gold btn-sm';btn.disabled=true}await loadCasesFromDB();renderAll();return true}catch(e){console.error('Match update error',e);toast('Failed to update case',true);return false};};
   window.applyBulkMatchUpdates=async function(){const rows=document.querySelectorAll('#match-tbody tr[data-doc-code]');if(rows.length===0){toast('No matches to update.',true);return}const docCodes=Array.from(rows).map(tr=>tr.getAttribute('data-doc-code')).filter(Boolean);if(typeof window.recordBatchSnapshot==='function'&&docCodes.length>0){window.recordBatchSnapshot({action:`Form Match: updated ${docCodes.length} matched cases`,type:'update',docCodes});}let ok=0;for(const tr of rows){const btn=tr.querySelector('button');if(btn&&btn.disabled)continue;const success=await window.applyMatchUpdate(tr,tr.getAttribute('data-doc-code'));if(success)ok++}if(ok>0)toast(`Bulk update complete for ${ok} cases. (Undo available in Rollback Log)`);else toast('No new updates to apply.')};
 
-  if(typeof window.sendSlipWhatsApp==='function')window.sendSlipWhatsApp=function(){const name=document.getElementById('slip-inv')?.value||'',code=document.getElementById('slip-month')?.value||'',mo=MONTHS.find(m=>m.code===code);if(!name||!mo){toast('Select an investigator and month first.',true);return}const p=phone(INVESTIGATOR_PHONES?.[name]);if(!p){toast('No valid WhatsApp number saved for this investigator.',true);return}const monthCases=cases.filter(c=>{if(!c.date)return false;const d=new Date(c.date);return d.getMonth()+1===mo.m&&d.getFullYear()===mo.y&&(c.inv1===name||c.inv2===name)}),s=computeInvStats(name,monthCases),msg=`Hello ${name},\n\nYour payment slip for *${mo.label}* from ${settings?.agencyName||'DNA Payments'}:\n\nTotal Cases: ${s.totalCases}\nTotal Payable: Rs ${fmt(s.totalPayable)}\nAlready Paid: Rs ${fmt(s.paidAmt)}\n*Net Payable Now: Rs ${fmt(s.pendingAmt)}*\n\nThank you.`;window.open(`https://wa.me/${p}?text=${encodeURIComponent(msg)}`,'_blank','noopener');const h=document.getElementById('slip-wp-hint');if(h){h.textContent=`Opened WhatsApp for ${name}. Attach the PDF manually before sending.`;h.style.color='var(--green)'}};
+  if(typeof window.sendSlipWhatsApp==='function')window.sendSlipWhatsApp=function(){
+    const name=document.getElementById('slip-inv')?.value||'',code=document.getElementById('slip-month')?.value||'',mo=MONTHS.find(m=>m.code===code);
+    if(!name||!mo){toast('Select an investigator and month first.',true);return}
+    const p=phone(INVESTIGATOR_PHONES?.[name]);
+    if(!p){toast('No valid WhatsApp number saved for this investigator.',true);return}
+    const monthCases=cases.filter(c=>{if(!c.date)return false;const d=new Date(c.date);return d.getMonth()+1===mo.m&&d.getFullYear()===mo.y&&(c.inv1===name||c.inv2===name)});
+    const s=computeInvStats(name,monthCases);
+    const tax=typeof window.getSlipTaxConfig==='function'?window.getSlipTaxConfig():{rate:0};
+    let taxLines='';
+    let netLine=`*Net Payable Now: Rs ${fmt(s.pendingAmt)}*`;
+    if(tax&&tax.rate>0){
+      const taxableBase=tax.base==='fees_only'?(s.pendingFees||s.totalFees):s.pendingAmt;
+      const tdsAmt=Math.round((taxableBase*tax.rate)/100);
+      const netDisbursable=Math.max(0,s.pendingAmt-tdsAmt);
+      taxLines=`\nGross Balance: Rs ${fmt(s.pendingAmt)}\nLess TDS (${tax.label}): -Rs ${fmt(tdsAmt)}`;
+      netLine=`*Net Disbursable Now: Rs ${fmt(netDisbursable)}*`;
+    }
+    const msg=`Hello ${name},\n\nYour payment slip for *${mo.label}* from ${settings?.agencyName||'DNA Payments'}:\n\nTotal Cases: ${s.totalCases}\nTotal Payable: Rs ${fmt(s.totalPayable)}\nAlready Paid: Rs ${fmt(s.paidAmt)}${taxLines}\n${netLine}\n\nThank you.`;
+    window.open(`https://wa.me/${p}?text=${encodeURIComponent(msg)}`,'_blank','noopener');
+    const h=document.getElementById('slip-wp-hint');
+    if(h){h.textContent=`Opened WhatsApp for ${name}. Attach the PDF manually before sending.`;h.style.color='var(--green)'}
+  };
   if(typeof window.openCurrentQueueChat==='function')window.openCurrentQueueChat=function(){const i=slipQueue?.[slipQueueIdx];if(!i)return;const p=phone(INVESTIGATOR_PHONES?.[i.name]);if(!p){toast(`No valid WhatsApp number saved for ${i.name}.`,true);advanceSlipQueue?.();return}const s=computeInvStats(i.name,i.monthCases),msg=`Hello ${i.name},\n\nYour payment slip for *${i.mo.label}* from ${settings?.agencyName||'DNA Payments'}:\n\nTotal Cases: ${s.totalCases}\nTotal Payable: Rs ${fmt(s.totalPayable)}\nAlready Paid: Rs ${fmt(s.paidAmt)}\n*Net Payable Now: Rs ${fmt(s.pendingAmt)}*\n\nThank you.`;window.open(`https://wa.me/${p}?text=${encodeURIComponent(msg)}`,'_blank','noopener');advanceSlipQueue?.()};
 
   window.checkBackupReminder=function(){};window.checkWeeklyBackupReminder=function(){};
