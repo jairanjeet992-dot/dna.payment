@@ -40,10 +40,128 @@ function updateRollbackBadge() {
   }
 }
 
+// Valid schema columns confirmed directly from live PostgreSQL database
+const VALID_CASE_SCHEMA_COLUMNS = [
+  'company', 'date', 'case_type', 'claim_no', 'policy_no', 'insured_name',
+  'hospital', 'location', 'invoice_no', 'invoice_amount', 'inv1', 'inv2',
+  'fee1', 'fee2', 'ta1', 'ta2', 'received', 'received_date',
+  'inv1_status', 'inv2_status', 'hardcopy1_status', 'hardcopy2_status',
+  'company_hardcopy_status', 'company_hardcopy_awb', 'hardcopy_receive_date',
+  'company_dispatch_date', 'outcome', 'exception_type', 'exception_reason',
+  'remarks', 'sla_hours', 'due_date', 'risk_level', 'completed_at', 'custom_data'
+];
+
+/**
+ * Executes an atomic batch update with controlled chunking and automatic
+ * compensating rollback if an error occurs mid-operation.
+ *
+ * @param {Array<{doc_code: string, fields: Object}>} updates
+ * @param {Object} opts
+ * @param {string} opts.actionTitle
+ * @param {string} [opts.investigatorName]
+ * @param {string[]} [opts.updatedFields]
+ * @param {Function} [opts.onProgress]
+ * @returns {Promise<{success: boolean, count: number, error?: string}>}
+ */
+async function executeAtomicBatchUpdate(updates, opts = {}) {
+  if (!updates || !updates.length) return { success: true, count: 0 };
+
+  const currentCases = window.cases || [];
+  const caseMap = new Map(currentCases.map(c => [c.doc_code, c]));
+
+  // 1. Capture exact previous state for all cases before starting any writes
+  const previousState = [];
+  for (const u of updates) {
+    const existing = caseMap.get(u.doc_code);
+    if (existing) {
+      const snap = { doc_code: u.doc_code };
+      // Copy only valid schema keys that are being updated or relevant
+      const keysToCopy = opts.updatedFields || Object.keys(u.fields);
+      for (const k of keysToCopy) {
+        if (k in existing) snap[k] = existing[k];
+      }
+      previousState.push(snap);
+    }
+  }
+
+  const successfullyUpdated = [];
+  const total = updates.length;
+  const CONCURRENCY_CHUNK = 5;
+
+  try {
+    for (let i = 0; i < updates.length; i += CONCURRENCY_CHUNK) {
+      const slice = updates.slice(i, i + CONCURRENCY_CHUNK);
+      await Promise.all(slice.map(async (item) => {
+        // Sanitize fields to only valid schema keys
+        const cleanFields = {};
+        for (const [key, val] of Object.entries(item.fields)) {
+          if (VALID_CASE_SCHEMA_COLUMNS.includes(key)) {
+            cleanFields[key] = val;
+          }
+        }
+        const { error } = await supabaseClient.from('cases').update(cleanFields).eq('doc_code', item.doc_code);
+        if (error) throw error;
+        successfullyUpdated.push(item);
+      }));
+
+      if (typeof opts.onProgress === 'function') {
+        opts.onProgress(Math.min(i + CONCURRENCY_CHUNK, total), total);
+      }
+    }
+
+    // 2. All updates succeeded — record batch snapshot for 1-click rollback
+    const docCodes = updates.map(u => u.doc_code);
+    recordBatchSnapshot({
+      action: opts.actionTitle || `Bulk Update: ${updates.length} case(s)`,
+      type: 'update',
+      docCodes,
+      previousState,
+      metadata: {
+        updatedFields: opts.updatedFields || (updates[0] ? Object.keys(updates[0].fields) : []),
+        investigator: opts.investigatorName || null,
+        batchSize: updates.length
+      }
+    });
+
+    return { success: true, count: updates.length };
+
+  } catch (err) {
+    console.error('[DNA Atomic Batch] Update failed mid-operation:', err);
+
+    // 3. Compensating Rollback: Revert already-updated cases back to original state
+    if (successfullyUpdated.length > 0) {
+      console.warn(`[DNA Atomic Batch] Rolling back ${successfullyUpdated.length} partially updated cases...`);
+      showToast(`Warning: Error at case. Reverting ${successfullyUpdated.length} cases to maintain database integrity…`, true);
+
+      const rollbackMap = new Map(previousState.map(p => [p.doc_code, p]));
+      for (let i = 0; i < successfullyUpdated.length; i += CONCURRENCY_CHUNK) {
+        const slice = successfullyUpdated.slice(i, i + CONCURRENCY_CHUNK);
+        await Promise.all(slice.map(async (item) => {
+          const prev = rollbackMap.get(item.doc_code);
+          if (prev) {
+            const { doc_code, ...revertFields } = prev;
+            try {
+              await supabaseClient.from('cases').update(revertFields).eq('doc_code', doc_code);
+            } catch (revertErr) {
+              console.error(`[DNA Atomic Batch] Failed to revert case ${doc_code}:`, revertErr);
+            }
+          }
+        }));
+      }
+    }
+
+    return {
+      success: false,
+      count: successfullyUpdated.length,
+      error: `Interrupted: ${err.message}. ${successfullyUpdated.length} processed cases were automatically reverted to prevent corrupt states.`
+    };
+  }
+}
+
 /**
  * Record a batch snapshot before modifying the database.
  * @param {Object} opts
- * @param {string} opts.action - Human-readable action description (e.g. "Bulk Edit: set 'Outcome' = Fraud")
+ * @param {string} opts.action - Human-readable action description
  * @param {'update'|'insert'|'delete'} opts.type - Operation type
  * @param {string[]} [opts.docCodes] - Affected document codes
  * @param {Object[]} [opts.previousState] - Previous full/partial case objects
@@ -59,7 +177,14 @@ function recordBatchSnapshot({ action, type, docCodes = [], previousState = null
     if (!stateToSave && docCodes.length > 0) {
       if (type === 'update' || type === 'delete') {
         const codeSet = new Set(docCodes);
-        stateToSave = currentCases.filter(c => codeSet.has(c.doc_code)).map(c => JSON.parse(JSON.stringify(c)));
+        stateToSave = currentCases.filter(c => codeSet.has(c.doc_code)).map(c => {
+          const copy = {};
+          VALID_CASE_SCHEMA_COLUMNS.forEach(col => {
+            if (c[col] !== undefined) copy[col] = c[col];
+          });
+          copy.doc_code = c.doc_code;
+          return copy;
+        });
       }
     }
 
@@ -129,79 +254,78 @@ async function rollbackBatchSnapshot(snapshotId) {
 
   try {
     if (snapshot.type === 'update') {
-      // Restore previous state for each case
       if (!snapshot.previousState || snapshot.previousState.length === 0) {
         throw new Error('No previous state recorded for this snapshot.');
       }
 
-      const chunkSize = 15;
+      const total = snapshot.previousState.length;
+      const chunkSize = 5;
+      const updatedFields = snapshot.metadata?.updatedFields;
+
       for (let i = 0; i < snapshot.previousState.length; i += chunkSize) {
         const chunk = snapshot.previousState.slice(i, i + chunkSize);
         await Promise.all(chunk.map(async (prev) => {
           if (!prev.doc_code) return;
-          // Build safe payload of case fields
-          const updatePayload = {
-            company: prev.company,
-            date: prev.date,
-            case_type: prev.case_type,
-            claim_no: prev.claim_no,
-            policy_no: prev.policy_no,
-            insured_name: prev.insured_name,
-            hospital: prev.hospital,
-            location: prev.location,
-            invoice_no: prev.invoice_no,
-            invoice_amount: prev.invoice_amount,
-            inv1: prev.inv1,
-            inv2: prev.inv2,
-            fee1: prev.fee1,
-            fee2: prev.fee2,
-            ta1: prev.ta1,
-            ta2: prev.ta2,
-            received: prev.received,
-            received_date: prev.received_date,
-            inv1_status: prev.inv1_status,
-            inv2_status: prev.inv2_status,
-            hardcopy1_status: prev.hardcopy1_status,
-            hardcopy2_status: prev.hardcopy2_status,
-            company_hardcopy_status: prev.company_hardcopy_status,
-            company_hardcopy_awb: prev.company_hardcopy_awb,
-            outcome: prev.outcome,
-            sla_hours: prev.sla_hours,
-            due_date: prev.due_date,
-            risk_level: prev.risk_level,
-            completed_at: prev.completed_at,
-            remarks: prev.remarks,
-            custom_data: prev.custom_data
-          };
 
-          const { error } = await supabaseClient.from('cases').update(updatePayload).eq('doc_code', prev.doc_code);
-          if (error) throw error;
+          // Build safe payload: only restore specific updated fields if recorded,
+          // or only valid defined schema columns to prevent overwriting unrelated changes
+          const updatePayload = {};
+          if (Array.isArray(updatedFields) && updatedFields.length > 0) {
+            for (const f of updatedFields) {
+              if (VALID_CASE_SCHEMA_COLUMNS.includes(f) && prev[f] !== undefined) {
+                updatePayload[f] = prev[f];
+              }
+            }
+          } else {
+            for (const col of VALID_CASE_SCHEMA_COLUMNS) {
+              if (prev[col] !== undefined) {
+                updatePayload[col] = prev[col];
+              }
+            }
+          }
+
+          if (Object.keys(updatePayload).length > 0) {
+            const { error } = await supabaseClient.from('cases').update(updatePayload).eq('doc_code', prev.doc_code);
+            if (error) throw error;
+          }
         }));
+
+        if (btn) {
+          btn.textContent = `Reverting (${Math.min(i + chunkSize, total)}/${total})…`;
+        }
       }
 
     } else if (snapshot.type === 'insert') {
-      // Revert newly inserted rows by deleting them
+      // Revert newly inserted rows by deleting them in URI-safe chunks
       if (!snapshot.docCodes || snapshot.docCodes.length === 0) {
         throw new Error('No document codes found to remove.');
       }
-      const { error } = await supabaseClient.from('cases').delete().in('doc_code', snapshot.docCodes);
-      if (error) throw error;
+      const URI_SAFE_CHUNK = 25;
+      for (let i = 0; i < snapshot.docCodes.length; i += URI_SAFE_CHUNK) {
+        const chunk = snapshot.docCodes.slice(i, i + URI_SAFE_CHUNK);
+        const { error } = await supabaseClient.from('cases').delete().in('doc_code', chunk);
+        if (error) throw error;
+      }
 
     } else if (snapshot.type === 'delete') {
-      // Re-insert previously deleted cases
+      // Re-insert previously deleted cases in clean chunks
       if (!snapshot.previousState || snapshot.previousState.length === 0) {
         throw new Error('No deleted case data found to restore.');
       }
-      // Prepare clean rows for insertion without old primary ids
       const toInsert = snapshot.previousState.map(c => {
-        const copy = { ...c };
-        delete copy.id;
-        delete copy.created_at;
-        delete copy.updated_at;
-        return copy;
+        const clean = { doc_code: c.doc_code };
+        VALID_CASE_SCHEMA_COLUMNS.forEach(col => {
+          if (c[col] !== undefined) clean[col] = c[col];
+        });
+        return clean;
       });
-      const { error } = await supabaseClient.from('cases').insert(toInsert);
-      if (error) throw error;
+
+      const INSERT_CHUNK = 20;
+      for (let i = 0; i < toInsert.length; i += INSERT_CHUNK) {
+        const chunk = toInsert.slice(i, i + INSERT_CHUNK);
+        const { error } = await supabaseClient.from('cases').insert(chunk);
+        if (error) throw error;
+      }
     }
 
     // Mark as rolled back
@@ -328,6 +452,7 @@ window.dnaRollback = {
   getBatchSnapshots,
   recordBatchSnapshot,
   rollbackBatchSnapshot,
+  executeAtomicBatchUpdate,
   openRollbackHistoryModal,
   renderRollbackHistoryTable,
   clearAllBatchSnapshots,
@@ -338,6 +463,7 @@ window.openRollbackHistoryModal = openRollbackHistoryModal;
 window.rollbackBatchSnapshot = rollbackBatchSnapshot;
 window.clearAllBatchSnapshots = clearAllBatchSnapshots;
 window.recordBatchSnapshot = recordBatchSnapshot;
+window.executeAtomicBatchUpdate = executeAtomicBatchUpdate;
 
 // Initialize badge on document ready
 document.addEventListener('DOMContentLoaded', () => {

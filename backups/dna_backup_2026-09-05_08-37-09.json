@@ -1,0 +1,16 @@
+{
+  "version": "2.0",
+  "timestamp": "2026-09-05T08:37:09.409Z",
+  "triggerType": "manual_admin_trigger",
+  "cases": [],
+  "settings": null,
+  "investigators": [],
+  "investigator_expenses": [],
+  "activity_log": [],
+  "stats": {
+    "totalCases": 0,
+    "totalInvestigators": 0,
+    "totalExpenses": 0,
+    "totalActivityLogs": 0
+  }
+}

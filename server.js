@@ -18,19 +18,297 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/live' });
 const port = 3000;
+const fs = require('fs');
+const { createClient } = require('@supabase/supabase-js');
 
 // Body parsing middleware for JSON and raw data (supporting base64 PDFs and images up to 25MB)
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+// ============================================================
+// AUTOMATED DATABASE BACKUP ENGINE (FOR SUPABASE FREE TIER)
+// ============================================================
+const BACKUPS_DIR = path.join(__dirname, 'backups');
+if (!fs.existsSync(BACKUPS_DIR)) {
+  fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+}
+
+// Load Supabase credentials
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://aacvwozpfjuhcvihnaen.supabase.co';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhY3Z3b3pwZmp1aGN2aWhuYWVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3Nzc2MjUsImV4cCI6MjEwMjM1MzYyNX0.nPHpd2YeC-VgF-xKCKO7kLzr_5TncD84b8IOzoiKAIk';
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let isBackupInProgress = false;
+
+async function executeDatabaseBackup(triggerType = 'scheduled') {
+  if (isBackupInProgress) {
+    return { success: false, message: 'Backup already in progress.' };
+  }
+  isBackupInProgress = true;
+  console.log(`[BACKUP] Starting automated database backup (${triggerType})...`);
+
+  try {
+    // 1. Fetch all core tables in parallel
+    const [casesRes, invRes, settingsRes, expensesRes, activityRes] = await Promise.all([
+      supabase.from('cases').select('*').order('id', { ascending: true }),
+      supabase.from('investigators').select('*').order('id', { ascending: true }),
+      supabase.from('agency_settings').select('*').order('id', { ascending: true }),
+      supabase.from('investigator_expenses').select('*').order('id', { ascending: true }),
+      supabase.from('activity_log').select('*').order('id', { ascending: false }).limit(2000)
+    ]);
+
+    const cases = casesRes.data || [];
+    const investigators = invRes.data || [];
+    const settingsList = settingsRes.data || [];
+    const expenses = expensesRes.data || [];
+    const activityLog = activityRes.data || [];
+
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+    const filename = `dna_backup_${dateStr}_${timeStr}.json`;
+    const filePath = path.join(BACKUPS_DIR, filename);
+
+    // Prepare unified payload (both structured and backwards-compatible with client restore)
+    const backupPayload = {
+      version: '2.0',
+      timestamp: now.toISOString(),
+      triggerType,
+      cases: cases, // backwards compatible with restoreBackup()
+      settings: settingsList[0] || null,
+      investigators: investigators,
+      investigator_expenses: expenses,
+      activity_log: activityLog,
+      stats: {
+        totalCases: cases.length,
+        totalInvestigators: investigators.length,
+        totalExpenses: expenses.length,
+        totalActivityLogs: activityLog.length
+      }
+    };
+
+    fs.writeFileSync(filePath, JSON.stringify(backupPayload, null, 2), 'utf8');
+
+    // 2. Prune old backups — keep latest 14 snapshots
+    pruneOldBackups(14);
+
+    console.log(`[BACKUP] ✓ Successfully created snapshot ${filename} (${cases.length} cases)`);
+    return {
+      success: true,
+      filename,
+      timestamp: now.toISOString(),
+      stats: backupPayload.stats
+    };
+  } catch (err) {
+    console.error('[BACKUP] Backup execution error:', err);
+    return { success: false, error: err.message };
+  } finally {
+    isBackupInProgress = false;
+  }
+}
+
+function pruneOldBackups(keepCount = 14) {
+  try {
+    const files = fs.readdirSync(BACKUPS_DIR)
+      .filter(f => f.startsWith('dna_backup_') && f.endsWith('.json'))
+      .map(f => {
+        const fullPath = path.join(BACKUPS_DIR, f);
+        const stats = fs.statSync(fullPath);
+        return { name: f, fullPath, mtime: stats.mtimeMs };
+      })
+      .sort((a, b) => b.mtime - a.mtime); // newest first
+
+    if (files.length > keepCount) {
+      const toDelete = files.slice(keepCount);
+      for (const item of toDelete) {
+        fs.unlinkSync(item.fullPath);
+        console.log(`[BACKUP] Pruned old backup file: ${item.name}`);
+      }
     }
+  } catch (err) {
+    console.error('[BACKUP] Prune error:', err);
+  }
+}
+
+// Scheduled check: Runs daily backup (interval checks every 1 hour)
+function startBackupScheduler() {
+  console.log('[BACKUP] Automated Backup Scheduler initialized.');
+  // Check if any backup exists from the last 24 hours; if not, create one on startup
+  setTimeout(() => {
+    try {
+      const files = fs.readdirSync(BACKUPS_DIR).filter(f => f.startsWith('dna_backup_') && f.endsWith('.json'));
+      if (files.length === 0) {
+        executeDatabaseBackup('initial_startup');
+      } else {
+        const newestMtime = files.reduce((latest, f) => {
+          const mtime = fs.statSync(path.join(BACKUPS_DIR, f)).mtimeMs;
+          return Math.max(latest, mtime);
+        }, 0);
+        const hoursSinceLast = (Date.now() - newestMtime) / (1000 * 60 * 60);
+        if (hoursSinceLast >= 24) {
+          executeDatabaseBackup('daily_catchup');
+        }
+      }
+    } catch (e) {
+      console.warn('[BACKUP] Initial check failed:', e);
+    }
+  }, 3000);
+
+  // Periodic hourly check
+  setInterval(() => {
+    try {
+      const files = fs.readdirSync(BACKUPS_DIR).filter(f => f.startsWith('dna_backup_') && f.endsWith('.json'));
+      let shouldBackup = false;
+      if (files.length === 0) {
+        shouldBackup = true;
+      } else {
+        const newestMtime = files.reduce((latest, f) => {
+          const mtime = fs.statSync(path.join(BACKUPS_DIR, f)).mtimeMs;
+          return Math.max(latest, mtime);
+        }, 0);
+        const hoursSinceLast = (Date.now() - newestMtime) / (1000 * 60 * 60);
+        if (hoursSinceLast >= 24) {
+          shouldBackup = true;
+        }
+      }
+      if (shouldBackup) {
+        executeDatabaseBackup('scheduled_daily');
+      }
+    } catch (err) {
+      console.error('[BACKUP] Scheduled interval error:', err);
+    }
+  }, 1000 * 60 * 60); // every 1 hour
+}
+
+startBackupScheduler();
+
+// Backup API Routes
+app.get('/api/backup/status', (req, res) => {
+  try {
+    const files = fs.readdirSync(BACKUPS_DIR)
+      .filter(f => f.startsWith('dna_backup_') && f.endsWith('.json'))
+      .map(f => {
+        const fullPath = path.join(BACKUPS_DIR, f);
+        const stats = fs.statSync(fullPath);
+        return { name: f, size: stats.size, mtime: stats.mtime };
+      })
+      .sort((a, b) => b.mtime - a.mtime);
+
+    let latestDetails = null;
+    if (files.length > 0) {
+      try {
+        const raw = fs.readFileSync(path.join(BACKUPS_DIR, files[0].name), 'utf8');
+        const parsed = JSON.parse(raw);
+        latestDetails = {
+          filename: files[0].name,
+          size: files[0].size,
+          timestamp: parsed.timestamp || files[0].mtime,
+          stats: parsed.stats || {}
+        };
+      } catch (err) {
+        latestDetails = { filename: files[0].name, size: files[0].size, timestamp: files[0].mtime };
+      }
+    }
+
+    res.json({
+      success: true,
+      totalBackups: files.length,
+      latest: latestDetails,
+      scheduler: 'Active (Daily Interval)'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
+
+app.get('/api/backup/list', (req, res) => {
+  try {
+    const files = fs.readdirSync(BACKUPS_DIR)
+      .filter(f => f.startsWith('dna_backup_') && f.endsWith('.json'))
+      .map(f => {
+        const fullPath = path.join(BACKUPS_DIR, f);
+        const stats = fs.statSync(fullPath);
+        let recordCount = 0;
+        try {
+          const content = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+          recordCount = (content.cases ? content.cases.length : 0);
+        } catch(e) {}
+        return {
+          filename: f,
+          sizeFormatted: (stats.size / 1024).toFixed(1) + ' KB',
+          sizeBytes: stats.size,
+          mtime: stats.mtime,
+          recordCount
+        };
+      })
+      .sort((a, b) => b.mtime - a.mtime);
+
+    res.json({ success: true, backups: files });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/backup/trigger', async (req, res) => {
+  const result = await executeDatabaseBackup('manual_admin_trigger');
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(500).json(result);
+  }
+});
+
+app.get('/api/backup/download-latest', (req, res) => {
+  try {
+    const files = fs.readdirSync(BACKUPS_DIR)
+      .filter(f => f.startsWith('dna_backup_') && f.endsWith('.json'))
+      .map(f => ({ name: f, mtime: fs.statSync(path.join(BACKUPS_DIR, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+
+    if (files.length === 0) {
+      return res.status(404).send('No backup files found.');
+    }
+    const filePath = path.join(BACKUPS_DIR, files[0].name);
+    res.download(filePath, files[0].name);
+  } catch (err) {
+    res.status(500).send('Error downloading backup: ' + err.message);
+  }
+});
+
+app.get('/api/backup/download/:filename', (req, res) => {
+  try {
+    const safeName = path.basename(req.params.filename);
+    if (!safeName.startsWith('dna_backup_') || !safeName.endsWith('.json')) {
+      return res.status(400).send('Invalid backup filename.');
+    }
+    const filePath = path.join(BACKUPS_DIR, safeName);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send('Backup file not found.');
+    }
+    res.download(filePath, safeName);
+  } catch (err) {
+    res.status(500).send('Error downloading backup: ' + err.message);
+  }
+});
+
+let aiClient = null;
+function getAi() {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY environment variable is not configured');
+    }
+    aiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+  }
+  return aiClient;
+}
 
 // AI OCR & Mandate Extraction API
 
@@ -62,6 +340,10 @@ setInterval(() => {
 
 app.post('/api/gemini/parse-case', rateLimiter, async (req, res) => {
   try {
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(503).json({ success: false, error: 'GEMINI_API_KEY is not configured on the server.' });
+    }
+    const ai = getAi();
     const { text, fileBase64, mimeType } = req.body;
     if (!text && !fileBase64) {
       return res.status(400).json({ success: false, error: 'Please provide text or upload a document.' });
@@ -182,9 +464,17 @@ const FILL_CASE_TOOL = {
 wss.on('connection', async (clientWs) => {
   console.log('[LIVE] Client connected');
   
+  if (!process.env.GEMINI_API_KEY) {
+    console.warn('[LIVE] GEMINI_API_KEY is not configured on the server.');
+    clientWs.send(JSON.stringify({ error: 'GEMINI_API_KEY is not configured' }));
+    clientWs.close();
+    return;
+  }
+
   let session = null;
 
   try {
+    const ai = getAi();
     session = await ai.live.connect({
       model: "gemini-3.1-flash-live-preview",
       config: {

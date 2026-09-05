@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <title>DNA Professional Investigation Agency — Payment System</title>
+<meta name="description" content="Premium payment and case management system for DNA Professional Investigation Agency, featuring exception handling for rejected/withdrawn cases.">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -915,16 +916,39 @@ tbody tr:hover{background:var(--line);}
       </div>
 
       <div class="panel" style="padding:18px;">
-        <div class="panel-title" style="margin-bottom:14px;">☁️ Data & Sync</div>
-        <p style="font-size:11.5px;color:var(--sub);margin-bottom:12px;line-height:1.6;">Data is stored in Supabase and syncs live across every signed-in device.</p>
-        <button class="btn btn-ghost btn-sm" onclick="exportForSheets()">⬇ Export CSV (paste into Google Sheets)</button>
-        <button class="btn btn-ghost btn-sm" onclick="exportExcel()" style="margin-top:8px;">📊 Export Excel (.xlsx)</button>
-        <button class="btn btn-ghost btn-sm" onclick="exportPDF()" style="margin-top:8px;">📄 Export PDF (Cases List)</button>
-        <button class="btn btn-ghost btn-sm" onclick="exportBackup()" style="margin-top:8px;">💾 Download Full Backup (JSON)</button>
-        <button id="fix-doc-codes-btn" class="btn btn-ghost btn-sm" onclick="fixMalformedDocCodes()" style="margin-top:8px; border-color:var(--gold); color:var(--gold); font-weight:600;" title="Fixes doc codes with numeric month prefixes like 72026-XXXX into JUL26-XXXX">🔧 Fix Malformed Doc Codes (e.g. 72026-XXXX → JUL26-XXXX)</button>
-        <button class="btn btn-ghost btn-sm admin-only" onclick="openRollbackHistoryModal()" style="margin-top:8px;">↩ View Batch Rollback History (Undo)</button>
-        <button class="btn btn-navy btn-sm" onclick="backupEntireSystem()" style="margin-top:8px; width:100%;">☁ Backup Entire System to Drive</button>
-        <div style="margin-top:8px;"><input type="file" id="restore-file" accept=".json" style="display:none" onchange="restoreBackup(event)"><button class="btn btn-ghost btn-sm" onclick="document.getElementById('restore-file').click()">📤 Restore from Backup</button></div>
+        <div class="panel-title" style="margin-bottom:14px;">☁️ Data & Automated Cloud Backups</div>
+        <p style="font-size:11.5px;color:var(--sub);margin-bottom:12px;line-height:1.6;">Data syncs live to Supabase. Automated disaster-recovery snapshots protect your database continuously on Free Tier.</p>
+
+        <!-- Automated Snapshot Status Card -->
+        <div id="auto-backup-card" style="background:var(--paper); border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <div style="display:flex; align-items:center; gap:8px; font-weight:700; font-size:12px; color:var(--navy);">
+              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--green);"></span>
+              Automated Server Backup
+            </div>
+            <span id="auto-backup-status-badge" style="font-size:10.5px; font-weight:600; padding:2px 8px; border-radius:10px; background:var(--green-bg); color:var(--green);">Active (Daily Interval)</span>
+          </div>
+          <div id="auto-backup-details" style="font-size:11px; color:var(--sub); line-height:1.5;">
+            Checking latest snapshot...
+          </div>
+          <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+            <button class="btn btn-navy btn-sm" onclick="triggerManualServerBackup()" id="btn-trigger-backup" style="flex:1; min-width:140px;">⚡ Take Snapshot Now</button>
+            <button class="btn btn-ghost btn-sm" onclick="downloadLatestServerBackup()" style="flex:1; min-width:140px;">📥 Download Latest</button>
+            <button class="btn btn-ghost btn-sm" onclick="openServerBackupsModal()" style="width:100%; margin-top:4px;">📜 View 14-Day Snapshots History</button>
+          </div>
+        </div>
+
+        <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--sub); margin-bottom:8px;">Manual Export & Tools</div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn btn-ghost btn-sm" onclick="exportForSheets()">⬇ Export CSV (paste into Google Sheets)</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportExcel()">📊 Export Excel (.xlsx)</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportPDF()">📄 Export PDF (Cases List)</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportBackup()">💾 Export Client Backup (JSON)</button>
+          <button id="fix-doc-codes-btn" class="btn btn-ghost btn-sm" onclick="fixMalformedDocCodes()" style="border-color:var(--gold); color:var(--gold); font-weight:600;" title="Fixes doc codes with numeric month prefixes like 72026-XXXX into JUL26-XXXX">🔧 Fix Malformed Doc Codes (e.g. 72026-XXXX → JUL26-XXXX)</button>
+          <button class="btn btn-ghost btn-sm admin-only" onclick="openRollbackHistoryModal()">↩ View Batch Rollback History (Undo)</button>
+          <button class="btn btn-navy btn-sm" onclick="backupEntireSystem()" style="width:100%;">☁ Backup Entire System to Drive</button>
+          <div><input type="file" id="restore-file" accept=".json" style="display:none" onchange="restoreBackup(event)"><button class="btn btn-ghost btn-sm" style="width:100%;" onclick="document.getElementById('restore-file').click()">📤 Restore from Backup</button></div>
+        </div>
       </div>
       <div class="panel" style="padding:18px;">
         <div class="panel-title" style="margin-bottom:14px;">📁 Google Drive Integration</div>
@@ -975,6 +999,42 @@ tbody tr:hover{background:var(--line);}
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal('plugins-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="server-backups-modal">
+  <div class="modal" style="max-width:720px; width:95%;">
+    <div class="modal-head">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <h3 style="margin:0;">🛡️ Automated Server Backups (14-Day Rolling History)</h3>
+      </div>
+      <button class="icon-btn" onclick="closeModal('server-backups-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--sub);margin-bottom:14px;line-height:1.5;">
+        These automated snapshots are captured continuously by the server directly from Supabase, ensuring full recovery protection even on the Supabase Free Tier.
+      </p>
+      <div class="tbl-scroll" style="max-height:360px; overflow-y:auto; border:1px solid var(--line); border-radius:4px;">
+        <table class="data-table" style="width:100%; margin:0; font-size:12px;">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Filename</th>
+              <th style="text-align:right;">Cases</th>
+              <th style="text-align:right;">Size</th>
+              <th style="text-align:center;">Download</th>
+            </tr>
+          </thead>
+          <tbody id="server-backups-tbody">
+            <tr><td colspan="5" style="text-align:center; padding:16px; color:var(--sub);">Loading snapshots...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-foot" style="display:flex; justify-content:space-between; align-items:center;">
+      <button class="btn btn-navy" onclick="triggerManualServerBackup()">⚡ Take New Snapshot</button>
+      <button class="btn btn-ghost" onclick="closeModal('server-backups-modal')">Close</button>
     </div>
   </div>
 </div>
@@ -1737,12 +1797,12 @@ tbody tr:hover{background:var(--line);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js"></script>
 <script src="ux-enhancements.js"></script>
-<script src="app.js?v=19"></script>
-<script src="batch-rollback.js"></script>
+<script src="app.js?v=21"></script>
+<script src="batch-rollback.js?v=2"></script>
 <script src="realtime-sync.js"></script>
 <script src="role-permissions.js"></script>
 <script src="import-pdf-enhancements.js?v=2"></script>
-<script src="dna-bugfixes.js"></script>
+<script src="dna-bugfixes.js?v=2"></script>
 <script src="frontend/investigator-360/investigator-360.js"></script>
 <script src="investigator-case-breakdown.js"></script>
 <script src="plugins-manager.js"></script>

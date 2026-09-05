@@ -636,6 +636,7 @@ function showView(name, el) {
   if (name === 'documents') renderDocuments();
   if (name === 'reports') buildBulkSlipSummary();
   if (name === 'intelligence') renderIntelligenceView();
+  if (name === 'settings' && typeof refreshBackupStatus === 'function') refreshBackupStatus();
 }
 
 // ============================================================
@@ -753,9 +754,16 @@ async function deleteCaseDB(docCode) {
 }
 
 async function deleteCasesDB(docCodes) {
-  const { data, error } = await supabaseClient.from('cases').delete().in('doc_code', docCodes).select('id');
-  if (error) throw error;
-  if (!data || data.length === 0) {
+  if (!docCodes || !docCodes.length) return;
+  const CHUNK_SIZE = 25;
+  let totalDeleted = 0;
+  for (let i = 0; i < docCodes.length; i += CHUNK_SIZE) {
+    const chunk = docCodes.slice(i, i + CHUNK_SIZE);
+    const { data, error } = await supabaseClient.from('cases').delete().in('doc_code', chunk).select('id');
+    if (error) throw error;
+    totalDeleted += (data ? data.length : 0);
+  }
+  if (totalDeleted === 0) {
     throw new Error("Deletion blocked by database permissions (RLS). Please ensure you have the 'admin' role in the user_roles table in Supabase.");
   }
 }
@@ -2356,32 +2364,46 @@ async function saveBulkPayment() {
     updates.push({ doc_code: docCode, fields });
   });
 
-  const docCodes = updates.map(u => u.doc_code);
-  if (typeof recordBatchSnapshot === 'function' && docCodes.length) {
-    recordBatchSnapshot({
-      action: `Bulk Payment: recorded payments for ${updates.length} case(s) (${name})`,
-      type: 'update',
-      docCodes
-    });
-  }
-
   try {
-    // Each row can have different field values, so this has to be one
-    // update call per row rather than a single batch update.
-    await Promise.all(updates.map(u => updateCaseDB(u.doc_code, u.fields)));
+    if (typeof window.executeAtomicBatchUpdate === 'function') {
+      const result = await window.executeAtomicBatchUpdate(updates, {
+        actionTitle: `Bulk Payment: recorded payments for ${updates.length} case(s) (${name})`,
+        investigatorName: name,
+        updatedFields: ['fee1', 'ta1', 'inv1_status', 'fee2', 'ta2', 'inv2_status'],
+        onProgress: (done, total) => {
+          if (btn) btn.textContent = `Saving (${done}/${total})…`;
+        }
+      });
+      if (!result.success) throw new Error(result.error || 'Bulk update failed');
+    } else {
+      // Fallback: chunked updates
+      const CHUNK = 5;
+      for (let i = 0; i < updates.length; i += CHUNK) {
+        const slice = updates.slice(i, i + CHUNK);
+        await Promise.all(slice.map(u => updateCaseDB(u.doc_code, u.fields)));
+        if (btn) btn.textContent = `Saving (${Math.min(i + CHUNK, updates.length)}/${updates.length})…`;
+      }
+      const docCodes = updates.map(u => u.doc_code);
+      if (typeof recordBatchSnapshot === 'function' && docCodes.length) {
+        recordBatchSnapshot({
+          action: `Bulk Payment: recorded payments for ${updates.length} case(s) (${name})`,
+          type: 'update',
+          docCodes
+        });
+      }
+    }
+
+    await loadCasesFromDB();
+    renderAll();
+    checkOverdueAlerts();
+    closeModal('bulkpay-modal');
+    if (window.logActivity) window.logActivity('Cases', `bulk processed payments for ${updates.length} cases for ${name}`);
+    showToast(`✓ Updated ${updates.length} case(s) for ${name}. (Undo available in Rollback Log)`);
   } catch (err) {
     showToast('Save failed: ' + err.message, true);
+  } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Save All Payments'; }
-    return;
   }
-
-  await loadCasesFromDB();
-  if (btn) { btn.disabled = false; btn.textContent = 'Save All Payments'; }
-  renderAll();
-  checkOverdueAlerts();
-  closeModal('bulkpay-modal');
-  if (window.logActivity) window.logActivity('Cases', `bulk processed payments for ${updates.length} cases for ${name}`);
-  showToast(`Updated ${updates.length} case(s) for ${name}. (Undo available in Rollback Log)`);
 }
 
 // ============================================================
@@ -6476,6 +6498,99 @@ async function restoreBackup(e) {
     } catch(err) { showToast('Restore failed: ' + err.message, true); }
   };
   reader.readAsText(file);
+}
+
+// ============================================================
+// AUTOMATED SERVER BACKUPS (SUPABASE FREE TIER SAFETY)
+// ============================================================
+async function refreshBackupStatus() {
+  const detailsEl = document.getElementById('auto-backup-details');
+  if (!detailsEl) return;
+  try {
+    const res = await fetch('/api/backup/status');
+    const data = await res.json();
+    if (data.success && data.latest) {
+      const dt = new Date(data.latest.timestamp);
+      const formattedDate = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+      const formattedTime = dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      const caseCount = data.latest.stats ? (data.latest.stats.totalCases ?? 0) : 0;
+      const sizeKb = (data.latest.size / 1024).toFixed(1);
+      detailsEl.innerHTML = `
+        <strong>Latest Snapshot:</strong> ${formattedDate} at ${formattedTime}<br>
+        <span style="font-family:var(--mono); color:var(--ink);">${data.latest.filename}</span> (${sizeKb} KB • ${caseCount} cases backed up)
+      `;
+    } else {
+      detailsEl.innerHTML = `No server snapshots yet. Click <strong>"Take Snapshot Now"</strong> to create the first one.`;
+    }
+  } catch (err) {
+    console.error('Failed to fetch backup status:', err);
+    detailsEl.textContent = 'Status check failed: Server unreachable.';
+  }
+}
+
+async function triggerManualServerBackup() {
+  const btn = document.getElementById('btn-trigger-backup');
+  const oldText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Capturing Snapshot…'; }
+  showToast('Connecting to Supabase to capture database snapshot…');
+  try {
+    const res = await fetch('/api/backup/trigger', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`✓ Server Snapshot created! (${data.stats ? (data.stats.totalCases || 0) : 0} cases saved)`);
+      refreshBackupStatus();
+      if (document.getElementById('server-backups-modal')?.classList.contains('open')) {
+        renderServerBackupsTable();
+      }
+    } else {
+      showToast('Backup failed: ' + (data.error || data.message), true);
+    }
+  } catch (err) {
+    showToast('Failed to trigger backup: ' + err.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = oldText; }
+  }
+}
+
+function downloadLatestServerBackup() {
+  window.location.href = '/api/backup/download-latest';
+  showToast('Downloading latest server snapshot…');
+}
+
+async function openServerBackupsModal() {
+  openModal('server-backups-modal');
+  await renderServerBackupsTable();
+}
+
+async function renderServerBackupsTable() {
+  const tbody = document.getElementById('server-backups-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:16px; color:var(--sub);">Loading snapshots list…</td></tr>`;
+  try {
+    const res = await fetch('/api/backup/list');
+    const data = await res.json();
+    if (!data.success || !data.backups || data.backups.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:16px; color:var(--sub);">No snapshots available yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = data.backups.map(b => {
+      const dt = new Date(b.mtime);
+      const formatted = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      return `
+        <tr>
+          <td style="white-space:nowrap; font-weight:600;">${formatted}</td>
+          <td style="font-family:var(--mono); font-size:11px;">${b.filename}</td>
+          <td style="text-align:right; font-weight:700; color:var(--navy);">${b.recordCount}</td>
+          <td style="text-align:right; color:var(--sub);">${b.sizeFormatted}</td>
+          <td style="text-align:center;">
+            <a href="/api/backup/download/${encodeURIComponent(b.filename)}" class="btn btn-ghost btn-sm" style="padding:3px 8px; font-size:11px;" download>📥 Download</a>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:16px; color:var(--red);">Failed to load backups list: ${err.message}</td></tr>`;
+  }
 }
 
 // Automatically scans database and fixes malformed doc_codes (e.g. 72026-0222 -> JUL26-0222)

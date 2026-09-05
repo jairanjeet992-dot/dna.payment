@@ -65,15 +65,34 @@ ready(()=>{
 
   window.applyBulkEdit=async function(){
     const field=document.getElementById('bulkedit-field')?.value||'';if(!field){toast('Select a field to edit.',true);return}const selectWrap=document.getElementById('bulkedit-select-wrap');const newVal=selectWrap?.style.display==='block'?(document.getElementById('bulkedit-select')?.value||''):(document.getElementById('bulkedit-value')?.value||'');if(newVal===''){toast('Enter a value to apply.',true);return}const numeric=['fee1','fee2','ta1','ta2','received','invoice_amount'];const value=numeric.includes(field)?parseFloat(newVal):newVal;if(numeric.includes(field)&&Number.isNaN(value)){toast('Invalid number value.',true);return}const docCodes=Array.from(selectedDocCodes||[]);if(!docCodes.length){toast('Select at least one case first.',true);return}if(!confirm(`Apply "${field}" = "${newVal}" to ${docCodes.length} selected case(s)?`))return;
+    const btn = document.querySelector('#bulkedit-modal .modal-foot .btn-navy');
+    if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
     if(typeof window.recordBatchSnapshot==='function'){
       window.recordBatchSnapshot({
         action:`Bulk Edit: set '${field}' = "${newVal}"`,
         type:'update',
         docCodes,
-        newState:{[field]:value}
+        newState:{[field]:value},
+        metadata:{updatedFields:[field],value:value}
       });
     }
-    try{const {error}=await supabaseClient.from('cases').update({[field]:value}).in('doc_code',docCodes);if(error)throw error;closeModal('bulkedit-modal');await loadCasesFromDB();renderAll();toast(`Updated ${docCodes.length} case(s). (Undo available in Rollback Log)`)}catch(err){toast('Bulk edit failed: '+err.message,true)}
+    try{
+      const CHUNK_SIZE = 25;
+      for (let i = 0; i < docCodes.length; i += CHUNK_SIZE) {
+        const chunk = docCodes.slice(i, i + CHUNK_SIZE);
+        const {error}=await supabaseClient.from('cases').update({[field]:value}).in('doc_code',chunk);
+        if(error)throw error;
+        if (btn) btn.textContent = `Applying (${Math.min(i + CHUNK_SIZE, docCodes.length)}/${docCodes.length})…`;
+      }
+      closeModal('bulkedit-modal');
+      await loadCasesFromDB();
+      renderAll();
+      toast(`Updated ${docCodes.length} case(s). (Undo available in Rollback Log)`);
+    }catch(err){
+      toast('Bulk edit failed: '+err.message,true);
+    }finally{
+      if (btn) { btn.disabled = false; btn.textContent = 'Apply to Selected'; }
+    }
   };
 
   window.runReconciliation=async function(){
