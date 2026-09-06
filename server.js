@@ -49,12 +49,13 @@ async function executeDatabaseBackup(triggerType = 'scheduled') {
 
   try {
     // 1. Fetch all core tables in parallel
-    const [casesRes, invRes, settingsRes, expensesRes, activityRes] = await Promise.all([
+    const [casesRes, invRes, settingsRes, expensesRes, activityRes, payoutsRes] = await Promise.all([
       supabase.from('cases').select('*').order('id', { ascending: true }),
       supabase.from('investigators').select('*').order('id', { ascending: true }),
       supabase.from('agency_settings').select('*').order('id', { ascending: true }),
       supabase.from('investigator_expenses').select('*').order('id', { ascending: true }),
-      supabase.from('activity_log').select('*').order('id', { ascending: false }).limit(2000)
+      supabase.from('activity_log').select('*').order('id', { ascending: false }).limit(2000),
+      supabase.from('investigator_payouts').select('*').order('id', { ascending: true })
     ]);
 
     const cases = casesRes.data || [];
@@ -62,6 +63,7 @@ async function executeDatabaseBackup(triggerType = 'scheduled') {
     const settingsList = settingsRes.data || [];
     const expenses = expensesRes.data || [];
     const activityLog = activityRes.data || [];
+    const payouts = payoutsRes?.data || [];
 
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
@@ -71,18 +73,20 @@ async function executeDatabaseBackup(triggerType = 'scheduled') {
 
     // Prepare unified payload (both structured and backwards-compatible with client restore)
     const backupPayload = {
-      version: '2.0',
+      version: '2.1',
       timestamp: now.toISOString(),
       triggerType,
       cases: cases, // backwards compatible with restoreBackup()
       settings: settingsList[0] || null,
       investigators: investigators,
       investigator_expenses: expenses,
+      investigator_payouts: payouts,
       activity_log: activityLog,
       stats: {
         totalCases: cases.length,
         totalInvestigators: investigators.length,
         totalExpenses: expenses.length,
+        totalPayouts: payouts.length,
         totalActivityLogs: activityLog.length
       }
     };

@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS cases (
   -- Payment & Status
   total_payable numeric(12,2),
   received numeric(12,2),
+  tds_deducted numeric(12,2) DEFAULT 0,
   profit numeric(12,2),
 
   -- Investigation Status
@@ -584,9 +585,9 @@ CREATE OR REPLACE FUNCTION public.calculate_case_financials()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
 BEGIN
   NEW.total_payable := COALESCE(NEW.fee1,0)+COALESCE(NEW.fee2,0)+COALESCE(NEW.ta1,0)+COALESCE(NEW.ta2,0);
-  NEW.profit := COALESCE(NEW.received,0)-NEW.total_payable;
+  NEW.profit := (COALESCE(NEW.received,0) + COALESCE(NEW.tds_deducted,0)) - NEW.total_payable;
   NEW.last_updated := now();
-  IF COALESCE(NEW.received,0) > 0 AND (TG_OP='INSERT' OR COALESCE(OLD.received,0) <> COALESCE(NEW.received,0)) THEN
+  IF (COALESCE(NEW.received,0) > 0 OR COALESCE(NEW.tds_deducted,0) > 0) AND (TG_OP='INSERT' OR COALESCE(OLD.received,0) <> COALESCE(NEW.received,0) OR COALESCE(OLD.tds_deducted,0) <> COALESCE(NEW.tds_deducted,0)) THEN
     NEW.received_date := COALESCE(NEW.received_date, CURRENT_DATE);
   END IF;
   RETURN NEW;

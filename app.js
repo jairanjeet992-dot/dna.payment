@@ -596,6 +596,7 @@ async function backupEntireSystem() {
       cases: cases,
       investigators: investigatorRows,
       settings: settings,
+      investigator_expenses: (window.investigatorExpenses && window.investigatorExpenses.length) ? window.investigatorExpenses : (investigatorExpenses || []),
       timestamp: new Date().toISOString()
     };
     
@@ -636,7 +637,14 @@ function showView(name, el) {
   if (name === 'documents') renderDocuments();
   if (name === 'reports') buildBulkSlipSummary();
   if (name === 'intelligence') renderIntelligenceView();
-  if (name === 'settings' && typeof refreshBackupStatus === 'function') refreshBackupStatus();
+  if (name === 'settings') {
+    if (typeof refreshBackupStatus === 'function') refreshBackupStatus();
+    if (typeof renderPermissionsMatrix === 'function') renderPermissionsMatrix();
+    if (typeof renderSettingsLists === 'function') renderSettingsLists();
+    if (typeof window.renderCustomFieldsSettings === 'function') window.renderCustomFieldsSettings();
+    if (typeof renderAssignedRoles === 'function') renderAssignedRoles();
+    if (typeof initSettingsSubTabs === 'function') initSettingsSubTabs();
+  }
 }
 
 // ============================================================
@@ -659,7 +667,8 @@ async function loadCasesFromDB() {
   if (error) { showToast('Failed to load cases: ' + error.message, true); return; }
   
   cases = (data || []).map(row => ({...row, total_payable: Number(row.total_payable), profit: Number(row.profit),
-    fee1: Number(row.fee1)||0, fee2: Number(row.fee2)||0, ta1: Number(row.ta1)||0, ta2: Number(row.ta2)||0, received: Number(row.received)||0}));
+    fee1: Number(row.fee1)||0, fee2: Number(row.fee2)||0, ta1: Number(row.ta1)||0, ta2: Number(row.ta2)||0, received: Number(row.received)||0,
+    tds_deducted: Number(row.tds_deducted)||0}));
   window.cases = cases; // keep exposed copy in sync
   refreshDynamicCompanies();
   start += limit;
@@ -681,7 +690,8 @@ async function loadCasesFromDB() {
         
         if (bgData && bgData.length > 0) {
           const parsedBg = bgData.map(row => ({...row, total_payable: Number(row.total_payable), profit: Number(row.profit),
-            fee1: Number(row.fee1)||0, fee2: Number(row.fee2)||0, ta1: Number(row.ta1)||0, ta2: Number(row.ta2)||0, received: Number(row.received)||0}));
+            fee1: Number(row.fee1)||0, fee2: Number(row.fee2)||0, ta1: Number(row.ta1)||0, ta2: Number(row.ta2)||0, received: Number(row.received)||0,
+            tds_deducted: Number(row.tds_deducted)||0}));
           cases.push(...parsedBg);
           newlyLoaded += parsedBg.length;
           start += limit;
@@ -1044,7 +1054,7 @@ COMPANIES.forEach(co => {
     if (!rows.length) return;
     const payable = rows.reduce((s,c)=>s+(c.total_payable||0),0);
     const received = rows.reduce((s,c)=>s+(c.received||0),0);
-    __coHtml.push(`<tr><td><strong>${escAttr(co)}</strong></td><td>${rows.length}</td><td>Rs ${fmt(payable)}</td><td>Rs ${fmt(received)}</td></tr>`);
+    __coHtml.push(`<tr><td><a href="javascript:void(0)" onclick="openCompanyRecoveryModal('${escAttr(co).replace(/'/g, "\\'")}')" style="color:var(--navy); font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:4px;" title="View Outstanding & Export Recovery Excel"><span>${escAttr(co)}</span> <span style="font-size:10px; color:var(--sub);">🏢↗</span></a></td><td>${rows.length}</td><td>Rs ${fmt(payable)}</td><td>Rs ${fmt(received)}</td></tr>`);
     companyChartData.push({label: co, value: received});
   });
   companyTbody.innerHTML = __coHtml.join('');
@@ -1238,7 +1248,31 @@ function getVisibleCases() {
 // CASES TABLE
 // ============================================================
 let filteredCases = [];
+
+// ============================================================
+// PERSISTENT COLUMN SORTING (ALL CASES TABLE)
+// ============================================================
+const VALID_CASE_SORT_KEYS = new Set([
+  'doc_code', 'date', 'company', 'claim_no', 'insured_name',
+  'invoice_no', 'invoice_amount', 'total_payable', 'outcome'
+]);
+const CASE_SORT_KEY_STORAGE = 'dna_cases_sort_key';
+const CASE_SORT_DIR_STORAGE = 'dna_cases_sort_dir';
+
 let sortKey = null, sortDir = 1;
+try {
+  if (typeof localStorage !== 'undefined') {
+    const savedKey = localStorage.getItem(CASE_SORT_KEY_STORAGE);
+    const savedDir = localStorage.getItem(CASE_SORT_DIR_STORAGE);
+    if (savedKey && VALID_CASE_SORT_KEYS.has(savedKey)) {
+      sortKey = savedKey;
+      sortDir = (savedDir === '-1' || savedDir === -1) ? -1 : 1;
+    }
+  }
+} catch (err) {
+  console.warn('Could not read sort configuration from localStorage:', err);
+}
+
 let selectedDocCodes = new Set();
 let currentPage = 1;
 let pageSize = 100;
@@ -1247,20 +1281,286 @@ function debouncedFilterCases() {
   clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(filterCases, 250);
 }
+
+function updateSortHeadersUI() {
+  const table = document.getElementById('cases-table');
+  if (!table) return;
+  const ths = table.querySelectorAll('thead th');
+  ths.forEach(th => {
+    const oc = th.getAttribute('onclick') || '';
+    const match = oc.match(/sortCases\(['"]([^'"]+)['"]\)/);
+    if (match) {
+      const colKey = match[1];
+      if (!th.dataset.baseTitle) {
+        th.dataset.baseTitle = th.textContent.replace(/[⇅▲▼]/g, '').trim();
+      }
+      const base = th.dataset.baseTitle;
+      if (sortKey && sortKey === colKey) {
+        th.textContent = `${base} ${sortDir === 1 ? '▲' : '▼'}`;
+        th.setAttribute('title', `Sorted ${sortDir === 1 ? 'Ascending' : 'Descending'} (Click to reverse)`);
+      } else {
+        th.textContent = `${base} ⇅`;
+        th.setAttribute('title', 'Click to sort');
+      }
+    }
+  });
+}
+
+// ============================================================
+// DRAG & DROP COLUMN REORDERING (ALL CASES TABLE)
+// ============================================================
+const DEFAULT_CASES_COLUMN_ORDER = [
+  'select',
+  'doc_code',
+  'status',
+  'date',
+  'sla',
+  'company',
+  'case_type',
+  'claim_no',
+  'insured_name',
+  'hospital',
+  'location',
+  'invoice_no',
+  'invoice_amount',
+  'inv1',
+  'inv2',
+  'fee1',
+  'fee2',
+  'ta1',
+  'ta2',
+  'total_payable',
+  'received',
+  'profit',
+  'margin',
+  'inv1_status',
+  'inv2_status',
+  'hardcopy1_status',
+  'outcome',
+  'actions'
+];
+const CASES_COLUMN_ORDER_STORAGE = 'dna_cases_column_order';
+let isDraggingCol = false;
+let draggedColId = null;
+
+function getCasesColumnOrder() {
+  let baseOrder = [...DEFAULT_CASES_COLUMN_ORDER];
+  if (window.CUSTOM_FIELDS && window.CUSTOM_FIELDS.length > 0) {
+    const invNoIdx = baseOrder.indexOf('invoice_no');
+    const insertIdx = invNoIdx !== -1 ? invNoIdx : baseOrder.length - 1;
+    window.CUSTOM_FIELDS.forEach(cf => {
+      const colId = 'custom_' + cf.id;
+      if (!baseOrder.includes(colId)) {
+        baseOrder.splice(insertIdx, 0, colId);
+      }
+    });
+  }
+
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem(CASES_COLUMN_ORDER_STORAGE);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const valid = parsed.filter(col => baseOrder.includes(col));
+          baseOrder.forEach(col => {
+            if (!valid.includes(col)) valid.push(col);
+          });
+          return valid;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Could not read column order from localStorage:', err);
+  }
+  return baseOrder;
+}
+
+function saveCasesColumnOrder(order) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(CASES_COLUMN_ORDER_STORAGE, JSON.stringify(order));
+    }
+  } catch (err) {
+    console.warn('Could not save column order to localStorage:', err);
+  }
+}
+
+function resetCasesColumnOrder() {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(CASES_COLUMN_ORDER_STORAGE);
+    }
+  } catch (err) {}
+  applyCasesColumnOrderToDOM();
+  renderCasesTable();
+  if (typeof showToast === 'function') {
+    showToast('Table columns reset to default order', false);
+  }
+}
+window.resetCasesColumnOrder = resetCasesColumnOrder;
+
+function applyCasesColumnOrderToDOM() {
+  const table = document.getElementById('cases-table');
+  if (!table) return;
+  const theadTr = table.querySelector('thead tr');
+  if (!theadTr) return;
+
+  const currentOrder = getCasesColumnOrder();
+  const thMap = {};
+  theadTr.querySelectorAll('th').forEach((th, i) => {
+    let colId = th.getAttribute('data-col');
+    if (!colId && DEFAULT_CASES_COLUMN_ORDER[i]) {
+      colId = DEFAULT_CASES_COLUMN_ORDER[i];
+      th.setAttribute('data-col', colId);
+    }
+    if (colId) thMap[colId] = th;
+  });
+
+  currentOrder.forEach(colId => {
+    const th = thMap[colId];
+    if (th) theadTr.appendChild(th);
+  });
+}
+window.applyCasesColumnOrderToDOM = applyCasesColumnOrderToDOM;
+
+function initCasesColumnDragAndDrop() {
+  const table = document.getElementById('cases-table');
+  if (!table) return;
+  const theadTr = table.querySelector('thead tr');
+  if (!theadTr) return;
+
+  const ths = theadTr.querySelectorAll('th');
+  ths.forEach((th, i) => {
+    let colId = th.getAttribute('data-col');
+    if (!colId && DEFAULT_CASES_COLUMN_ORDER[i]) {
+      colId = DEFAULT_CASES_COLUMN_ORDER[i];
+      th.setAttribute('data-col', colId);
+    }
+    if (!colId) return;
+
+    th.setAttribute('draggable', 'true');
+
+    th.ondragstart = (e) => {
+      if (e.target && e.target.tagName === 'INPUT') {
+        e.preventDefault();
+        return;
+      }
+      isDraggingCol = true;
+      draggedColId = colId;
+      th.classList.add('th-dragging');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', colId);
+      }
+    };
+
+    th.ondragover = (e) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      if (!draggedColId || draggedColId === colId) return;
+
+      const rect = th.getBoundingClientRect();
+      const isRight = (e.clientX - rect.left) > (rect.width / 2);
+
+      ths.forEach(t => {
+        if (t !== th) {
+          t.classList.remove('drop-target-left', 'drop-target-right');
+        }
+      });
+
+      th.classList.toggle('drop-target-right', isRight);
+      th.classList.toggle('drop-target-left', !isRight);
+    };
+
+    th.ondragleave = (e) => {
+      if (!th.contains(e.relatedTarget)) {
+        th.classList.remove('drop-target-left', 'drop-target-right');
+      }
+    };
+
+    th.ondrop = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      th.classList.remove('drop-target-left', 'drop-target-right');
+      const sourceCol = draggedColId || (e.dataTransfer ? e.dataTransfer.getData('text/plain') : null);
+      const targetCol = colId;
+
+      if (!sourceCol || !targetCol || sourceCol === targetCol) return;
+
+      const rect = th.getBoundingClientRect();
+      const isRight = (e.clientX - rect.left) > (rect.width / 2);
+
+      let order = getCasesColumnOrder();
+      const fromIndex = order.indexOf(sourceCol);
+      if (fromIndex === -1) return;
+      order.splice(fromIndex, 1);
+
+      let toIndex = order.indexOf(targetCol);
+      if (toIndex === -1) toIndex = order.length;
+      if (isRight) toIndex++;
+
+      order.splice(toIndex, 0, sourceCol);
+
+      saveCasesColumnOrder(order);
+      applyCasesColumnOrderToDOM();
+      renderCasesTable();
+      if (typeof showToast === 'function') {
+        showToast('Column order saved', false);
+      }
+    };
+
+    th.ondragend = () => {
+      th.classList.remove('th-dragging');
+      ths.forEach(t => t.classList.remove('drop-target-left', 'drop-target-right'));
+      setTimeout(() => {
+        isDraggingCol = false;
+        draggedColId = null;
+      }, 120);
+    };
+  });
+}
+
 function sortCases(key) {
-  if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = 1; }
+  if (isDraggingCol) return;
+  if (sortKey === key) {
+    sortDir *= -1;
+  } else {
+    sortKey = key;
+    sortDir = 1;
+  }
+
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(CASE_SORT_KEY_STORAGE, sortKey);
+      localStorage.setItem(CASE_SORT_DIR_STORAGE, String(sortDir));
+    }
+  } catch (err) {
+    console.warn('Could not save sort configuration to localStorage:', err);
+  }
+
+  updateSortHeadersUI();
   applySortToFilteredCases();
   renderCasesTable();
 }
+
 function applySortToFilteredCases() {
   if (!sortKey) return;
+  const isNumericCol = ['invoice_amount', 'total_payable', 'received', 'profit'].includes(sortKey);
   filteredCases.sort((a,b) => {
     let av = a[sortKey], bv = b[sortKey];
-    if (typeof av === 'number' || typeof bv === 'number') { av = av||0; bv = bv||0; }
-    else { av = (av||'').toString().toLowerCase(); bv = (bv||'').toString().toLowerCase(); }
-    if (av < bv) return -1*sortDir;
-    if (av > bv) return 1*sortDir;
-    return 0;
+    if (isNumericCol || typeof av === 'number' || typeof bv === 'number') {
+      const an = parseFloat(av) || 0;
+      const bn = parseFloat(bv) || 0;
+      return (an - bn) * sortDir;
+    } else {
+      av = (av||'').toString().toLowerCase();
+      bv = (bv||'').toString().toLowerCase();
+      if (av < bv) return -1*sortDir;
+      if (av > bv) return 1*sortDir;
+      return 0;
+    }
   });
 }
 function changePageSize() {
@@ -1278,6 +1578,8 @@ function resetFilters() {
   document.getElementById('filter-company').value = '';
   document.getElementById('filter-casetype').value = '';
   document.getElementById('filter-status').value = '';
+  const recvStatusEl = document.getElementById('filter-received-status');
+  if (recvStatusEl) recvStatusEl.value = '';
   document.getElementById('filter-inv').value = '';
   filterCases();
 }
@@ -1288,9 +1590,10 @@ function filterCases() {
   const company = (document.getElementById('filter-company').value || '').toLowerCase();
   const casetype = (document.getElementById('filter-casetype').value || '').toLowerCase();
   const status = document.getElementById('filter-status').value;
+  const recvStatus = (document.getElementById('filter-received-status')?.value || '').toLowerCase();
   const inv = (document.getElementById('filter-inv').value || '').toLowerCase();
 
-  const currentFilterState = [search, company, casetype, status, inv].join('|');
+  const currentFilterState = [search, company, casetype, status, recvStatus, inv].join('|');
   if (lastFilterState !== currentFilterState) {
     currentPage = 1;
     lastFilterState = currentFilterState;
@@ -1307,12 +1610,23 @@ function filterCases() {
       || (c.policy_no||'').toLowerCase().includes(search)
       || (c.hospital||'').toLowerCase().includes(search)
       || (c.outcome||'').toLowerCase().includes(search)
+      || (c.exception_type||'').toLowerCase().includes(search)
+      || (c.exception_reason||'').toLowerCase().includes(search)
       || (c.date||'').toLowerCase().includes(search);
     const matchCompany = !company || (c.company||'').toLowerCase() === company;
     const matchType = !casetype || (c.case_type||'').toLowerCase() === casetype;
     const matchStatus = !status || (status==='blank' ? (!c.inv1_status && !c.inv2_status) : (c.inv1_status===status || c.inv2_status===status));
     const matchInv = !inv || (c.inv1||'').toLowerCase() === inv || (c.inv2||'').toLowerCase() === inv;
-    return matchSearch && matchCompany && matchType && matchStatus && matchInv;
+
+    let matchRecv = true;
+    const rAmt = Number(c.received || 0);
+    if (recvStatus === 'pending') {
+      matchRecv = (rAmt <= 0);
+    } else if (recvStatus === 'received') {
+      matchRecv = (rAmt > 0);
+    }
+
+    return matchSearch && matchCompany && matchType && matchStatus && matchInv && matchRecv;
   });
 
   applySortToFilteredCases();
@@ -1320,12 +1634,17 @@ function filterCases() {
 }
 
 function renderCasesTable() {
+  applyCasesColumnOrderToDOM();
+  initCasesColumnDragAndDrop();
+  updateSortHeadersUI();
   document.getElementById('case-count').textContent = filteredCases.length;
   const tbody = document.getElementById('cases-tbody');
   tbody.innerHTML = '';
 
+  const activeOrder = getCasesColumnOrder();
+
   if (!filteredCases.length) {
-    tbody.innerHTML = '<tr><td colspan="26"><div class="empty-state"><div class="ic">No Data</div>No cases found</div></td></tr>';
+    tbody.innerHTML = `<tr><td colspan="${activeOrder.length || 28}"><div class="empty-state"><div class="ic">No Data</div>No cases found</div></td></tr>`;
     document.getElementById('page-range').textContent = '0';
     document.getElementById('page-total-count').textContent = '0';
     document.getElementById('page-current').textContent = '1';
@@ -1351,7 +1670,7 @@ function renderCasesTable() {
   // a real roles table + RLS policy change, not a client-side check.
   const isAdmin = typeof window.isCurrentUserAdmin !== 'undefined' ? window.isCurrentUserAdmin : !!currentUser;
   let __html = [];
-pageRows.forEach(c => {
+  pageRows.forEach(c => {
     const idx = cases.indexOf(c);
     const checked = selectedDocCodes.has(c.doc_code) ? 'checked' : '';
     // Exception Badges
@@ -1369,48 +1688,49 @@ pageRows.forEach(c => {
     // Inline-editable cells (admin only). Clicking opens an in-place editor.
     const ed = isAdmin ? 'data-edit="1" onclick="startInlineEdit(this)"' : '';
     const money = v => `Rs ${fmt(v)}`;
-    
-    let customTds = '';
+
+    const cells = {
+      select: `<td class="admin-only" data-col="select">${isAdmin ? `<input type="checkbox" data-doc="${c.doc_code}" ${checked} onchange="toggleCaseSelect('${c.doc_code}',this.checked)">` : ''}</td>`,
+      doc_code: `<td class="mono" data-col="doc_code" style="font-weight:700;color:var(--navy)">${escAttr(c.doc_code||'—')}</td>`,
+      status: `<td data-col="status">${caseStatusBadge}</td>`,
+      date: `<td data-col="date" ${ed} data-field="date" data-val="${escAttr(c.date||'')}" data-type="date">${escAttr(c.date||'')}</td>`,
+      sla: `<td data-col="sla">${slaBadge(c)}</td>`,
+      company: `<td data-col="company" ${ed} data-field="company" data-val="${escAttr(c.company||'')}" data-type="text">${escAttr(c.company||'')}</td>`,
+      case_type: `<td data-col="case_type" ${ed} data-field="case_type" data-val="${escAttr(c.case_type||'')}" data-type="text"><span class="badge na">${escAttr(c.case_type||'')}</span></td>`,
+      claim_no: `<td class="mono" data-col="claim_no" ${ed} data-field="claim_no" data-val="${escAttr(c.claim_no||'')}" data-type="text">${escAttr(c.claim_no||'')}</td>`,
+      insured_name: `<td data-col="insured_name" ${ed} data-field="insured_name" data-val="${escAttr(c.insured_name||'')}" data-type="text">${escAttr(c.insured_name||'')}</td>`,
+      hospital: `<td data-col="hospital" ${ed} data-field="hospital" data-val="${escAttr(c.hospital||'')}" data-type="text">${escAttr(c.hospital||'')}</td>`,
+      location: `<td data-col="location" ${ed} data-field="location" data-val="${escAttr(c.location||'')}" data-type="text">${escAttr(c.location||'')}</td>`,
+      invoice_no: `<td class="mono" data-col="invoice_no" ${ed} data-field="invoice_no" data-val="${escAttr(c.invoice_no||'')}" data-type="text">${escAttr(c.invoice_no||'')}</td>`,
+      invoice_amount: `<td class="col-finance" data-col="invoice_amount" ${ed} data-field="invoice_amount" data-val="${c.invoice_amount||0}" data-type="number">${money(c.invoice_amount)}</td>`,
+      inv1: `<td data-col="inv1" ${ed} data-field="inv1" data-val="${escAttr(c.inv1||'')}" data-type="text">${escAttr(c.inv1||'')}</td>`,
+      inv2: `<td data-col="inv2" ${ed} data-field="inv2" data-val="${escAttr(c.inv2 === 'NA' ? '' : c.inv2||'')}" data-type="text">${escAttr(c.inv2||'')}</td>`,
+      fee1: `<td class="col-finance" data-col="fee1" ${ed} data-field="fee1" data-val="${c.fee1||0}" data-type="number">${money(c.fee1)}</td>`,
+      fee2: `<td class="col-finance" data-col="fee2" ${ed} data-field="fee2" data-val="${c.fee2||0}" data-type="number">${money(c.fee2)}</td>`,
+      ta1: `<td class="col-finance" data-col="ta1" ${ed} data-field="ta1" data-val="${c.ta1||0}" data-type="number">${money(c.ta1)}</td>`,
+      ta2: `<td class="col-finance" data-col="ta2" ${ed} data-field="ta2" data-val="${c.ta2||0}" data-type="number">${money(c.ta2)}</td>`,
+      total_payable: `<td class="col-finance" data-col="total_payable"><strong>Rs ${fmt(c.total_payable)}</strong></td>`,
+      received: `<td class="col-finance" data-col="received" ${ed} data-field="received" data-val="${c.received||0}" data-type="number">${money(c.received)}</td>`,
+      profit: `<td class="col-finance" data-col="profit" style="color:${(c.profit||0)>=0?'var(--green)':'var(--red)'}"><strong>Rs ${fmt(c.profit)}</strong></td>`,
+      margin: `<td class="col-finance" data-col="margin" style="text-align:center;">${marginBadge(c)}</td>`,
+      inv1_status: `<td data-col="inv1_status" ${ed} data-field="inv1_status" data-val="${escAttr(c.inv1_status||'')}" data-type="status">${statusBadge(c.inv1_status)}</td>`,
+      inv2_status: `<td data-col="inv2_status" ${ed} data-field="inv2_status" data-val="${escAttr(c.inv2_status||'')}" data-type="status">${statusBadge(c.inv2_status)}</td>`,
+      hardcopy1_status: `<td data-col="hardcopy1_status" ${ed} data-field="hardcopy1_status" data-val="${escAttr(c.hardcopy1_status||'')}" data-type="hardcopy">${hardcopyStatusCell(c)}</td>`,
+      outcome: `<td data-col="outcome" ${ed} data-field="outcome" data-val="${escAttr(c.outcome||'Pending')}" data-type="outcome">${outcomeBadge(c.outcome)}</td>`,
+      actions: `<td data-col="actions" style="white-space:nowrap;">${isAdmin ? `<div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-ghost btn-sm" onclick="editCase(${idx})" title="Edit Case">Edit</button><button class="btn btn-sm" style="padding:2px 6px;background:#25D366;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;" onclick="openCaseDispatchModal('${c.doc_code}')" title="Dispatch WhatsApp / Email">📲</button></div>` : ''}</td>`
+    };
+
     if (window.CUSTOM_FIELDS && window.CUSTOM_FIELDS.length > 0) {
       window.CUSTOM_FIELDS.forEach(cf => {
         let val = c.custom_data ? (c.custom_data[cf.id] || '') : '';
         let displayVal = val;
         if (cf.type === 'number' && val) displayVal = money(val);
-        customTds += `<td ${ed} data-field="custom_${cf.id}" data-val="${escAttr(val)}" data-type="${cf.type}">${escAttr(displayVal)}</td>`;
+        cells['custom_' + cf.id] = `<td data-col="custom_${cf.id}" ${ed} data-field="custom_${cf.id}" data-val="${escAttr(val)}" data-type="${cf.type}">${escAttr(displayVal)}</td>`;
       });
     }
 
-    __html.push(`<tr data-idx="${idx}">
-      <td class="admin-only">${isAdmin ? `<input type="checkbox" data-doc="${c.doc_code}" ${checked} onchange="toggleCaseSelect('${c.doc_code}',this.checked)">` : ''}</td>
-      <td class="mono" style="font-weight:700;color:var(--navy)">${escAttr(c.doc_code||'—')}</td>
-      <td>${caseStatusBadge}</td>
-      <td ${ed} data-field="date" data-val="${escAttr(c.date||'')}" data-type="date">${escAttr(c.date||'')}</td>
-      <td>${slaBadge(c)}</td>
-      <td ${ed} data-field="company" data-val="${escAttr(c.company||'')}" data-type="text">${escAttr(c.company||'')}</td>
-      <td ${ed} data-field="case_type" data-val="${escAttr(c.case_type||'')}" data-type="text"><span class="badge na">${escAttr(c.case_type||'')}</span></td>
-      <td class="mono" ${ed} data-field="claim_no" data-val="${escAttr(c.claim_no||'')}" data-type="text">${escAttr(c.claim_no||'')}</td>
-      <td ${ed} data-field="insured_name" data-val="${escAttr(c.insured_name||'')}" data-type="text">${escAttr(c.insured_name||'')}</td>
-      <td ${ed} data-field="hospital" data-val="${escAttr(c.hospital||'')}" data-type="text">${escAttr(c.hospital||'')}</td>
-      <td ${ed} data-field="location" data-val="${escAttr(c.location||'')}" data-type="text">${escAttr(c.location||'')}</td>
-      ${customTds}
-      <td class="mono" ${ed} data-field="invoice_no" data-val="${escAttr(c.invoice_no||'')}" data-type="text">${escAttr(c.invoice_no||'')}</td>
-      <td class="col-finance" ${ed} data-field="invoice_amount" data-val="${c.invoice_amount||0}" data-type="number">${money(c.invoice_amount)}</td>
-      <td ${ed} data-field="inv1" data-val="${escAttr(c.inv1||'')}" data-type="text">${escAttr(c.inv1||'')}</td>
-      <td ${ed} data-field="inv2" data-val="${escAttr(c.inv2 === 'NA' ? '' : c.inv2||'')}" data-type="text">${escAttr(c.inv2||'')}</td>
-      <td class="col-finance" ${ed} data-field="fee1" data-val="${c.fee1||0}" data-type="number">${money(c.fee1)}</td>
-      <td class="col-finance" ${ed} data-field="fee2" data-val="${c.fee2||0}" data-type="number">${money(c.fee2)}</td>
-      <td class="col-finance" ${ed} data-field="ta1" data-val="${c.ta1||0}" data-type="number">${money(c.ta1)}</td>
-      <td class="col-finance" ${ed} data-field="ta2" data-val="${c.ta2||0}" data-type="number">${money(c.ta2)}</td>
-      <td class="col-finance"><strong>Rs ${fmt(c.total_payable)}</strong></td>
-      <td class="col-finance" ${ed} data-field="received" data-val="${c.received||0}" data-type="number">${money(c.received)}</td>
-      <td class="col-finance" style="color:${(c.profit||0)>=0?'var(--green)':'var(--red)'}"><strong>Rs ${fmt(c.profit)}</strong></td>
-      <td class="col-finance" style="text-align:center;">${marginBadge(c)}</td>
-      <td ${ed} data-field="inv1_status" data-val="${escAttr(c.inv1_status||'')}" data-type="status">${statusBadge(c.inv1_status)}</td>
-      <td ${ed} data-field="inv2_status" data-val="${escAttr(c.inv2_status||'')}" data-type="status">${statusBadge(c.inv2_status)}</td>
-      <td ${ed} data-field="hardcopy1_status" data-val="${escAttr(c.hardcopy1_status||'')}" data-type="hardcopy">${hardcopyStatusCell(c)}</td>
-      <td ${ed} data-field="outcome" data-val="${escAttr(c.outcome||'Pending')}" data-type="outcome">${outcomeBadge(c.outcome)}</td>
-      <td style="white-space:nowrap;">${isAdmin ? `<div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-ghost btn-sm" onclick="editCase(${idx})" title="Edit Case">Edit</button><button class="btn btn-sm" style="padding:2px 6px;background:#25D366;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;" onclick="openCaseDispatchModal('${c.doc_code}')" title="Dispatch WhatsApp / Email">📲</button></div>` : ''}</td>
-    </tr>`);
+    const rowCells = activeOrder.map(colId => cells[colId] || '').join('');
+    __html.push(`<tr data-idx="${idx}" data-doc-code="${escAttr(c.doc_code||'')}">${rowCells}</tr>`);
   });
   tbody.innerHTML = __html.join('');
   updateBulkDeleteButton();
@@ -3391,6 +3711,9 @@ function openAddCase() {
   document.getElementById('transfer-history-container').style.display = 'none';
   document.getElementById('f-transfer-reason').value = '';
   clearForm();
+  if (typeof clearCaseFormSearch === 'function') clearCaseFormSearch();
+  if (typeof switchCaseFormTab === 'function') switchCaseFormTab('case_info');
+  if (typeof updateCaseFormMiniSummary === 'function') updateCaseFormMiniSummary();
   if(typeof applyFieldPermissions === 'function') applyFieldPermissions();
   document.getElementById('case-modal').classList.add('open');
   updateInvestigatorRecommendations();
@@ -3429,6 +3752,8 @@ function editCase(idx) {
   document.getElementById('f-ta2').value = c.ta2||'';
   if (typeof window.populateCustomFieldsInForm === 'function') window.populateCustomFieldsInForm(c.custom_data);
   document.getElementById('f-received').value = c.received||'';
+  const fTds = document.getElementById('f-tds');
+  if (fTds) fTds.value = c.tds_deducted || '';
   document.getElementById('f-invoice').value = c.invoice_no||'';
   document.getElementById('f-invoice-amount').value = c.invoice_amount||'';
   document.getElementById('f-inv1status').value = c.inv1_status||'';
@@ -3445,6 +3770,9 @@ function editCase(idx) {
   calcTotal();
   updateHardcopy2Visibility();
   loadTransferHistory(c.id);
+  if (typeof clearCaseFormSearch === 'function') clearCaseFormSearch();
+  if (typeof switchCaseFormTab === 'function') switchCaseFormTab('case_info');
+  if (typeof updateCaseFormMiniSummary === 'function') updateCaseFormMiniSummary();
   if(typeof applyFieldPermissions === 'function') applyFieldPermissions();
   document.getElementById('case-modal').classList.add('open');
   updateInvestigatorRecommendations();
@@ -3591,7 +3919,7 @@ function renderCellDisplay(c, field, type, val) {
 function clearForm() {
   if (typeof window.populateCustomFieldsInForm === 'function') window.populateCustomFieldsInForm(null);
   ['f-company','f-date','f-casetype','f-claim','f-policy','f-insured','f-hospital','f-location','f-sla',
-   'f-inv1','f-inv2','f-fee1','f-fee2','f-ta1','f-ta2','f-received','f-invoice','f-invoice-amount',
+   'f-inv1','f-inv2','f-fee1','f-fee2','f-ta1','f-ta2','f-received','f-tds','f-invoice','f-invoice-amount',
    'f-inv1status','f-inv2status','f-hardcopy1status','f-hardcopy2status','f-companyawb','f-remarks'].forEach(id => {
      const el = document.getElementById(id);
      if (el) el.value = '';
@@ -4019,6 +4347,7 @@ function calcTotal() {
   const ta1 = Math.max(0, parseFloat(document.getElementById('f-ta1').value) || 0);
   const ta2 = Math.max(0, parseFloat(document.getElementById('f-ta2').value) || 0);
   const received = Math.max(0, parseFloat(document.getElementById('f-received').value) || 0);
+  const tds = Math.max(0, parseFloat(document.getElementById('f-tds')?.value) || 0);
   
   let effectiveFee1 = fee1, effectiveTa1 = ta1;
   let effectiveFee2 = fee2, effectiveTa2 = ta2;
@@ -4048,10 +4377,11 @@ function calcTotal() {
   const total = effectiveFee1 + effectiveFee2 + effectiveTa1 + effectiveTa2;
   document.getElementById('f-total').value = total;
   
-  const profit = received - total;
+  const profit = (received + tds) - total;
   const pEl = document.getElementById('f-profit');
   pEl.value = profit;
   pEl.style.color = profit >= 0 ? 'var(--green)' : 'var(--red)';
+  if (typeof updateCaseFormMiniSummary === 'function') updateCaseFormMiniSummary();
 }
 
 // ============================================================
@@ -4247,6 +4577,7 @@ async function saveCase() {
     location: document.getElementById('f-location').value,
     inv1, inv2: document.getElementById('f-inv2').value,
     fee1, fee2, ta1, ta2, received,
+    tds_deducted: parseFloat(document.getElementById('f-tds')?.value) || 0,
     invoice_no: document.getElementById('f-invoice').value,
     invoice_amount: parseFloat(document.getElementById('f-invoice-amount').value) || null,
     inv1_status: document.getElementById('f-inv1status').value,
@@ -5193,9 +5524,12 @@ function parseCsvRows(text) {
     received: ['received','payment received','amount received','received amount','amount paid'],
     invoice_no: ['invoice_no','invoice no','invoice no.','inv no','inv no.','invoice #','bill no','bill no.'],
     invoice_amount: ['invoice_amount','invoice amount','invoice amt','inv amt','inv amount','billed','bill amount','billed amount','invoice value'],
-    outcome: ['outcome','investigation outcome','investigation_outcome','case outcome','status outcome','finding','decision','result'],
+    outcome: ['outcome','investigation outcome','investigation_outcome','case outcome','status outcome','finding','decision','result','status'],
     inv1_status: ['inv1_status','inv1 status','inv1 pay status'], inv2_status: ['inv2_status','inv2 status','inv2 pay status'],
-    remarks: ['remarks','remark','comment','comments','notes']
+    remarks: ['remarks','remark','comment','comments','notes'],
+    sla_hours: ['sla','sla hours','sla (hours)','sla_hours','sla_hrs','tat','tat hours','tat (hours)','tat target','turnaround'],
+    closed_date: ['closed date','closed_date','close date','case closed date','completed date','completed_date','completion date','completed_at','completed at','dispatch date','closure date','withdrawal date','withdrawal_date','withdrawn date','withdrawn_date','cancellation date','cancelled date','drop date'],
+    exception_type: ['exception','exception_type','exception type','case status','case_status','closure status','closure type','rejection status','cancellation status','withdrawal status','exception reason']
   };
   
   if (window.CUSTOM_FIELDS && window.CUSTOM_FIELDS.length > 0) {
@@ -5237,8 +5571,56 @@ function parseCsvRows(text) {
     const ta1 = cleanNum(get('ta1')), ta2 = cleanNum(get('ta2'));
     const received = cleanNum(get('received'));
     const invoice_amount = cleanNum(get('invoice_amount')) || null;
-    const outcome = get('outcome') || 'Pending';
+    let outcome = get('outcome') || 'Pending';
     
+    // SLA & Due Date calculation
+    let sla_hours = cleanNum(get('sla_hours'));
+    if (!sla_hours || sla_hours <= 0) sla_hours = 24;
+    let due_date = null;
+    if (date) {
+      const baseTime = new Date(date).getTime();
+      if (!isNaN(baseTime)) due_date = new Date(baseTime + (sla_hours * 3600000)).toISOString();
+    }
+
+    // Closed Date (completed_at)
+    let rawClosedDate = get('closed_date');
+    let completed_at = null;
+    if (rawClosedDate) {
+      let closedStr = rawClosedDate;
+      const cdm = closedStr.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+      if (cdm) closedStr = `${cdm[3]}-${cdm[2].padStart(2,'0')}-${cdm[1].padStart(2,'0')}`;
+      const parsedClosed = new Date(closedStr);
+      if (!isNaN(parsedClosed.getTime())) completed_at = `${closedStr.slice(0, 10)}T18:00:00.000Z`;
+    }
+
+    // Exception handling (Rejected / Withdrawn)
+    let rawException = get('exception_type');
+    let exception_type = null;
+    let exception_reason = null;
+    const exLower = (rawException || '').toLowerCase();
+    const outLower = (outcome || '').toLowerCase();
+    if (/\b(withdrawn|withdraw|cancelled|canceled|dropped|recalled)\b/i.test(exLower) || /\b(withdrawn|withdraw|cancelled|canceled|dropped|recalled)\b/i.test(outLower)) {
+      exception_type = 'Withdrawn';
+      exception_reason = 'Marked as Withdrawn via CSV Import';
+    } else if (/\b(rejected|reject|repudiated\s+by\s+company|case\s+rejected)\b/i.test(exLower) || /\b(case\s+rejected|rejected\s+by\s+company)\b/i.test(outLower)) {
+      exception_type = 'Rejected';
+      exception_reason = 'Marked as Rejected via CSV Import';
+    }
+
+    let finalReceived = received;
+    let finalFee1 = fee1, finalFee2 = fee2, finalTa1 = ta1, finalTa2 = ta2;
+    let finalInvoiceNo = get('invoice_no');
+    if (exception_type === 'Withdrawn') {
+      finalReceived = 0;
+      finalFee1 = 0; finalFee2 = 0; finalTa1 = 0; finalTa2 = 0;
+      if (!finalInvoiceNo || finalInvoiceNo === '0') finalInvoiceNo = 'WITHDRAWN';
+      if (!completed_at && date) completed_at = `${date}T18:00:00.000Z`;
+    } else if (exception_type === 'Rejected') {
+      finalReceived = 0;
+      if (!finalInvoiceNo || finalInvoiceNo === '0') finalInvoiceNo = 'REJECTED';
+      if (!completed_at && date) completed_at = `${date}T18:00:00.000Z`;
+    }
+
     let custom_data = {};
     let hasCustomData = false;
     if (window.CUSTOM_FIELDS) {
@@ -5263,11 +5645,14 @@ function parseCsvRows(text) {
       company: compUpper, date, case_type: cTypeUpper, claim_no: claim, policy_no: get('policy_no'),
       insured_name, hospital: get('hospital'), location: get('location'),
       inv1: get('inv1'), inv2: get('inv2'),
-      fee1, fee2, ta1, ta2, total_payable: fee1+fee2+ta1+ta2, received,
-      invoice_no: get('invoice_no'), invoice_amount, outcome,
-      profit: received-(fee1+fee2+ta1+ta2),
+      fee1: finalFee1, fee2: finalFee2, ta1: finalTa1, ta2: finalTa2,
+      total_payable: finalFee1+finalFee2+finalTa1+finalTa2,
+      received: finalReceived,
+      invoice_no: finalInvoiceNo, invoice_amount, outcome,
+      profit: finalReceived-(finalFee1+finalFee2+finalTa1+finalTa2),
       inv1_status: get('inv1_status'), inv2_status: get('inv2_status'), remarks: get('remarks'),
-      custom_data: hasCustomData ? custom_data : null
+      custom_data: hasCustomData ? custom_data : null,
+      sla_hours, due_date, completed_at, exception_type, exception_reason
     });
   }
   return rows;
@@ -5497,7 +5882,14 @@ async function commitImportPreview() {
         invoice_amount: r.invoice_amount || null,
         outcome: r.outcome || 'Pending',
         inv1_status: r.inv1_status, inv2_status: finalInv2Status, remarks: r.remarks,
-        custom_data: r.custom_data || null
+        custom_data: r.custom_data || null,
+        sla_hours: r.sla_hours || 24,
+        due_date: r.due_date || null,
+        completed_at: r.completed_at || null,
+        exception_type: r.exception_type || null,
+        exception_reason: r.exception_reason || null,
+        exception_marked_at: r.exception_type ? new Date().toISOString() : null,
+        exception_marked_by: r.exception_type ? (window.currentUser?.id || 'Import') : null
       });
       [inv1, inv2].forEach(n => {
         if (n && n!=='NA' && !getAllInvestigators().some(x=>x.toLowerCase()===n.toLowerCase())) genuinelyNew.add(n);
@@ -5563,25 +5955,41 @@ function processBulkPaste() {
 }
 
 // ============================================================
-// EXCEL IMPORT (CSV)
+// EXCEL IMPORT (XLSX / XLS / CSV)
 // ============================================================
 function handleImport(e) {
   const file = e.target.files[0];
   if (!file) return;
+  const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
   const reader = new FileReader();
   reader.onload = function(evt) {
     try {
-      if (!file.name.endsWith('.csv')) {
-        showToast('For .xlsx files, please export as CSV first (File > Save As > CSV) and import that.', true);
-        return;
+      let content = '';
+      if (isExcel) {
+        if (typeof XLSX !== 'undefined') {
+          const data = new Uint8Array(evt.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[firstSheetName];
+          content = XLSX.utils.sheet_to_csv(sheet);
+        } else {
+          showToast('Excel library not ready. Please export as CSV.', true);
+          return;
+        }
+      } else {
+        content = evt.target.result;
       }
-      const rows = parseCsvRows(evt.target.result);
+      const rows = (typeof parseUniversalRows === 'function') ? parseUniversalRows(content) : parseCsvRows(content);
       showImportPreview(rows, `File: ${file.name}`);
     } catch(err) {
       showToast('Import failed: ' + err.message, true);
     }
   };
-  reader.readAsText(file);
+  if (isExcel) {
+    reader.readAsArrayBuffer(file);
+  } else {
+    reader.readAsText(file);
+  }
   e.target.value = '';
 }
 
@@ -5623,6 +6031,10 @@ function onReportTypeChange() {
     wrap.style.display = '';
     wrap.querySelector('label').textContent = 'Select Company';
     wrap.querySelector('select').innerHTML = COMPANIES.map(c => `<option>${escAttr(c)}</option>`).join('');
+  } else if (type === 'company_recovery') {
+    wrap.style.display = '';
+    wrap.querySelector('label').textContent = 'Select Company (or All)';
+    wrap.querySelector('select').innerHTML = '<option value="">All Companies</option>' + COMPANIES.map(c => `<option value="${escAttr(c)}">${escAttr(c)}</option>`).join('');
   } else {
     wrap.style.display = 'none';
   }
@@ -5632,6 +6044,15 @@ async function generateReport() {
   const type = document.getElementById('report-type').value;
   const target = document.getElementById('report-target').value;
   let html = '', title = '', reportRows = [];
+
+  if (type === 'company_recovery') {
+    if (typeof openCompanyRecoveryModal === 'function') {
+      openCompanyRecoveryModal(target || '');
+    } else {
+      showToast('Opening Company Recovery Hub...');
+    }
+    return;
+  }
 
   if (type === 'investigator') {
     reportRows = cases.filter(c => c.inv1===target || c.inv2===target);
@@ -6532,6 +6953,204 @@ async function saveSettings() {
   if (error) { showToast('Failed to save settings: ' + error.message, true); return; }
 }
 
+// ============================================================
+// SETTINGS CATEGORY TABS & DYNAMIC SEARCH
+// ============================================================
+function switchSettingsTab(tabKey) {
+  const tabs = document.querySelectorAll('.settings-subtab');
+  const sections = document.querySelectorAll('.settings-section-card');
+  tabs.forEach(t => t.classList.toggle('active', t.getAttribute('data-settab') === tabKey));
+  
+  if (tabKey === 'all') {
+    sections.forEach(s => s.style.display = '');
+  } else {
+    sections.forEach(s => {
+      const match = s.getAttribute('data-settings-sec') === tabKey;
+      s.style.display = match ? '' : 'none';
+    });
+  }
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('dna_active_settings_tab', tabKey);
+    }
+  } catch(e){}
+}
+window.switchSettingsTab = switchSettingsTab;
+
+function initSettingsSubTabs() {
+  let saved = 'branding';
+  try {
+    if (typeof localStorage !== 'undefined') {
+      saved = localStorage.getItem('dna_active_settings_tab') || 'branding';
+    }
+  } catch(e){}
+  switchSettingsTab(saved);
+}
+window.initSettingsSubTabs = initSettingsSubTabs;
+
+function filterSettings(query) {
+  query = (query || '').toLowerCase().trim();
+  const searchClear = document.getElementById('settings-search-clear');
+  if (searchClear) searchClear.style.display = query ? 'block' : 'none';
+
+  const sections = document.querySelectorAll('.settings-section-card');
+  const panels = document.querySelectorAll('#view-settings .panel');
+  const noMatches = document.getElementById('settings-no-matches');
+  
+  if (!query) {
+    const activeTab = document.querySelector('.settings-subtab.active')?.getAttribute('data-settab') || 'branding';
+    switchSettingsTab(activeTab);
+    panels.forEach(p => p.style.display = '');
+    if (noMatches) noMatches.style.display = 'none';
+    return;
+  }
+
+  // When searching, make all section containers visible and filter panels inside
+  sections.forEach(s => s.style.display = '');
+  let matchCount = 0;
+  panels.forEach(p => {
+    const text = (p.textContent || '').toLowerCase();
+    const match = text.includes(query);
+    p.style.display = match ? '' : 'none';
+    if (match) matchCount++;
+  });
+
+  if (noMatches) noMatches.style.display = matchCount === 0 ? 'block' : 'none';
+}
+window.filterSettings = filterSettings;
+
+function clearSettingsSearch() {
+  const input = document.getElementById('settings-search-input');
+  if (input) input.value = '';
+  filterSettings('');
+}
+window.clearSettingsSearch = clearSettingsSearch;
+
+// ============================================================
+// CASE FORM SMART FIELD MANAGEMENT, TABS & QUICK FILTER
+// ============================================================
+let activeCaseFormTab = 'case_info';
+
+function switchCaseFormTab(tabKey) {
+  activeCaseFormTab = tabKey;
+  const tabs = document.querySelectorAll('.caseform-subtab');
+  const sections = document.querySelectorAll('.caseform-section');
+  const noMatches = document.getElementById('caseform-no-matches');
+  if (noMatches) noMatches.style.display = 'none';
+
+  tabs.forEach(t => t.classList.toggle('active', t.getAttribute('data-casetab') === tabKey));
+
+  if (tabKey === 'all') {
+    sections.forEach(s => s.style.display = '');
+  } else {
+    sections.forEach(s => {
+      const match = s.getAttribute('data-casesec') === tabKey;
+      s.style.display = match ? '' : 'none';
+    });
+  }
+
+  // Clear any search filter hidden state
+  document.querySelectorAll('#case-form .fg').forEach(fg => {
+    if (fg.dataset.searchedHidden) {
+      delete fg.dataset.searchedHidden;
+      fg.style.display = '';
+    }
+  });
+
+  if (typeof applyFieldPermissions === 'function') {
+    applyFieldPermissions();
+  }
+}
+window.switchCaseFormTab = switchCaseFormTab;
+
+function filterCaseFormFields(query) {
+  query = (query || '').toLowerCase().trim();
+  const searchClear = document.getElementById('caseform-search-clear');
+  if (searchClear) searchClear.style.display = query ? 'block' : 'none';
+
+  const sections = document.querySelectorAll('.caseform-section');
+  const noMatches = document.getElementById('caseform-no-matches');
+
+  if (!query) {
+    document.querySelectorAll('#case-form .fg').forEach(fg => {
+      delete fg.dataset.searchedHidden;
+      fg.style.display = '';
+    });
+    switchCaseFormTab(activeCaseFormTab);
+    if (noMatches) noMatches.style.display = 'none';
+    return;
+  }
+
+  // When filtering, display all section cards so matched fields are shown
+  sections.forEach(s => s.style.display = '');
+
+  let matchCount = 0;
+  document.querySelectorAll('#case-form .fg').forEach(fg => {
+    const label = (fg.querySelector('label')?.textContent || '').toLowerCase();
+    const input = fg.querySelector('input, select, textarea');
+    const placeholder = (input?.getAttribute('placeholder') || '').toLowerCase();
+    const id = (input?.id || '').toLowerCase();
+    const val = (input?.value || '').toLowerCase();
+
+    const match = label.includes(query) || placeholder.includes(query) || id.includes(query) || val.includes(query);
+    if (match) {
+      delete fg.dataset.searchedHidden;
+      fg.style.display = '';
+      matchCount++;
+    } else {
+      fg.dataset.searchedHidden = '1';
+      fg.style.display = 'none';
+    }
+  });
+
+  if (noMatches) noMatches.style.display = matchCount === 0 ? 'block' : 'none';
+}
+window.filterCaseFormFields = filterCaseFormFields;
+
+function clearCaseFormSearch() {
+  const input = document.getElementById('caseform-search-input');
+  if (input) input.value = '';
+  filterCaseFormFields('');
+}
+window.clearCaseFormSearch = clearCaseFormSearch;
+
+function toggleAICaseDrawer() {
+  const drawer = document.getElementById('ai-case-drawer');
+  if (!drawer) return;
+  const isHidden = drawer.style.display === 'none' || !drawer.style.display;
+  drawer.style.display = isHidden ? 'block' : 'none';
+  const label = document.getElementById('ai-drawer-btn-label');
+  if (label) label.textContent = isHidden ? 'Close AI OCR' : 'AI OCR & Voice';
+}
+window.toggleAICaseDrawer = toggleAICaseDrawer;
+
+function updateCaseFormMiniSummary() {
+  const codeEl = document.getElementById('cf-mini-code');
+  const typeEl = document.getElementById('cf-mini-type');
+  const payEl = document.getElementById('cf-mini-payable');
+  const recEl = document.getElementById('cf-mini-received');
+  const profEl = document.getElementById('cf-mini-profit');
+
+  if (codeEl) codeEl.textContent = editingDocCode || 'New';
+  if (typeEl) {
+    const val = document.getElementById('f-casetype')?.value;
+    typeEl.textContent = val || '—';
+  }
+
+  const total = parseFloat(document.getElementById('f-total')?.value) || 0;
+  const rec = parseFloat(document.getElementById('f-received')?.value) || 0;
+  const prof = parseFloat(document.getElementById('f-profit')?.value) || 0;
+
+  if (payEl) payEl.textContent = `₹${Math.round(total).toLocaleString('en-IN')}`;
+  if (recEl) recEl.textContent = `₹${Math.round(rec).toLocaleString('en-IN')}`;
+  if (profEl) {
+    profEl.textContent = `₹${Math.round(prof).toLocaleString('en-IN')}`;
+    profEl.style.color = prof >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+}
+window.updateCaseFormMiniSummary = updateCaseFormMiniSummary;
+
+
 function renderSettingsLists() {
   const cList = document.getElementById('settings-companies-list');
   if (cList) {
@@ -6619,8 +7238,8 @@ function inviteStaff() {
 }
 
 function downloadTemplate() {
-  const headers = ['Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable (leave blank)','Received','Invoice No','Invoice Amount','Profit (leave blank)','INV1 Status','INV2 Status','Outcome','Remarks'];
-  const sample = ['CARE','2026-04-15','REIMBURSEMENT','97600000','24500000','SAMPLE NAME','SAMPLE HOSPITAL','SAMPLE CITY','BHOLA YADAV','NA','300','','50','','','','','5000','','Pending','','Genuine',''];
+  const headers = ['Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable (leave blank)','Received','Invoice No','Invoice Amount','Profit (leave blank)','INV1 Status','INV2 Status','Outcome','SLA (Hours)','Case Closed Date','Case Status','Remarks'];
+  const sample = ['CARE','2026-04-15','REIMBURSEMENT','97600000','24500000','SAMPLE NAME','SAMPLE HOSPITAL','SAMPLE CITY','BHOLA YADAV','NA','300','','50','','','','','5000','','Pending','','Genuine','24','2026-04-16','',''];
   const csv = [headers, sample].map(r => r.map(v=>`"${v}"`).join(',')).join('\n');
   downloadFile('Case_Import_Template.csv', csv, 'text/csv');
   showToast('Template downloaded — fill it in Excel, save as CSV, then use Import Excel/CSV.');
@@ -6631,7 +7250,8 @@ function exportExcel() {
     showToast('Excel export needs an internet connection (loads a library from CDN). Use CSV export instead if offline.', true);
     return;
   }
-  const rows = cases.map(c => {
+  const sourceList = (filteredCases && filteredCases.length) ? filteredCases : cases;
+  const rows = sourceList.map(c => {
     const r = {
         'Doc Code': c.doc_code, 'Company': c.company, 'Date': c.date, 'Case Type': c.case_type,
         'Claim No': c.claim_no, 'Policy No': c.policy_no, 'Insured Name': c.insured_name, 'Hospital': c.hospital, 'Location': c.location,
@@ -6640,7 +7260,7 @@ function exportExcel() {
         'INV1 Status': c.inv1_status, 'INV2 Status': c.inv2_status,
         'INV1 Hard Copy': c.hardcopy1_status, 'INV2 Hard Copy': c.hardcopy2_status, 'Company Dispatch': c.company_hardcopy_status, 'AWB No': c.company_hardcopy_awb,
         'Outcome': c.outcome || 'Pending', 'SLA (Hours)': c.sla_hours || '', 'Due Date': c.due_date || '', 'Risk Level': c.risk_level || '',
-        'Completed At': c.completed_at || '', 'Exception': c.exception_type || '', 'Remarks': c.remarks || ''
+        'Completed At': c.completed_at || '', 'Exception': c.exception_type || '', 'Exception Reason': c.exception_reason || '', 'Remarks': c.remarks || ''
     };
     if (window.CUSTOM_FIELDS) window.CUSTOM_FIELDS.forEach(cf => r[cf.name] = c.custom_data ? (c.custom_data[cf.id]||'') : '');
     return r;
@@ -6649,7 +7269,7 @@ function exportExcel() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Cases');
   XLSX.writeFile(wb, `DNA_Cases_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
-  showToast('Excel file downloaded.');
+  showToast(`Excel file downloaded (${sourceList.length} cases).`);
 }
 
 async function exportPDF() {
@@ -6662,23 +7282,32 @@ async function exportPDF() {
 }
 
 function exportForSheets() {
-  const headers = ['Doc Code','Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','Invoice No','Invoice Amount','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable','Received','Profit','INV1 Status','INV2 Status','INV1 Hard Copy','INV2 Hard Copy','Company Dispatch','AWB No','Outcome','SLA (Hours)','Due Date','Risk Level','Completed At','Exception','Remarks'];
+  const headers = ['Doc Code','Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','Invoice No','Invoice Amount','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable','Received','TDS Deducted','Profit','INV1 Status','INV2 Status','INV1 Hard Copy','INV2 Hard Copy','Company Dispatch','AWB No','Outcome','SLA (Hours)','Due Date','Risk Level','Completed At','Exception','Exception Reason','Remarks'];
   if (window.CUSTOM_FIELDS) window.CUSTOM_FIELDS.forEach(cf => headers.push(cf.name));
   
+  const sourceList = (filteredCases && filteredCases.length) ? filteredCases : cases;
   const csv = [
     headers,
-    ...cases.map(c => {
-        const row = [c.doc_code,c.company,c.date,c.case_type,c.claim_no,c.policy_no,c.insured_name,c.hospital,c.location,c.invoice_no,c.invoice_amount||'',c.inv1,c.inv2,c.fee1,c.fee2,c.ta1,c.ta2,c.total_payable,c.received,c.profit,c.inv1_status,c.inv2_status,c.hardcopy1_status,c.hardcopy2_status,c.company_hardcopy_status,c.company_hardcopy_awb,c.outcome||'Pending',c.sla_hours||'',c.due_date||'',c.risk_level||'',c.completed_at||'',c.exception_type||'',c.remarks||''];
+    ...sourceList.map(c => {
+        const row = [c.doc_code,c.company,c.date,c.case_type,c.claim_no,c.policy_no,c.insured_name,c.hospital,c.location,c.invoice_no,c.invoice_amount||'',c.inv1,c.inv2,c.fee1,c.fee2,c.ta1,c.ta2,c.total_payable,c.received,c.tds_deducted||0,c.profit,c.inv1_status,c.inv2_status,c.hardcopy1_status,c.hardcopy2_status,c.company_hardcopy_status,c.company_hardcopy_awb,c.outcome||'Pending',c.sla_hours||'',c.due_date||'',c.risk_level||'',c.completed_at||'',c.exception_type||'',c.exception_reason||'',c.remarks||''];
         if (window.CUSTOM_FIELDS) window.CUSTOM_FIELDS.forEach(cf => row.push(c.custom_data ? (c.custom_data[cf.id]||'') : ''));
         return row;
     })
   ].map(r => r.map(v => `"${(v==null?'':v).toString().replace(/"/g,'""')}"`).join(',')).join('\n');
   downloadFile('DNA_Cases_Export.csv', csv, 'text/csv');
-  showToast('CSV exported — paste this into Google Sheets.');
+  showToast(`CSV exported (${sourceList.length} cases) — paste this into Google Sheets.`);
 }
 
 function exportBackup() {
-  const data = JSON.stringify({cases, settings, investigators: investigatorRows}, null, 2);
+  const allExpenses = (window.investigatorExpenses && window.investigatorExpenses.length) ? window.investigatorExpenses : (investigatorExpenses || []);
+  const data = JSON.stringify({
+    version: '2.1',
+    timestamp: new Date().toISOString(),
+    cases,
+    settings,
+    investigators: investigatorRows,
+    investigator_expenses: allExpenses
+  }, null, 2);
   downloadFile('DNA_Backup_'+new Date().toISOString().slice(0,10)+'.json', data, 'application/json');
   showToast('Backup downloaded.');
 }
@@ -6700,12 +7329,6 @@ async function restoreBackup(e) {
         applySettingsToForm();
       }
       if (data.investigators && data.investigators.length) {
-        // Upsert by name — adds any investigator from the backup that's
-        // missing now, and restores phone numbers. Deliberately not a
-        // wipe-and-replace like cases: investigators are referenced by name
-        // string from cases.inv1/inv2 (no foreign key), so deleting one that
-        // turns out to still be in use would silently break display instead
-        // of failing loudly.
         const { error: invErr } = await supabaseClient.from('investigators')
           .upsert(data.investigators.map(inv => ({
             name: inv.name, phone: inv.phone || null, is_base: !!inv.is_base, removed: !!inv.removed
@@ -6714,26 +7337,78 @@ async function restoreBackup(e) {
         await loadInvestigatorsFromDB();
         refreshInvestigatorDropdowns();
       }
+      if (data.investigator_expenses && data.investigator_expenses.length) {
+        try {
+          const cleanExpenses = data.investigator_expenses.map(exp => ({
+            id: exp.id || undefined,
+            investigator_name: exp.investigator_name,
+            date: exp.date,
+            title: exp.title,
+            amount: Number(exp.amount) || 0,
+            category: exp.category || 'Voucher',
+            status: exp.status || 'Unpaid',
+            month_year: exp.month_year || (exp.date ? exp.date.slice(0, 7) : null)
+          }));
+          await supabaseClient.from('investigator_expenses').upsert(cleanExpenses);
+          await loadInvestigatorExpensesDB();
+        } catch(expErr) {
+          console.warn('Expense restore note:', expErr);
+        }
+      }
       if (data.cases) {
         showToast('Restoring backup…');
-        // Wipe existing cases, then bulk-insert the backup's cases. Doc codes
-        // and generated columns (total_payable, profit) come straight from
-        // the backup file rather than being regenerated, so historical doc
-        // codes are preserved exactly as they were when backed up.
-        const { error: delErr } = await supabaseClient.from('cases').delete().neq('doc_code', '__never_matches__');
+        // Delete existing cases safely
+        const { error: delErr } = await supabaseClient.from('cases').delete().not('doc_code', 'is', null);
         if (delErr) throw delErr;
+
         const restoreRows = data.cases.map(c => {
-          const { total_payable, profit, ...rest } = c; // generated columns — DB computes these
-          return rest;
+          const fee1 = Number(c.fee1) || 0;
+          const fee2 = Number(c.fee2) || 0;
+          const ta1 = Number(c.ta1) || 0;
+          const ta2 = Number(c.ta2) || 0;
+          const total_payable = (c.total_payable != null) ? Number(c.total_payable) : (fee1 + fee2 + ta1 + ta2);
+          const received = (c.received != null) ? Number(c.received) : 0;
+          const tds_deducted = (c.tds_deducted != null) ? Number(c.tds_deducted) : 0;
+          const profit = (c.profit != null) ? Number(c.profit) : ((received + tds_deducted) - total_payable);
+          const sla_hours = c.sla_hours || 24;
+          let due_date = c.due_date || null;
+          if (!due_date && c.date) {
+            const baseTime = new Date(c.date).getTime();
+            if (!isNaN(baseTime)) due_date = new Date(baseTime + (sla_hours * 3600000)).toISOString();
+          }
+
+          // Strip calculated or invalid DB properties if present
+          const { id, created_at, ...cleanRow } = c;
+
+          return {
+            ...cleanRow,
+            fee1, fee2, ta1, ta2,
+            total_payable,
+            received,
+            tds_deducted,
+            profit,
+            sla_hours,
+            due_date,
+            completed_at: c.completed_at || null,
+            exception_type: c.exception_type || null,
+            exception_reason: c.exception_reason || null,
+            exception_at: c.exception_at || (c.exception_type ? new Date().toISOString() : null),
+            exception_by: c.exception_by || null
+          };
         });
-        if (restoreRows.length) {
-          const { error: insErr } = await supabaseClient.from('cases').insert(restoreRows);
+
+        // Resilient chunked inserts to prevent Supabase 413 or timeout
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < restoreRows.length; i += BATCH_SIZE) {
+          const batch = restoreRows.slice(i, i + BATCH_SIZE);
+          const { error: insErr } = await supabaseClient.from('cases').insert(batch);
           if (insErr) throw insErr;
         }
+
         await loadCasesFromDB();
       }
       renderAll();
-      showToast('Backup restored.');
+      showToast('Backup restored successfully.');
     } catch(err) { showToast('Restore failed: ' + err.message, true); }
   };
   reader.readAsText(file);
@@ -8001,3 +8676,564 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
+
+// ============================================================
+// ⚡ QUICK RECEIVE (FAST EMAIL PAYMENT ENTRY & BULK REMITTANCE)
+// ============================================================
+let qrMatchedCase = null;
+let qrSessionHistory = [];
+let qrBulkParsedRows = [];
+
+window.openQuickReceive = function() {
+  const modal = document.getElementById('quick-receive-modal');
+  if (!modal) return;
+  modal.classList.add('open');
+  setQuickReceiveTab('single');
+  clearQuickReceiveSingle();
+  setTimeout(() => {
+    const inp = document.getElementById('qr-claim-input');
+    if (inp) inp.focus();
+  }, 120);
+};
+
+window.closeQuickReceive = function() {
+  closeModal('quick-receive-modal');
+};
+
+window.setQuickReceiveTab = function(tab) {
+  const singleMode = document.getElementById('qr-mode-single');
+  const bulkMode = document.getElementById('qr-mode-bulk');
+  const tabSingle = document.getElementById('qr-tab-single');
+  const tabBulk = document.getElementById('qr-tab-bulk');
+  
+  if (tab === 'single') {
+    if (singleMode) singleMode.style.display = 'block';
+    if (bulkMode) bulkMode.style.display = 'none';
+    if (tabSingle) { tabSingle.style.background = 'var(--navy)'; tabSingle.style.color = '#fff'; tabSingle.classList.remove('btn-ghost'); }
+    if (tabBulk) { tabBulk.style.background = 'transparent'; tabBulk.style.color = 'var(--text)'; tabBulk.classList.add('btn-ghost'); }
+    setTimeout(() => {
+      const inp = document.getElementById('qr-claim-input');
+      if (inp) inp.focus();
+    }, 60);
+  } else {
+    if (singleMode) singleMode.style.display = 'none';
+    if (bulkMode) bulkMode.style.display = 'block';
+    if (tabSingle) { tabSingle.style.background = 'transparent'; tabSingle.style.color = 'var(--text)'; tabSingle.classList.add('btn-ghost'); }
+    if (tabBulk) { tabBulk.style.background = 'var(--navy)'; tabBulk.style.color = '#fff'; tabBulk.classList.remove('btn-ghost'); }
+    setTimeout(() => {
+      const ta = document.getElementById('qr-bulk-textarea');
+      if (ta) ta.focus();
+    }, 60);
+  }
+};
+
+window.clearQuickReceiveSingle = function() {
+  qrMatchedCase = null;
+  const claimInp = document.getElementById('qr-claim-input');
+  const matchCard = document.getElementById('qr-match-card');
+  const inputsArea = document.getElementById('qr-inputs-area');
+  const amtInp = document.getElementById('qr-amount-input');
+  const tdsInp = document.getElementById('qr-tds-input');
+  const invInp = document.getElementById('qr-invoice-input');
+  const dateInp = document.getElementById('qr-date-input');
+  const reconcileBar = document.getElementById('qr-tds-reconcile-bar');
+
+  if (claimInp) claimInp.value = '';
+  if (amtInp) amtInp.value = '';
+  if (tdsInp) tdsInp.value = '';
+  if (invInp) invInp.value = '';
+  if (dateInp) dateInp.value = new Date().toISOString().slice(0, 10);
+  if (matchCard) { matchCard.style.display = 'none'; matchCard.innerHTML = ''; }
+  if (inputsArea) inputsArea.style.display = 'none';
+  if (reconcileBar) reconcileBar.innerHTML = '';
+  if (claimInp) claimInp.focus();
+};
+
+window.onQuickReceiveLookup = function() {
+  const raw = (document.getElementById('qr-claim-input')?.value || '').trim();
+  const matchCard = document.getElementById('qr-match-card');
+  const inputsArea = document.getElementById('qr-inputs-area');
+  const amtInp = document.getElementById('qr-amount-input');
+  const tdsInp = document.getElementById('qr-tds-input');
+  const invInp = document.getElementById('qr-invoice-input');
+
+  if (!raw) {
+    qrMatchedCase = null;
+    if (matchCard) { matchCard.style.display = 'none'; matchCard.innerHTML = ''; }
+    if (inputsArea) inputsArea.style.display = 'none';
+    return;
+  }
+
+  // Look up by claim_no or doc_code (case-insensitive)
+  const norm = raw.toLowerCase();
+  const allCases = window.cases || cases || [];
+  const found = allCases.find(c => 
+    (c.claim_no && c.claim_no.toString().toLowerCase() === norm) ||
+    (c.doc_code && c.doc_code.toString().toLowerCase() === norm)
+  );
+
+  if (found) {
+    qrMatchedCase = found;
+    const currentRecv = Number(found.received || 0);
+    const currentTds = Number(found.tds_deducted || 0);
+    const invAmt = Number(found.invoice_amount || 0);
+    const payable = Number(found.total_payable || 0);
+    const defaultAmt = currentRecv > 0 ? currentRecv : (invAmt > 0 ? invAmt : (payable > 0 ? payable : ''));
+
+    if (amtInp) amtInp.value = defaultAmt;
+    if (tdsInp) tdsInp.value = currentTds > 0 ? currentTds : '';
+    if (invInp) invInp.value = found.invoice_no || '';
+
+    const recvBadge = currentRecv > 0 
+      ? `<span style="background:#dcfce7; color:#15803d; padding:2px 8px; border-radius:12px; font-weight:700; font-size:11px;">Already Received: ₹${fmt(currentRecv)}${currentTds > 0 ? ' (+₹'+fmt(currentTds)+' TDS)' : ''}</span>`
+      : `<span style="background:#fee2e2; color:#b91c1c; padding:2px 8px; border-radius:12px; font-weight:700; font-size:11px;">🔴 Not Received (Pending)</span>`;
+
+    if (matchCard) {
+      matchCard.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+          <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-family:var(--mono); font-weight:700; font-size:15px; color:var(--navy);">${escAttr(found.doc_code || '—')}</span>
+              <span style="font-size:12px; color:var(--sub); font-family:var(--mono); font-weight:600;">(Claim: ${escAttr(found.claim_no)})</span>
+              ${recvBadge}
+            </div>
+            <div style="font-size:13px; font-weight:700; color:var(--text); margin-top:4px;">${escAttr(found.insured_name || '—')}</div>
+          </div>
+          <div style="text-align:right;">
+            <span style="font-size:12px; font-weight:700; color:var(--navy); background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:3px 8px;">${escAttr(found.company || '—')}</span>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; font-size:11px; background:var(--bg); padding:8px 10px; border-radius:6px;">
+          <div><span style="color:var(--sub);">Date:</span> <b>${escAttr(found.date || '—')}</b></div>
+          <div><span style="color:var(--sub);">Hospital:</span> <b>${escAttr(found.hospital || '—')}</b></div>
+          <div><span style="color:var(--sub);">Invoice:</span> <b>${escAttr(found.invoice_no || 'None')} (${invAmt ? '₹'+fmt(invAmt) : '—'})</b></div>
+          <div><span style="color:var(--sub);">Total Payable:</span> <b>₹${fmt(payable)}</b></div>
+        </div>
+      `;
+      matchCard.style.display = 'block';
+    }
+    if (inputsArea) inputsArea.style.display = 'block';
+    onQuickReceiveAmountChange();
+  } else {
+    qrMatchedCase = null;
+    if (matchCard) {
+      matchCard.innerHTML = `
+        <div style="color:#b91c1c; font-size:12px; display:flex; align-items:center; gap:6px;">
+          <span>❌</span> <b>No case found</b> with Claim / Doc Code "<b>${escAttr(raw)}</b>". Check for typos.
+        </div>
+      `;
+      matchCard.style.display = 'block';
+    }
+    if (inputsArea) inputsArea.style.display = 'none';
+  }
+};
+
+window.onQuickReceiveAmountChange = function() {
+  const bar = document.getElementById('qr-tds-reconcile-bar');
+  if (!bar || !qrMatchedCase) return;
+
+  const amtInp = document.getElementById('qr-amount-input');
+  const tdsInp = document.getElementById('qr-tds-input');
+
+  const recv = parseFloat(amtInp?.value || 0) || 0;
+  const tds = parseFloat(tdsInp?.value || 0) || 0;
+  const billed = Number(qrMatchedCase.invoice_amount || 0);
+  const totalSettled = recv + tds;
+
+  if (billed > 0) {
+    const diff = billed - totalSettled;
+    if (Math.abs(diff) < 0.01) {
+      // 100% settled
+      bar.innerHTML = `
+        <div style="background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:6px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center; width:100%;">
+          <span>✅ <b>100% Fully Settled:</b> ₹${fmt(recv)} (Bank) + ₹${fmt(tds)} (TDS) = ₹${fmt(billed)} (Billed). Outstanding: <b>₹0</b></span>
+          <span style="font-size:10px; background:#dcfce7; padding:2px 8px; border-radius:12px; font-weight:700;">🟢 ₹0 Due</span>
+        </div>
+      `;
+    } else if (diff > 0) {
+      // Shortfall / candidate for TDS
+      const autoTdsAmt = Math.max(0, billed - recv);
+      bar.innerHTML = `
+        <div style="background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:6px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center; width:100%; flex-wrap:wrap; gap:8px;">
+          <div style="font-size:11.5px;">
+            <b>Billed ₹${fmt(billed)} vs Credited ₹${fmt(totalSettled)}:</b> Difference of <b>₹${fmt(diff)}</b> remaining.
+          </div>
+          <button type="button" class="btn btn-sm" onclick="applyQuickReceiveAutoTDS(${autoTdsAmt})" style="background:#d97706; color:#fff; border:none; padding:4px 10px; font-weight:700; font-size:11px; cursor:pointer; border-radius:4px;" title="Set difference as TDS to settle claim to zero balance">
+            ⚡ Auto-fill TDS: ₹${fmt(autoTdsAmt)} (Settle to ₹0 Due)
+          </button>
+        </div>
+      `;
+    } else {
+      // Received more than billed
+      bar.innerHTML = `
+        <div style="background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; border-radius:6px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center; width:100%;">
+          <span>ℹ️ Total credited (₹${fmt(totalSettled)}) exceeds billed (₹${fmt(billed)}) by ₹${fmt(-diff)}.</span>
+        </div>
+      `;
+    }
+  } else {
+    bar.innerHTML = `
+      <div style="background:#f8fafc; border:1px solid #e2e8f0; color:#475569; border-radius:6px; padding:6px 12px; font-size:11px;">
+        ℹ️ Invoice amount not specified. Total credit: <b>₹${fmt(totalSettled)}</b> (Bank: ₹${fmt(recv)}, TDS: ₹${fmt(tds)}).
+      </div>
+    `;
+  }
+};
+
+window.applyQuickReceiveAutoTDS = function(tdsVal) {
+  const tdsInp = document.getElementById('qr-tds-input');
+  if (tdsInp) {
+    tdsInp.value = tdsVal;
+    onQuickReceiveAmountChange();
+  }
+};
+
+window.handleQuickReceiveKey = function(event) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    if (qrMatchedCase) {
+      submitQuickReceiveSingle();
+    }
+  }
+};
+
+window.submitQuickReceiveSingle = async function() {
+  if (!qrMatchedCase) {
+    showToast('Please enter a valid Claim Number first', true);
+    return;
+  }
+
+  const amtInp = document.getElementById('qr-amount-input');
+  const tdsInp = document.getElementById('qr-tds-input');
+  const invInp = document.getElementById('qr-invoice-input');
+  const dateInp = document.getElementById('qr-date-input');
+  const saveBtn = document.getElementById('qr-save-btn');
+
+  const newAmt = parseFloat(amtInp ? amtInp.value : 0) || 0;
+  const newTds = parseFloat(tdsInp ? tdsInp.value : 0) || 0;
+  const newInv = invInp ? invInp.value.trim() : '';
+
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+
+  const oldRecv = Number(qrMatchedCase.received || 0);
+  const totalPayable = Number(qrMatchedCase.total_payable || 0);
+  const newProfit = (newAmt + newTds) - totalPayable;
+
+  const updates = {
+    received: newAmt,
+    tds_deducted: newTds,
+    profit: newProfit
+  };
+  if (newInv) updates.invoice_no = newInv;
+
+  try {
+    // 1. Update Supabase
+    if (supabaseClient) {
+      const { error } = await supabaseClient
+        .from('cases')
+        .update(updates)
+        .eq('id', qrMatchedCase.id);
+      if (error) throw error;
+
+      // Log in activity_log
+      try {
+        await supabaseClient.from('activity_log').insert({
+          action: 'PAYMENT_RECEIVED_UPDATED',
+          module: 'Quick Receive',
+          details: `Updated Claim ${qrMatchedCase.claim_no} (${qrMatchedCase.doc_code}): Received Rs ${fmt(newAmt)} + TDS Rs ${fmt(newTds)} (was Rs ${fmt(oldRecv)}) from ${qrMatchedCase.company}`
+        });
+      } catch (_) {}
+    }
+
+    // 2. Update In-Memory Object
+    qrMatchedCase.received = newAmt;
+    qrMatchedCase.tds_deducted = newTds;
+    qrMatchedCase.profit = newProfit;
+    if (newInv) qrMatchedCase.invoice_no = newInv;
+
+    // 3. Record in Session History for visual feedback
+    qrSessionHistory.unshift({
+      claim_no: qrMatchedCase.claim_no,
+      doc_code: qrMatchedCase.doc_code,
+      insured_name: qrMatchedCase.insured_name,
+      company: qrMatchedCase.company,
+      amount: newAmt,
+      tds: newTds,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    });
+    renderQuickReceiveHistory();
+
+    // 4. Update Main Table & Dashboard
+    filterCases();
+    renderDashboard();
+
+    const toastMsg = newTds > 0 
+      ? `✅ Saved! ${qrMatchedCase.claim_no}: Received ₹${fmt(newAmt)} + TDS ₹${fmt(newTds)} (₹0 Due).`
+      : `✅ Saved! ${qrMatchedCase.claim_no}: Received ₹${fmt(newAmt)} updated.`;
+    showToast(toastMsg);
+
+    // 5. Instantly clear and re-focus for the next claim email!
+    clearQuickReceiveSingle();
+
+  } catch (err) {
+    console.error('Quick Receive Save Error:', err);
+    showToast('Failed to update: ' + err.message, true);
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '⚡ Save & Next (Enter)'; }
+  }
+};
+
+function renderQuickReceiveHistory() {
+  const wrap = document.getElementById('qr-session-history-wrap');
+  const list = document.getElementById('qr-session-history-list');
+  const countEl = document.getElementById('qr-history-count');
+  if (!wrap || !list) return;
+
+  if (qrSessionHistory.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  if (countEl) countEl.textContent = qrSessionHistory.length;
+
+  list.innerHTML = qrSessionHistory.slice(0, 8).map(h => `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; border-bottom:1px solid var(--line);">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="color:#0F5132; font-weight:700;">✓</span>
+        <b style="font-family:var(--mono);">${escAttr(h.claim_no)}</b>
+        <span style="color:var(--sub);">(${escAttr(h.doc_code)})</span>
+        <span>${escAttr(h.insured_name)}</span>
+        <span style="font-size:10px; background:var(--bg); padding:1px 5px; border-radius:3px;">${escAttr(h.company)}</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div style="text-align:right;">
+          <b style="color:#0F5132;">₹${fmt(h.amount)}</b>
+          ${h.tds > 0 ? `<span style="font-size:10px; color:#b45309; display:block;">+₹${fmt(h.tds)} TDS</span>` : ''}
+        </div>
+        <span style="color:var(--sub); font-size:10px;">${h.time}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ------------------------------------------------------------
+// BULK QUICK RECEIVE ENGINE (EMAIL / EXCEL TABLE PASTE)
+// ------------------------------------------------------------
+window.parseBulkQuickReceive = function() {
+  const raw = (document.getElementById('qr-bulk-textarea')?.value || '').trim();
+  const previewWrap = document.getElementById('qr-bulk-preview-wrap');
+  const tbody = document.getElementById('qr-bulk-tbody');
+  const statsEl = document.getElementById('qr-bulk-stats');
+  const confirmBtn = document.getElementById('qr-bulk-confirm-btn');
+  const autoTds = document.getElementById('qr-bulk-auto-tds')?.checked ?? true;
+
+  if (!raw) {
+    showToast('Please paste data into the box first', true);
+    return;
+  }
+
+  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const allCases = window.cases || cases || [];
+  qrBulkParsedRows = [];
+
+  let matchedCount = 0;
+  let totalRecvAmt = 0;
+  let totalTdsAmt = 0;
+  let unmatchedCount = 0;
+
+  lines.forEach((line, idx) => {
+    // Ignore header row if present
+    if (idx === 0 && (line.toLowerCase().includes('claim') || line.toLowerCase().includes('amount') || line.toLowerCase().includes('received'))) {
+      return;
+    }
+
+    // Split by tab, comma, or multiple spaces
+    const parts = line.split(/[\t,]+|\s{2,}/).map(p => p.trim()).filter(Boolean);
+    if (parts.length === 0) return;
+
+    let claim = parts[0];
+    let amtStr = parts[1] || '';
+    let tdsStr = parts[2] || '';
+
+    // If only space-separated tokens
+    if (parts.length === 1) {
+      const spaceParts = line.split(/\s+/).map(p => p.trim());
+      if (spaceParts.length >= 2) {
+        claim = spaceParts[0];
+        amtStr = spaceParts[1];
+        if (spaceParts.length >= 3) tdsStr = spaceParts[2];
+      }
+    }
+
+    // Clean amounts
+    const cleanAmt = parseFloat((amtStr || '').replace(/[^0-9.]/g, '')) || 0;
+    let cleanTds = parseFloat((tdsStr || '').replace(/[^0-9.]/g, '')) || 0;
+    const cleanClaim = claim.replace(/[^a-zA-Z0-9_-]/g, '');
+
+    const found = allCases.find(c => 
+      (c.claim_no && c.claim_no.toString().toLowerCase() === cleanClaim.toLowerCase()) ||
+      (c.doc_code && c.doc_code.toString().toLowerCase() === cleanClaim.toLowerCase())
+    );
+
+    if (found) {
+      const billedAmt = Number(found.invoice_amount || 0);
+      // Auto-calculate TDS if not provided and case is invoiced
+      if (cleanTds === 0 && autoTds && billedAmt > 0 && cleanAmt < billedAmt) {
+        cleanTds = Math.max(0, billedAmt - cleanAmt);
+      }
+
+      matchedCount++;
+      totalRecvAmt += cleanAmt;
+      totalTdsAmt += cleanTds;
+      qrBulkParsedRows.push({
+        caseObj: found,
+        claim_no: cleanClaim,
+        new_received: cleanAmt,
+        new_tds: cleanTds,
+        matched: true
+      });
+    } else {
+      unmatchedCount++;
+      qrBulkParsedRows.push({
+        caseObj: null,
+        claim_no: cleanClaim,
+        new_received: cleanAmt,
+        new_tds: cleanTds,
+        matched: false
+      });
+    }
+  });
+
+  if (qrBulkParsedRows.length === 0) {
+    showToast('No readable rows found. Make sure each line has Claim No and Amount.', true);
+    return;
+  }
+
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <span style="color:#0F5132; margin-right:12px;">✓ ${matchedCount} Matched (Recv: ₹${fmt(totalRecvAmt)}${totalTdsAmt > 0 ? ', TDS: ₹'+fmt(totalTdsAmt) : ''})</span>
+      ${unmatchedCount > 0 ? `<span style="color:#b91c1c;">✕ ${unmatchedCount} Not Found</span>` : ''}
+    `;
+  }
+
+  if (tbody) {
+    tbody.innerHTML = qrBulkParsedRows.map((r, i) => {
+      if (r.matched && r.caseObj) {
+        const billed = Number(r.caseObj.invoice_amount || 0);
+        const settled = r.new_received + (r.new_tds || 0);
+        const isSettled = billed > 0 && Math.abs(billed - settled) < 0.01;
+        const statusBadge = isSettled
+          ? `<span style="color:#15803d; font-weight:700; background:#dcfce7; padding:2px 6px; border-radius:10px;">🟢 ₹0 Due</span>`
+          : `<span style="color:#0284c7; font-weight:700;">✓ Ready</span>`;
+
+        return `
+          <tr style="border-bottom:1px solid var(--line);">
+            <td style="padding:6px;">${i+1}</td>
+            <td style="padding:6px; font-family:var(--mono); font-weight:700;">${escAttr(r.claim_no)}</td>
+            <td style="padding:6px;">${escAttr(r.caseObj.insured_name)} <span style="font-size:10px; color:var(--sub);">(${escAttr(r.caseObj.company)})</span></td>
+            <td style="padding:6px; text-align:right; color:var(--sub);">${billed ? '₹'+fmt(billed) : '—'}</td>
+            <td style="padding:6px; text-align:right; font-weight:700; color:#0F5132;">₹${fmt(r.new_received)}</td>
+            <td style="padding:6px; text-align:right; font-weight:700; color:#b45309;">${r.new_tds > 0 ? '₹'+fmt(r.new_tds) : '₹0'}</td>
+            <td style="padding:6px; text-align:center;">${statusBadge}</td>
+          </tr>
+        `;
+      } else {
+        return `
+          <tr style="border-bottom:1px solid var(--line); background:#fff5f5;">
+            <td style="padding:6px;">${i+1}</td>
+            <td style="padding:6px; font-family:var(--mono); color:#b91c1c;">${escAttr(r.claim_no)}</td>
+            <td style="padding:6px; color:var(--sub); font-style:italic;">Not in system</td>
+            <td style="padding:6px; text-align:right;">—</td>
+            <td style="padding:6px; text-align:right;">₹${fmt(r.new_received)}</td>
+            <td style="padding:6px; text-align:right;">—</td>
+            <td style="padding:6px; text-align:center;"><span style="color:#b91c1c; font-weight:700;">✕ Missing</span></td>
+          </tr>
+        `;
+      }
+    }).join('');
+  }
+
+  if (confirmBtn) {
+    confirmBtn.disabled = matchedCount === 0;
+    confirmBtn.textContent = `⚡ Confirm & Update All (${matchedCount} Matched Cases)`;
+  }
+
+  if (previewWrap) previewWrap.style.display = 'block';
+};
+
+window.submitBulkQuickReceive = async function() {
+  const toUpdate = qrBulkParsedRows.filter(r => r.matched && r.caseObj);
+  if (toUpdate.length === 0) {
+    showToast('No matched cases to update', true);
+    return;
+  }
+
+  const confirmBtn = document.getElementById('qr-bulk-confirm-btn');
+  if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = `Updating ${toUpdate.length} cases...`; }
+
+  let successCount = 0;
+  let totalAmt = 0;
+  let totalTds = 0;
+
+  try {
+    for (const item of toUpdate) {
+      const c = item.caseObj;
+      const newAmt = item.new_received;
+      const newTds = item.new_tds || 0;
+      const payable = Number(c.total_payable || 0);
+      const newProfit = (newAmt + newTds) - payable;
+
+      if (supabaseClient) {
+        const { error } = await supabaseClient.from('cases').update({
+          received: newAmt,
+          tds_deducted: newTds,
+          profit: newProfit
+        }).eq('id', c.id);
+        if (error) throw error;
+      }
+
+      // Update in-memory
+      c.received = newAmt;
+      c.tds_deducted = newTds;
+      c.profit = newProfit;
+      successCount++;
+      totalAmt += newAmt;
+      totalTds += newTds;
+    }
+
+    // Record activity log
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from('activity_log').insert({
+          action: 'BULK_PAYMENT_RECEIVED_UPDATED',
+          module: 'Quick Receive',
+          details: `Bulk updated ${successCount} cases: Received Rs ${fmt(totalAmt)}, TDS Rs ${fmt(totalTds)} via Quick Remittance Advice`
+        });
+      } catch (_) {}
+    }
+
+    filterCases();
+    renderDashboard();
+
+    const toastMsg = totalTds > 0 
+      ? `🎉 Successfully updated ${successCount} cases! Received: ₹${fmt(totalAmt)}, TDS: ₹${fmt(totalTds)}.`
+      : `🎉 Successfully updated ${successCount} cases! Total Received: ₹${fmt(totalAmt)}.`;
+    showToast(toastMsg);
+    closeModal('quick-receive-modal');
+
+  } catch (err) {
+    console.error('Bulk Quick Receive Error:', err);
+    showToast('Error during bulk update: ' + err.message, true);
+  } finally {
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = '⚡ Confirm & Update All Matched Cases'; }
+  }
+};
+
+// Global Shortcut: Alt + R to trigger Quick Receive
+document.addEventListener('keydown', (e) => {
+  if (e.altKey && (e.key === 'r' || e.key === 'R')) {
+    e.preventDefault();
+    openQuickReceive();
+  }
+});
+

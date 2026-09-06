@@ -51,7 +51,7 @@
 })();
 </script>
 <meta name="theme-color" content="#0F2942">
-<link rel="stylesheet" href="dna-command-center.css?v=2">
+<link rel="stylesheet" href="dna-command-center.css?v=6">
 <link rel="stylesheet" href="frontend/investigator-360/investigator-360.css">
 <style>
 :root{
@@ -503,6 +503,8 @@ tbody tr:hover{background:var(--line);}
       <div class="panel-head">
         <span class="panel-title">All Cases <span class="count-chip" id="case-count">0</span></span>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-navy btn-sm" onclick="openCompanyRecoveryModal()" style="background:#1e3a8a;border-color:#1e3a8a;color:#fff;font-weight:700;" title="Generate Company Outstanding Recovery Excel & Track Unpaid Bills">🏢 Company Outstanding Excel</button>
+          <button class="btn btn-navy btn-sm" onclick="openQuickReceive()" style="background:#0F5132;border-color:#0F5132;color:#fff;font-weight:700;" title="Fast Payment Receive for Single or Bulk Claim Emails (Alt+R)">⚡ Quick Receive</button>
           <button class="btn btn-ghost btn-sm admin-only" onclick="document.getElementById('import-file').click()">📥 Import Excel/CSV</button>
           <input type="file" id="import-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImport(event)">
           <button class="btn btn-ghost btn-sm admin-only" onclick="openBulkPaste()">📋 Bulk Paste</button>
@@ -521,30 +523,49 @@ tbody tr:hover{background:var(--line);}
           <select class="fin" id="filter-company" onchange="filterCases()"><option value="">All Companies</option></select>
           <select class="fin" id="filter-casetype" onchange="filterCases()"><option value="">All Types</option></select>
           <select class="fin" id="filter-status" onchange="filterCases()">
-            <option value="">All Status</option><option value="Paid">Paid</option><option value="Pending">Pending</option><option value="blank">Not Set</option>
+            <option value="">INV Status: All</option><option value="Paid">Paid</option><option value="Pending">Pending</option><option value="blank">Not Set</option>
+          </select>
+          <select class="fin" id="filter-received-status" onchange="filterCases()" style="font-weight:600; min-width:145px;">
+            <option value="">Company: All</option>
+            <option value="pending">🔴 Not Received (Pending)</option>
+            <option value="received">🟢 Received (Paid)</option>
           </select>
           <select class="fin" id="filter-inv" onchange="filterCases()"><option value="">All Investigators</option></select>
           <button class="btn btn-ghost btn-sm" onclick="resetFilters()">Reset</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetCasesColumnOrder()" title="Reset table columns to default order" style="font-size:11px;">↔ Reset Columns</button>
         </div>
       </div>
       <div class="tbl-scroll">
         <table id="cases-table">
           <thead><tr>
-            <th class="admin-only"><input type="checkbox" id="select-all-cases" onchange="toggleSelectAll(this)"></th>
-            <th onclick="sortCases('doc_code')" style="cursor:pointer">Doc Code ⇅</th>
-            <th>Status</th>
-            <th onclick="sortCases('date')" style="cursor:pointer">Date ⇅</th>
-            <th>SLA</th>
-            <th onclick="sortCases('company')" style="cursor:pointer">Company ⇅</th>
-            <th>Type</th>
-            <th onclick="sortCases('claim_no')" style="cursor:pointer">Claim No ⇅</th>
-            <th onclick="sortCases('insured_name')" style="cursor:pointer">Insured ⇅</th>
-            <th>Hospital</th><th>Location</th>
-            <th onclick="sortCases('invoice_no')" style="cursor:pointer">Invoice No ⇅</th>
-            <th class="col-finance" onclick="sortCases('invoice_amount')" style="cursor:pointer">Invoice Amt ⇅</th>
-            <th>INV1</th><th>INV2</th><th class="col-finance">Fee1</th><th class="col-finance">Fee2</th><th class="col-finance">TA1</th><th class="col-finance">TA2</th>
-            <th class="col-finance" onclick="sortCases('total_payable')" style="cursor:pointer">Payable ⇅</th>
-            <th class="col-finance">Received</th><th class="col-finance">Profit</th><th class="col-finance">Margin</th><th>INV1 St.</th><th>INV2 St.</th><th>Hard Copy</th><th onclick="sortCases('outcome')" style="cursor:pointer">Outcome ⇅</th><th></th>
+            <th class="admin-only" data-col="select"><input type="checkbox" id="select-all-cases" onchange="toggleSelectAll(this)"></th>
+            <th data-col="doc_code" onclick="sortCases('doc_code')" style="cursor:pointer">Doc Code ⇅</th>
+            <th data-col="status">Status</th>
+            <th data-col="date" onclick="sortCases('date')" style="cursor:pointer">Date ⇅</th>
+            <th data-col="sla">SLA</th>
+            <th data-col="company" onclick="sortCases('company')" style="cursor:pointer">Company ⇅</th>
+            <th data-col="case_type">Type</th>
+            <th data-col="claim_no" onclick="sortCases('claim_no')" style="cursor:pointer">Claim No ⇅</th>
+            <th data-col="insured_name" onclick="sortCases('insured_name')" style="cursor:pointer">Insured ⇅</th>
+            <th data-col="hospital">Hospital</th>
+            <th data-col="location">Location</th>
+            <th data-col="invoice_no" onclick="sortCases('invoice_no')" style="cursor:pointer">Invoice No ⇅</th>
+            <th class="col-finance" data-col="invoice_amount" onclick="sortCases('invoice_amount')" style="cursor:pointer">Invoice Amt ⇅</th>
+            <th data-col="inv1">INV1</th>
+            <th data-col="inv2">INV2</th>
+            <th class="col-finance" data-col="fee1">Fee1</th>
+            <th class="col-finance" data-col="fee2">Fee2</th>
+            <th class="col-finance" data-col="ta1">TA1</th>
+            <th class="col-finance" data-col="ta2">TA2</th>
+            <th class="col-finance" data-col="total_payable" onclick="sortCases('total_payable')" style="cursor:pointer">Payable ⇅</th>
+            <th class="col-finance" data-col="received">Received</th>
+            <th class="col-finance" data-col="profit">Profit</th>
+            <th class="col-finance" data-col="margin">Margin</th>
+            <th data-col="inv1_status">INV1 St.</th>
+            <th data-col="inv2_status">INV2 St.</th>
+            <th data-col="hardcopy1_status">Hard Copy</th>
+            <th data-col="outcome" onclick="sortCases('outcome')" style="cursor:pointer">Outcome ⇅</th>
+            <th data-col="actions"></th>
           </tr></thead>
           <tbody id="cases-tbody"></tbody>
         </table>
@@ -720,6 +741,7 @@ tbody tr:hover{background:var(--line);}
           <select id="report-type" onchange="onReportTypeChange()">
             <option value="investigator">Investigator Statement</option>
             <option value="company">Company Wise Report</option>
+            <option value="company_recovery">🏢 Company Outstanding Recovery Sheet (Excel &amp; PDF)</option>
             <option value="monthly">Monthly Summary</option>
           </select>
         </div>
@@ -835,102 +857,206 @@ tbody tr:hover{background:var(--line);}
   
 
   <div id="view-settings" class="view">
-    <div class="settings-grid">
-      <div class="panel" style="padding:18px;">
-        <div class="panel-title" style="margin-bottom:14px;">🏢 Agency Branding</div>
-        <div class="logo-upload" onclick="document.getElementById('logo-file').click()">
-          <img id="logo-preview-img" class="logo-preview" style="display:none;">
-          <div id="logo-placeholder">📷 Click to upload agency logo<br><span style="font-size:10px;color:var(--sub)">Used on payment slips & reports</span></div>
+    <!-- Settings Hub Header & Quick Search -->
+    <div class="settings-hub-head">
+      <div class="settings-hub-title">
+        <div style="font-size:26px;">⚙️</div>
+        <div>
+          <h2>Settings & Agency Control Center</h2>
+          <div class="sub">Manage branding, staff security, case fields & dropdowns, permissions, and cloud backups</div>
         </div>
-        <input type="file" id="logo-file" accept="image/*" style="display:none" onchange="handleLogoUpload(event)">
-        <div class="fg" style="margin-top:14px;"><label>Agency Name</label><input type="text" id="agency-name" value="DNA Professional Investigation Agency" onchange="saveSettings()"></div>
-        <div class="fg" style="margin-top:10px;"><label>Address / Contact (for slips)</label><textarea id="agency-address" rows="2" onchange="saveSettings()" placeholder="Address, phone, email..."></textarea></div>
       </div>
-      <div class="panel" style="padding:18px;">
-        <div class="panel-title" style="margin-bottom:14px;">🔐 My Account</div>
-        <div style="font-size:11.5px;color:var(--sub);margin-bottom:10px;">Signed in as <b id="settings-current-email"></b></div>
-        <div class="fg"><label>New Password</label><input type="password" id="set-own-pass" placeholder="At least 6 characters" autocomplete="new-password"></div>
-        <button class="btn btn-navy btn-sm" style="margin-top:12px;" onclick="updateOwnPassword()">Update My Password</button>
-        <div class="panel-title" style="margin:20px 0 10px;">👥 Staff Access</div>
-        <div style="font-size:11.5px;color:var(--sub);margin-bottom:10px;">Invite a staff member — they'll get an email to set their own password.</div>
-        <div class="fg"><label>Staff Email</label><input type="email" id="invite-email" placeholder="staff@agency.com"></div>
-        <button class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="inviteStaff()">Send Invite</button>
-        <div id="invite-status" style="font-size:11px;margin-top:8px;"></div>
-
-        
-        
-
-        <div class="panel-title admin-only" style="margin:20px 0 10px;">👥 Manage Staff Roles</div>
-        <div class="admin-only" style="font-size:11.5px;color:var(--sub);margin-bottom:10px;">Assign roles directly by their email address.</div>
-        <div class="admin-only" style="display:flex; gap:10px; margin-bottom:14px; align-items:end;">
-           <div class="fg" style="flex:2; margin-bottom:0;"><label>User Email</label><input type="email" id="assign-role-email" placeholder="staff@agency.com"></div>
-           <div class="fg" style="flex:1; margin-bottom:0;"><label>Role</label><select id="assign-role-select">
-              <option value="staff">Staff (Basic)</option>
-              <option value="junior">Junior</option>
-              <option value="senior">Senior</option>
-              <option value="accounts">Accounts</option>
-              <option value="company">Company</option>
-           </select></div>
-           <button class="btn btn-navy btn-sm" onclick="assignRoleByEmail()">Assign</button>
-        </div>
-        <div class="admin-only" id="assigned-roles-list" style="border:1px solid var(--line); border-radius:4px; max-height:150px; overflow-y:auto; font-size:11.5px;">
-           <div style="padding:10px; color:var(--sub); text-align:center;">Loading roles...</div>
-        </div>
-
+      <div class="settings-search-box">
+        <input type="text" id="settings-search-input" placeholder="🔍 Quick filter settings (e.g. logo, company, permission, backup)..." oninput="filterSettings(this.value)">
+        <button id="settings-search-clear" class="settings-search-clear" onclick="clearSettingsSearch()" title="Clear filter">✕</button>
       </div>
-      
-      <div class="panel admin-only" style="padding:18px; margin-top:14px;">
-        <div class="panel-title" style="margin-bottom:14px;">📋 Companies & Case Types</div>
-        <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;">Manage standard dropdown options. Bulk Paste will reject unknown values.</p>
+    </div>
+
+    <!-- Category Navigation Subtabs -->
+    <div class="settings-subtabs-bar">
+      <button class="settings-subtab active" data-settab="branding" onclick="switchSettingsTab('branding')">🏢 Branding & Identity</button>
+      <button class="settings-subtab" data-settab="team" onclick="switchSettingsTab('team')">👥 Team & Account</button>
+      <button class="settings-subtab" data-settab="fields" onclick="switchSettingsTab('fields')">📋 Dropdowns & Custom Fields</button>
+      <button class="settings-subtab" data-settab="permissions" onclick="switchSettingsTab('permissions')">🛡️ Field Permissions Matrix</button>
+      <button class="settings-subtab" data-settab="backups" onclick="switchSettingsTab('backups')">☁️ Backups & Data Tools</button>
+      <button class="settings-subtab" data-settab="system" onclick="switchSettingsTab('system')">🔌 Integrations & Danger Zone</button>
+      <button class="settings-subtab" data-settab="all" onclick="switchSettingsTab('all')">🌐 View All</button>
+    </div>
+
+    <!-- Search No Matches State -->
+    <div id="settings-no-matches" style="display:none; padding:40px 20px; text-align:center; background:var(--card); border:1px dashed var(--line); border-radius:12px; margin-bottom:20px;">
+      <div style="font-size:32px; margin-bottom:8px;">🔍</div>
+      <div style="font-size:14px; font-weight:700; color:var(--navy);">No matching settings found</div>
+      <div style="font-size:12px; color:var(--sub); margin-top:4px;">Try searching for "logo", "password", "company", "field", "permission", or "backup".</div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:12px;" onclick="clearSettingsSearch()">Clear Search Filter</button>
+    </div>
+
+    <!-- Category 1: Branding & Identity -->
+    <div class="settings-section-card" data-settings-sec="branding" id="settings-sec-branding">
+      <div class="settings-category-header">
+        <h3>🏢 Agency Branding & Identity</h3>
+      </div>
+      <div class="settings-two-col">
+        <!-- Agency Details -->
+        <div class="panel" style="padding:20px; display:flex; flex-direction:column; justify-content:space-between;">
+          <div>
+            <div class="panel-title" style="margin-bottom:12px;">🏢 Agency Branding</div>
+            <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;line-height:1.5;">This branding information automatically appears on generated investigator payment slips, monthly reports, and billing records.</p>
+            <div class="fg" style="margin-top:14px;"><label>Agency Name</label><input type="text" id="agency-name" value="DNA Professional Investigation Agency" onchange="saveSettings()"></div>
+            <div class="fg" style="margin-top:12px;"><label>Address / Contact (for slips & letterhead)</label><textarea id="agency-address" rows="3" onchange="saveSettings()" placeholder="Address, phone, email..."></textarea></div>
+          </div>
+          <div style="font-size:11px; color:var(--green); font-weight:600; margin-top:16px; display:flex; align-items:center; gap:6px;">
+            <span>✓</span> <span>Changes save automatically on edit</span>
+          </div>
+        </div>
         
-        <div style="margin-bottom:20px;">
-          <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Insurance Companies</div>
-          <div style="display:flex; gap:8px; margin-bottom:8px;">
-            <input type="text" id="new-company-input" placeholder="e.g. TATA AIG" style="flex:1;">
+        <!-- Logo Upload -->
+        <div class="panel" style="padding:20px; display:flex; flex-direction:column; justify-content:space-between;">
+          <div>
+            <div class="panel-title" style="margin-bottom:12px;">📷 Agency Logo (PDF Slips & Reports)</div>
+            <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;line-height:1.5;">Upload a high-resolution PNG or JPG logo. It will be positioned at the header of all investigator payment slips and audit reports.</p>
+            <div class="logo-upload" onclick="document.getElementById('logo-file').click()" style="min-height:140px; display:flex; flex-direction:column; align-items:center; justify-content:center; border:2px dashed var(--line); border-radius:12px; cursor:pointer; padding:20px; text-align:center; transition:border-color 0.2s;">
+              <img id="logo-preview-img" class="logo-preview" style="display:none; max-height:90px; max-width:100%; object-fit:contain; margin-bottom:8px;">
+              <div id="logo-placeholder">
+                <div style="font-size:24px; margin-bottom:4px;">📷</div>
+                <span style="font-weight:700; font-size:12px;">Click to upload agency logo</span><br>
+                <span style="font-size:10.5px;color:var(--sub)">Recommended: 400x120px transparent PNG (Used on payment slips & reports)</span>
+              </div>
+            </div>
+            <input type="file" id="logo-file" accept="image/*" style="display:none" onchange="handleLogoUpload(event)">
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('logo-file').click()">Change Logo</button>
+            <span style="font-size:10.5px; color:var(--sub);">Embedded as Base64</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Category 2: Team & Account -->
+    <div class="settings-section-card" data-settings-sec="team" id="settings-sec-team">
+      <div class="settings-category-header">
+        <h3>👥 Team Access & Account Security</h3>
+      </div>
+      <div class="settings-two-col">
+        <!-- My Account -->
+        <div class="panel" style="padding:20px;">
+          <div class="panel-title" style="margin-bottom:14px;">🔐 My Account</div>
+          <div style="background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:16px;">
+            <div style="font-size:11px; color:var(--sub);">Signed in as:</div>
+            <div style="font-size:13px; font-weight:800; color:var(--navy); margin-top:2px;" id="settings-current-email">—</div>
+          </div>
+          <div class="fg" style="margin-bottom:14px;"><label>New Password</label><input type="password" id="set-own-pass" placeholder="At least 6 characters" autocomplete="new-password"></div>
+          <button class="btn btn-navy btn-sm" style="margin-top:4px;" onclick="updateOwnPassword()">Update My Password</button>
+        </div>
+
+        <!-- Staff Invitation & Role Management -->
+        <div class="panel" style="padding:20px;">
+          <div class="panel-title" style="margin-bottom:10px;">👥 Staff Access</div>
+          <div style="font-size:11.5px;color:var(--sub);margin-bottom:12px;line-height:1.5;">Invite a staff member — they'll get an email to set their own password.</div>
+          
+          <div style="display:flex; gap:8px; margin-bottom:8px; align-items:end;">
+            <div class="fg" style="flex:1; margin-bottom:0;"><label>Staff Email</label><input type="email" id="invite-email" placeholder="staff@agency.com"></div>
+            <button class="btn btn-ghost btn-sm" style="white-space:nowrap; padding:8px 14px; font-weight:700;" onclick="inviteStaff()">Send Invite</button>
+          </div>
+          <div id="invite-status" style="font-size:11px;margin-bottom:16px;"></div>
+
+          <div class="admin-only" style="margin-top:20px; padding-top:16px; border-top:1px solid var(--line);">
+            <div class="panel-title admin-only" style="margin-bottom:8px;">👥 Manage Staff Roles</div>
+            <div class="admin-only" style="font-size:11.5px;color:var(--sub);margin-bottom:12px;">Assign roles directly by their email address.</div>
+            <div class="admin-only" style="display:flex; gap:8px; margin-bottom:12px; align-items:end; flex-wrap:wrap;">
+               <div class="fg" style="flex:2; min-width:140px; margin-bottom:0;"><label>User Email</label><input type="email" id="assign-role-email" placeholder="staff@agency.com"></div>
+               <div class="fg" style="flex:1; min-width:110px; margin-bottom:0;"><label>Role</label><select id="assign-role-select">
+                  <option value="staff">Staff (Basic)</option>
+                  <option value="junior">Junior</option>
+                  <option value="senior">Senior</option>
+                  <option value="accounts">Accounts</option>
+                  <option value="company">Company</option>
+               </select></div>
+               <button class="btn btn-navy btn-sm" onclick="assignRoleByEmail()">Assign</button>
+            </div>
+            <div class="admin-only" id="assigned-roles-list" style="border:1px solid var(--line); border-radius:6px; max-height:160px; overflow-y:auto; font-size:11.5px; background:var(--card);">
+               <div style="padding:10px; color:var(--sub); text-align:center;">Loading roles...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Category 3: Dropdowns & Dynamic Custom Fields -->
+    <div class="settings-section-card" data-settings-sec="fields" id="settings-sec-fields">
+      <div class="settings-category-header">
+        <h3>📋 Companies, Case Types & Custom Fields</h3>
+      </div>
+      <div class="settings-three-col">
+        <!-- Insurance Companies -->
+        <div class="panel admin-only" style="padding:18px;">
+          <div class="panel-title" style="margin-bottom:8px;">🏢 Insurance Companies</div>
+          <p style="font-size:11px;color:var(--sub);margin-bottom:12px;">Manage standard dropdown options. Bulk Paste will reject unknown values.</p>
+          <div style="display:flex; gap:6px; margin-bottom:10px;">
+            <input type="text" id="new-company-input" placeholder="e.g. TATA AIG" style="flex:1; font-size:11.5px; text-transform:uppercase;">
             <button class="btn btn-navy btn-sm" onclick="addCompany()">Add</button>
           </div>
-          <div id="settings-companies-list" style="border:1px solid var(--line); border-radius:4px; max-height:150px; overflow-y:auto; font-size:11.5px; padding:4px;">
+          <div id="settings-companies-list" style="border:1px solid var(--line); border-radius:6px; max-height:220px; overflow-y:auto; font-size:11.5px; padding:4px; background:var(--card);">
              <div style="padding:10px; color:var(--sub); text-align:center;">Loading...</div>
           </div>
         </div>
 
-        <div>
-          <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Case Types</div>
-          <div style="display:flex; gap:8px; margin-bottom:8px;">
-            <input type="text" id="new-casetype-input" placeholder="e.g. DEATH CLAIM" style="flex:1;">
+        <!-- Case Types -->
+        <div class="panel admin-only" style="padding:18px;">
+          <div class="panel-title" style="margin-bottom:8px;">📂 Case Types</div>
+          <p style="font-size:11px;color:var(--sub);margin-bottom:12px;">Pre-defined investigation classifications.</p>
+          <div style="display:flex; gap:6px; margin-bottom:10px;">
+            <input type="text" id="new-casetype-input" placeholder="e.g. DEATH CLAIM" style="flex:1; font-size:11.5px; text-transform:uppercase;">
             <button class="btn btn-navy btn-sm" onclick="addCaseType()">Add</button>
           </div>
-          <div id="settings-casetypes-list" style="border:1px solid var(--line); border-radius:4px; max-height:150px; overflow-y:auto; font-size:11.5px; padding:4px;">
+          <div id="settings-casetypes-list" style="border:1px solid var(--line); border-radius:6px; max-height:220px; overflow-y:auto; font-size:11.5px; padding:4px; background:var(--card);">
              <div style="padding:10px; color:var(--sub); text-align:center;">Loading...</div>
           </div>
         </div>
-      </div>
 
-      <div class="panel admin-only" style="padding:18px; margin-top:14px;">
-        <div class="panel-title" style="margin-bottom:6px;">🛠️ Custom Fields (Dynamic)</div>
-        <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;line-height:1.5;">Add custom fields to cases (e.g. Claim Amount, Allocation Date). They appear in forms and mapping.</p>
-        <div style="display:flex; gap:8px; margin-bottom:12px; align-items:end;">
-            <div class="fg" style="flex:2; margin-bottom:0;"><label>Field Name</label><input type="text" id="new-customfield-name" placeholder="e.g. Allocation Date"></div>
-            <div class="fg" style="flex:1; margin-bottom:0;"><label>Type</label><select id="new-customfield-type"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option></select></div>
-            <button class="btn btn-navy btn-sm" onclick="addCustomField()">Add</button>
-        </div>
-        <div id="settings-customfields-list" style="border:1px solid var(--line); border-radius:4px; max-height:200px; overflow-y:auto; font-size:11.5px; padding:4px;">
-            <div style="padding:10px; color:var(--sub); text-align:center;">Loading...</div>
+        <!-- Dynamic Custom Fields -->
+        <div class="panel admin-only" style="padding:18px;">
+          <div class="panel-title" style="margin-bottom:8px;">🛠️ Custom Fields (Dynamic)</div>
+          <p style="font-size:11px;color:var(--sub);margin-bottom:12px;line-height:1.5;">Add custom fields to cases (e.g. Claim Amount, Allocation Date). They appear in forms and mapping.</p>
+          <div style="display:flex; gap:6px; margin-bottom:10px; align-items:end;">
+              <div class="fg" style="flex:2; margin-bottom:0;"><label style="font-size:10px;">Field Name</label><input type="text" id="new-customfield-name" placeholder="e.g. Allocation Date" style="font-size:11.5px;"></div>
+              <div class="fg" style="flex:1; margin-bottom:0;"><label style="font-size:10px;">Type</label><select id="new-customfield-type" style="font-size:11.5px; padding:6px 4px;"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option></select></div>
+              <button class="btn btn-navy btn-sm" onclick="addCustomField()">Add</button>
+          </div>
+          <div id="settings-customfields-list" style="border:1px solid var(--line); border-radius:6px; max-height:220px; overflow-y:auto; font-size:11.5px; padding:4px; background:var(--card);">
+              <div style="padding:10px; color:var(--sub); text-align:center;">Loading...</div>
+          </div>
         </div>
       </div>
+    </div>
 
-      <div class="panel admin-only" style="padding:18px; margin-top:14px;">
-        <div class="panel-title" style="margin-bottom:6px;">🛠️ Advanced Field Permissions</div>
-        <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;line-height:1.5;">Control which user roles can Edit, Read, or are Hidden from specific case form fields. These rules apply instantly.</p>
-        <div class="tbl-scroll" style="border: 1px solid var(--line); border-radius:4px; max-height:400px; overflow-y:auto;">
+    <!-- Category 4: Field Permissions Matrix -->
+    <div class="settings-section-card" data-settings-sec="permissions" id="settings-sec-permissions">
+      <div class="settings-category-header">
+        <h3>🛡️ Role-Based Field Permissions</h3>
+      </div>
+      <div class="panel admin-only" style="padding:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+          <div>
+            <div class="panel-title" style="margin:0 0 4px;">🛠️ Advanced Field Permissions</div>
+            <p style="font-size:11.5px;color:var(--sub);margin:0;line-height:1.5;">Control which user roles can Edit, Read, or are Hidden from specific case form fields. These rules apply instantly.</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <span style="font-size:11px; padding:3px 8px; border-radius:4px; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; font-weight:700;">✏️ Edit</span>
+            <span style="font-size:11px; padding:3px 8px; border-radius:4px; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; font-weight:700;">🔒 Read-Only</span>
+            <span style="font-size:11px; padding:3px 8px; border-radius:4px; background:#fef2f2; border:1px solid #fecaca; color:#991b1b; font-weight:700;">🚫 Hidden</span>
+          </div>
+        </div>
+        <div class="tbl-scroll" style="border: 1px solid var(--line); border-radius:8px; max-height:450px; overflow-y:auto; background:var(--card);">
           <table class="data-table" id="permissions-matrix" style="width:100%; font-size:12px; margin:0;">
-            <thead style="position:sticky; top:0; z-index:2;">
+            <thead style="position:sticky; top:0; z-index:2; background:var(--paper);">
               <tr>
-                <th>Field Group</th>
-                <th style="text-align:center;">Senior</th>
-                <th style="text-align:center;">Junior</th>
-                <th style="text-align:center;">Accounts</th>
-                <th style="text-align:center;">Company</th>
+                <th style="padding:10px 14px; text-align:left;">Field Group</th>
+                <th style="text-align:center; padding:10px;">Senior</th>
+                <th style="text-align:center; padding:10px;">Junior</th>
+                <th style="text-align:center; padding:10px;">Accounts</th>
+                <th style="text-align:center; padding:10px;">Company</th>
               </tr>
             </thead>
             <tbody>
@@ -939,68 +1065,106 @@ tbody tr:hover{background:var(--line);}
           </table>
         </div>
       </div>
+    </div>
 
-      <div class="panel" style="padding:18px;">
-        <div class="panel-title" style="margin-bottom:14px;">☁️ Data & Automated Cloud Backups</div>
-        <p style="font-size:11.5px;color:var(--sub);margin-bottom:12px;line-height:1.6;">Data syncs live to Supabase. Automated disaster-recovery snapshots protect your database continuously on Free Tier.</p>
+    <!-- Category 5: Backups & Data Tools -->
+    <div class="settings-section-card" data-settings-sec="backups" id="settings-sec-backups">
+      <div class="settings-category-header">
+        <h3>☁️ Automated Cloud Snapshots & Data Management</h3>
+      </div>
+      <!-- Automated Server Backup Status -->
+      <div class="panel" style="padding:20px; margin-bottom:18px;">
+        <div class="panel-title" style="margin-bottom:10px;">☁️ Data & Automated Cloud Backups</div>
+        <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;line-height:1.6;">Data syncs live to Supabase. Automated disaster-recovery snapshots protect your database continuously on Free Tier.</p>
 
         <!-- Automated Snapshot Status Card -->
-        <div id="auto-backup-card" style="background:var(--paper); border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:14px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <div style="display:flex; align-items:center; gap:8px; font-weight:700; font-size:12px; color:var(--navy);">
-              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--green);"></span>
+        <div id="auto-backup-card" style="background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px; font-weight:700; font-size:13px; color:var(--navy);">
+              <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--green); box-shadow:0 0 8px rgba(16,185,129,0.4);"></span>
               Automated Server Backup
             </div>
-            <span id="auto-backup-status-badge" style="font-size:10.5px; font-weight:600; padding:2px 8px; border-radius:10px; background:var(--green-bg); color:var(--green);">Active (Daily Interval)</span>
+            <span id="auto-backup-status-badge" style="font-size:11px; font-weight:700; padding:3px 10px; border-radius:10px; background:var(--green-bg); color:var(--green);">Active (Daily Interval)</span>
           </div>
-          <div id="auto-backup-details" style="font-size:11px; color:var(--sub); line-height:1.5;">
+          <div id="auto-backup-details" style="font-size:11.5px; color:var(--sub); line-height:1.6;">
             Checking latest snapshot...
           </div>
-          <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
-            <button class="btn btn-navy btn-sm" onclick="triggerManualServerBackup()" id="btn-trigger-backup" style="flex:1; min-width:140px;">⚡ Take Snapshot Now</button>
-            <button class="btn btn-ghost btn-sm" onclick="downloadLatestServerBackup()" style="flex:1; min-width:140px;">📥 Download Latest</button>
-            <button class="btn btn-ghost btn-sm" onclick="openServerBackupsModal()" style="width:100%; margin-top:4px;">📜 View 14-Day Snapshots History</button>
+          <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
+            <button class="btn btn-navy btn-sm" onclick="triggerManualServerBackup()" id="btn-trigger-backup" style="flex:1; min-width:160px; font-weight:700;">⚡ Take Snapshot Now</button>
+            <button class="btn btn-ghost btn-sm" onclick="downloadLatestServerBackup()" style="flex:1; min-width:160px; font-weight:700;">📥 Download Latest</button>
+            <button class="btn btn-ghost btn-sm" onclick="openServerBackupsModal()" style="width:100%; margin-top:2px;">📜 View 14-Day Snapshots History</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-two-col">
+        <!-- Manual Exports -->
+        <div class="panel" style="padding:20px;">
+          <div class="panel-title" style="margin-bottom:10px;">📊 Manual Export & Spreadsheets</div>
+          <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;">Instant client-ready exports formatted for Google Sheets, Excel, or PDF archives.</p>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <button class="btn btn-ghost btn-sm" onclick="exportForSheets()">⬇ Export CSV (Sheets)</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportExcel()">📊 Export Excel (.xlsx)</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportPDF()">📄 Export PDF (Cases List)</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportBackup()">💾 Export Client Backup (JSON)</button>
           </div>
         </div>
 
-        <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--sub); margin-bottom:8px;">Manual Export & Tools</div>
-        <div style="display:flex; flex-direction:column; gap:6px;">
-          <button class="btn btn-ghost btn-sm" onclick="exportForSheets()">⬇ Export CSV (paste into Google Sheets)</button>
-          <button class="btn btn-ghost btn-sm" onclick="exportExcel()">📊 Export Excel (.xlsx)</button>
-          <button class="btn btn-ghost btn-sm" onclick="exportPDF()">📄 Export PDF (Cases List)</button>
-          <button class="btn btn-ghost btn-sm" onclick="exportBackup()">💾 Export Client Backup (JSON)</button>
-          <button id="fix-doc-codes-btn" class="btn btn-ghost btn-sm" onclick="fixMalformedDocCodes()" style="border-color:var(--gold); color:var(--gold); font-weight:600;" title="Fixes doc codes with numeric month prefixes like 72026-XXXX into JUL26-XXXX">🔧 Fix Malformed Doc Codes (e.g. 72026-XXXX → JUL26-XXXX)</button>
-          <button class="btn btn-ghost btn-sm admin-only" onclick="openRollbackHistoryModal()">↩ View Batch Rollback History (Undo)</button>
-          <button class="btn btn-navy btn-sm" onclick="backupEntireSystem()" style="width:100%;">☁ Backup Entire System to Drive</button>
-          <div><input type="file" id="restore-file" accept=".json" style="display:none" onchange="restoreBackup(event)"><button class="btn btn-ghost btn-sm" style="width:100%;" onclick="document.getElementById('restore-file').click()">📤 Restore from Backup</button></div>
-        </div>
-      </div>
-      <div class="panel" style="padding:18px;">
-        <div class="panel-title" style="margin-bottom:14px;">📁 Google Drive Integration</div>
-        <div id="drive-status-ui">
-          <p style="font-size:11.5px;color:var(--sub);margin-bottom:12px;line-height:1.6;">Connect your Google account to automatically store and organize case documents in Google Drive.</p>
-          <button class="btn btn-navy btn-sm" onclick="connectGoogleDrive()">Connect Google Drive</button>
-        </div>
-        <div id="drive-connected-ui" style="display:none;">
-          <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
-            <div style="width:32px; height:32px; background:var(--gold-l); border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--gold); font-weight:bold;">G</div>
-            <div>
-              <div style="font-size:12px; font-weight:bold;" id="drive-email">Connected</div>
-              <div style="font-size:10px; color:var(--sub);" id="drive-last-sync">Last synced: Just now</div>
-            </div>
+        <!-- Maintenance & Recovery -->
+        <div class="panel" style="padding:20px;">
+          <div class="panel-title" style="margin-bottom:10px;">🔧 System Maintenance & Cloud Sync</div>
+          <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;">Direct tools for doc code alignment, batch rollback undo, and restore.</p>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <button id="fix-doc-codes-btn" class="btn btn-ghost btn-sm" onclick="fixMalformedDocCodes()" style="border-color:var(--gold); color:var(--gold); font-weight:600; text-align:left;" title="Fixes doc codes with numeric month prefixes like 72026-XXXX into JUL26-XXXX">🔧 Fix Malformed Doc Codes (e.g. 72026-XXXX → JUL26-XXXX)</button>
+            <button class="btn btn-ghost btn-sm admin-only" onclick="openRollbackHistoryModal()" style="text-align:left;">↩ View Batch Rollback History (Undo)</button>
+            <button class="btn btn-navy btn-sm" onclick="backupEntireSystem()" style="width:100%; font-weight:700;">☁ Backup Entire System to Drive</button>
+            <div><input type="file" id="restore-file" accept=".json" style="display:none" onchange="restoreBackup(event)"><button class="btn btn-ghost btn-sm" style="width:100%;" onclick="document.getElementById('restore-file').click()">📤 Restore from Backup</button></div>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="connectGoogleDrive()">Reconnect / Change Account</button>
-          <button class="btn btn-ghost btn-sm" style="margin-top:8px; color:var(--red);" onclick="disconnectGoogleDrive()">Disconnect</button>
-        </div>
-        
-        <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line);">
-          <div style="font-size:11.5px;color:var(--sub);margin-bottom:10px;">Customize your workspace (Dark mode, Privacy, etc.)</div>
-          <button class="btn btn-navy btn-sm" style="width:100%;" onclick="openPluginsModal()">🧩 Manage Plugins</button>
         </div>
       </div>
-      <div class="panel" style="padding:18px;">
-        <div class="panel-title" style="margin-bottom:14px;color:var(--red)">⚠ Danger Zone</div>
-        <button class="btn btn-danger btn-sm" onclick="clearAllData()">Delete All Data</button>
+    </div>
+
+    <!-- Category 6: Integrations & Danger Zone -->
+    <div class="settings-section-card" data-settings-sec="system" id="settings-sec-system">
+      <div class="settings-category-header">
+        <h3>🔌 Integrations, Plugins & Danger Zone</h3>
+      </div>
+      <div class="settings-two-col">
+        <!-- Google Drive & Plugins -->
+        <div class="panel" style="padding:20px;">
+          <div class="panel-title" style="margin-bottom:12px;">📁 Google Drive Integration</div>
+          <div id="drive-status-ui">
+            <p style="font-size:11.5px;color:var(--sub);margin-bottom:12px;line-height:1.6;">Connect your Google account to automatically store and organize case documents in Google Drive.</p>
+            <button class="btn btn-navy btn-sm" onclick="connectGoogleDrive()">Connect Google Drive</button>
+          </div>
+          <div id="drive-connected-ui" style="display:none;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px; padding:10px; background:var(--paper); border:1px solid var(--line); border-radius:8px;">
+              <div style="width:32px; height:32px; background:var(--gold-l); border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--gold); font-weight:bold;">G</div>
+              <div>
+                <div style="font-size:12px; font-weight:bold;" id="drive-email">Connected</div>
+                <div style="font-size:10px; color:var(--sub);" id="drive-last-sync">Last synced: Just now</div>
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="connectGoogleDrive()">Reconnect / Change Account</button>
+            <button class="btn btn-ghost btn-sm" style="margin-top:8px; color:var(--red);" onclick="disconnectGoogleDrive()">Disconnect</button>
+          </div>
+          
+          <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line);">
+            <div style="font-size:12px; font-weight:700; color:var(--navy); margin-bottom:4px;">🧩 Workspace Plugins Store</div>
+            <div style="font-size:11.5px;color:var(--sub);margin-bottom:10px;">Customize your workspace (Dark mode, Privacy, Zen focus mode, etc.)</div>
+            <button class="btn btn-navy btn-sm" style="width:100%;" onclick="openPluginsModal()">🧩 Manage Plugins</button>
+          </div>
+        </div>
+
+        <!-- Danger Zone -->
+        <div class="panel" style="padding:20px; border-color:#fecaca !important; background:color-mix(in srgb, #fef2f2 60%, var(--card)) !important;">
+          <div class="panel-title" style="margin-bottom:12px;color:var(--red)">⚠ Danger Zone</div>
+          <div style="background:#fee2e2; border:1px solid #fca5a5; border-radius:8px; padding:12px; margin-bottom:16px; font-size:11.5px; color:#991b1b; line-height:1.5;">
+            <b>Caution:</b> Permanent data operations cannot be undone unless you have a recent server snapshot or JSON export backup.
+          </div>
+          <p style="font-size:11.5px; color:var(--sub); margin-bottom:14px;">Purge test cases or reset the database. Requires multiple administrative confirmations.</p>
+          <button class="btn btn-danger btn-sm" onclick="clearAllData()" style="background:#dc2626; color:#fff; font-weight:700; border:none; padding:9px 16px;">Delete All Data</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1065,25 +1229,63 @@ tbody tr:hover{background:var(--line);}
 </div>
 
 <div class="overlay" id="case-modal">
-  <div class="modal">
-    <div class="modal-head">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <h3 id="modal-title" style="margin:0;">Add New Case</h3>
+  <div class="modal" style="max-width:880px;width:95%;">
+    <div class="modal-head" style="padding:10px 16px;border-bottom:1px solid var(--line);">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <h3 id="modal-title" style="margin:0;font-size:16px;">Add New Case</h3>
         <button class="btn btn-sm" id="modal-dispatch-head-btn" style="display:none;background:#25D366;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:11px;font-weight:700;" onclick="openCaseDispatchModal(editingDocCode)">📲 Dispatch WhatsApp</button>
       </div>
-      <button class="modal-x" onclick="closeModal('case-modal')">✕</button>
+      <div style="display:flex;align-items:center;gap:10px;margin-left:auto;">
+        <div class="caseform-search-box">
+          <input type="text" id="caseform-search-input" placeholder="🔍 Find field (claim, hospital, fee, awb, etc.)..." oninput="filterCaseFormFields(this.value)">
+          <button id="caseform-search-clear" class="settings-search-clear" onclick="clearCaseFormSearch()" title="Clear filter" style="right:8px;">✕</button>
+        </div>
+        <button class="modal-x" onclick="closeModal('case-modal')">✕</button>
+      </div>
     </div>
+
+    <!-- Category Navigation Subtabs Bar -->
+    <div class="caseform-subtabs-bar">
+      <button type="button" class="caseform-subtab active" data-casetab="case_info" onclick="switchCaseFormTab('case_info')">📋 1. Case & Policy</button>
+      <button type="button" class="caseform-subtab" data-casetab="assignment" onclick="switchCaseFormTab('assignment')">👥 2. Investigators</button>
+      <button type="button" class="caseform-subtab" data-casetab="billing" onclick="switchCaseFormTab('billing')">💰 3. Fees & Billing</button>
+      <button type="button" class="caseform-subtab" data-casetab="dispatch" onclick="switchCaseFormTab('dispatch')">📦 4. Dispatch & Logistics</button>
+      <button type="button" class="caseform-subtab" data-casetab="findings" onclick="switchCaseFormTab('findings')">📑 5. Outcome & Remarks</button>
+      <button type="button" class="caseform-subtab" data-casetab="all" onclick="switchCaseFormTab('all')">🌐 View All</button>
+    </div>
+
+    <!-- Live Financial & Context Mini-Summary Strip -->
+    <div class="caseform-mini-summary" id="caseform-mini-summary">
+      <span class="mini-metric"><span style="color:var(--sub);">Code:</span> <span class="mini-val" id="cf-mini-code" style="color:var(--navy);">New</span></span>
+      <span style="color:var(--line);">|</span>
+      <span class="mini-metric"><span style="color:var(--sub);">Type:</span> <span class="mini-val" id="cf-mini-type" style="color:var(--ink);">—</span></span>
+      <span style="color:var(--line);">|</span>
+      <span class="mini-metric"><span style="color:var(--sub);">Payable:</span> <span class="mini-val" id="cf-mini-payable" style="color:var(--amber);">₹0</span></span>
+      <span style="color:var(--line);">|</span>
+      <span class="mini-metric"><span style="color:var(--sub);">Received:</span> <span class="mini-val" id="cf-mini-received" style="color:var(--navy);">₹0</span></span>
+      <span style="color:var(--line);">|</span>
+      <span class="mini-metric"><span style="color:var(--sub);">Profit:</span> <span class="mini-val" id="cf-mini-profit" style="color:var(--green);">₹0</span></span>
+      <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleAICaseDrawer()" style="font-size:10.5px;padding:2px 8px;gap:4px;border:1px solid var(--gold);background:var(--card);">
+          <span>✨</span> <span id="ai-drawer-btn-label">AI OCR & Voice</span>
+        </button>
+      </span>
+    </div>
+
     <form id="case-form" onsubmit="saveCase(); return false;" style="margin:0; display:flex; flex-direction:column; max-height:85vh;">
-    <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+    <div class="modal-body" style="max-height:68vh;overflow-y:auto;padding:0;">
       
-      <!-- AI OCR & MANDATE AUTO-FILL SECTION -->
-      <div class="ai-autofill-panel" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(18,107,152,0.06),rgba(224,176,76,0.08));border:1px solid var(--gold);border-radius:8px;padding:12px 14px;">
+      <!-- AI OCR & MANDATE AUTO-FILL SECTION (Collapsible Drawer) -->
+      <div id="ai-case-drawer" class="ai-autofill-panel" style="margin:12px 16px;background:linear-gradient(135deg,rgba(18,107,152,0.06),rgba(224,176,76,0.08));border:1px solid var(--gold);border-radius:8px;padding:12px 14px;display:none;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="font-size:15px;">✨</span>
             <span style="font-size:12px;font-weight:800;color:var(--navy);letter-spacing:0.3px;">AI Mandate & Document Auto-Fill</span>
           </div>
-          <span class="badge" style="background:var(--gold-l);color:var(--gold);font-size:9.5px;font-weight:700;">Gemini 3.7 Flash</span>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="badge" style="background:var(--gold-l);color:var(--gold);font-size:9.5px;font-weight:700;">Gemini 3.7 Flash</span>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="toggleAICaseDrawer()" style="font-size:11px;padding:1px 6px;">✕</button>
+          </div>
         </div>
         <p style="font-size:11px;color:var(--sub);margin-bottom:8px;line-height:1.4;">Paste insurance mandate email/text or attach a PDF / case photo to auto-extract and fill form fields instantly.</p>
         
@@ -1107,13 +1309,19 @@ tbody tr:hover{background:var(--line);}
         </div>
       </div>
 
-      <div class="form-section">
-        <div class="notice">📌 Case count rule: Investigator 1 only = <b>0.5 case</b>. Investigator 1 + Investigator 2 = <b>1 case each</b>.</div>
-        <div class="form-section-label">Case Details</div>
+      <!-- SECTION 1: CASE & POLICY DETAILS -->
+      <div class="caseform-section" id="case-sec-info" data-casesec="case_info">
+        <div class="caseform-section-head">
+          <div class="caseform-section-title">
+            <span>📋</span> Case & Policy Details
+          </div>
+          <span class="badge" style="background:var(--paper);color:var(--sub);font-size:10px;">Step 1 of 5</span>
+        </div>
+        <div class="notice" style="margin-bottom:12px;">📌 Case count rule: Investigator 1 only = <b>0.5 case</b>. Investigator 1 + Investigator 2 = <b>1 case each</b>.</div>
         <div class="form-grid">
-          <div class="fg"><label>Company *</label><select id="f-company"><option value="">-- Select --</option></select></div>
+          <div class="fg"><label>Company *</label><select id="f-company" onchange="updateCaseFormMiniSummary()"><option value="">-- Select --</option></select></div>
           <div class="fg"><label>Allocation Date *</label><input type="date" id="f-date"></div>
-          <div class="fg"><label>Case Type *</label><select id="f-casetype"></select></div>
+          <div class="fg"><label>Case Type *</label><select id="f-casetype" onchange="updateCaseFormMiniSummary()"></select></div>
           <div class="fg"><label>Claim No *</label><input type="text" id="f-claim"></div>
           <div class="fg"><label>Policy No</label><input type="text" id="f-policy"></div>
           <div class="fg"><label>Insured Name *</label><input type="text" id="f-insured"></div>
@@ -1127,10 +1335,21 @@ tbody tr:hover{background:var(--line);}
           <div class="fg"><label>Location</label><input type="text" id="f-location"></div>
           <div class="fg"><label>SLA (Hours)</label><input type="number" id="f-sla" min="1" placeholder="e.g. 24"></div>
         </div>
+        <div class="caseform-step-nav">
+          <span></span>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="switchCaseFormTab('assignment')">Next: Investigators ➔</button>
+        </div>
       </div>
-      <div class="form-section">
-        <div class="form-section-label">Investigators</div>
-        <div id="ai-investigator-recommendations" style="display:none; margin-bottom: 15px; padding: 12px; background: var(--paper); border: 1px solid var(--gold-l); border-radius: 4px;">
+
+      <!-- SECTION 2: INVESTIGATORS & AI -->
+      <div class="caseform-section" id="case-sec-assignment" data-casesec="assignment">
+        <div class="caseform-section-head">
+          <div class="caseform-section-title">
+            <span>👥</span> Investigator Allocation
+          </div>
+          <span class="badge" style="background:var(--paper);color:var(--sub);font-size:10px;">Step 2 of 5</span>
+        </div>
+        <div id="ai-investigator-recommendations" style="display:none; margin-bottom: 14px; padding: 12px; background: var(--paper); border: 1px solid var(--gold-l); border-radius: 6px;">
            <div style="font-size: 11px; font-weight: bold; color: var(--gold); margin-bottom: 8px;">★ Recommended Investigators</div>
            <div id="ai-rec-list" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
         </div>
@@ -1141,26 +1360,54 @@ tbody tr:hover{background:var(--line);}
         <div id="transfer-reason-container" style="display:none; margin-top:12px;">
           <div class="fg"><label style="color:var(--amber);">Reason for Transfer *</label><input type="text" id="f-transfer-reason" placeholder="e.g. Case re-assigned due to location change"></div>
         </div>
-        <div id="transfer-history-container" style="display:none; margin-top:20px; border-top:1px dashed var(--line); padding-top:14px;">
+        <div id="transfer-history-container" style="display:none; margin-top:16px; border-top:1px dashed var(--line); padding-top:14px;">
            <div class="form-section-label" style="display:flex; align-items:center; gap:8px;">
              <span style="font-size:12px;">⭐ Ownership Transfer History</span>
              <span class="badge" style="background:var(--navy); color:#fff; font-size:9px;" id="transfer-count-badge">0</span>
            </div>
            <div id="transfer-history-list" style="margin-top:10px; display:flex; flex-direction:column; gap:8px;"></div>
         </div>
+        <div class="caseform-step-nav">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="switchCaseFormTab('case_info')">⬅ Back: Case Info</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="switchCaseFormTab('billing')">Next: Fees & Billing ➔</button>
+        </div>
       </div>
-      <div class="form-section">
-        <div class="form-section-label">Payment</div>
+
+      <!-- SECTION 3: FEES & INVOICING -->
+      <div class="caseform-section" id="case-sec-billing" data-casesec="billing">
+        <div class="caseform-section-head">
+          <div class="caseform-section-title">
+            <span>💰</span> Fees, Invoicing & Financials
+          </div>
+          <span class="badge" style="background:var(--paper);color:var(--sub);font-size:10px;">Step 3 of 5</span>
+        </div>
         <div class="form-grid">
           <div class="fg"><label>Fee 1 (₹)</label><input type="number" id="f-fee1" oninput="calcTotal()"></div>
           <div class="fg"><label>Fee 2 (₹)</label><input type="number" id="f-fee2" oninput="calcTotal()"></div>
           <div class="fg"><label>TA/Expense 1 (₹)</label><input type="number" id="f-ta1" oninput="calcTotal()"></div>
           <div class="fg"><label>TA/Expense 2 (₹)</label><input type="number" id="f-ta2" oninput="calcTotal()"></div>
-          <div class="fg"><label>Total Payable (auto)</label><input type="number" id="f-total" readonly></div>
+          <div class="fg"><label>Total Payable (auto)</label><input type="number" id="f-total" readonly style="font-weight:700;color:var(--amber);"></div>
           <div class="fg"><label>Payment Received (₹)</label><input type="number" id="f-received" oninput="calcTotal()"></div>
+          <div class="fg"><label>TDS Deducted (₹)</label><input type="number" id="f-tds" placeholder="0" oninput="calcTotal()"></div>
           <div class="fg"><label>Invoice No</label><input type="text" id="f-invoice"></div>
-          <div class="fg"><label>Invoice Amount (₹)</label><input type="number" id="f-invoice-amount"></div>
-          <div class="fg"><label>Profit (auto)</label><input type="number" id="f-profit" readonly></div>
+          <div class="fg"><label>Invoice Amount (₹)</label><input type="number" id="f-invoice-amount" oninput="calcTotal()"></div>
+          <div class="fg"><label>Profit (auto)</label><input type="number" id="f-profit" readonly style="font-weight:700;"></div>
+        </div>
+        <div class="caseform-step-nav">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="switchCaseFormTab('assignment')">⬅ Back: Investigators</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="switchCaseFormTab('dispatch')">Next: Dispatch & Logistics ➔</button>
+        </div>
+      </div>
+
+      <!-- SECTION 4: DISPATCH & LOGISTICS -->
+      <div class="caseform-section" id="case-sec-dispatch" data-casesec="dispatch">
+        <div class="caseform-section-head">
+          <div class="caseform-section-title">
+            <span>📦</span> Pay Status, Hard Copies & Dispatch
+          </div>
+          <span class="badge" style="background:var(--paper);color:var(--sub);font-size:10px;">Step 4 of 5</span>
+        </div>
+        <div class="form-grid">
           <div class="fg"><label>INV1 Pay Status</label><select id="f-inv1status"><option value="">-- Not Set --</option><option>Paid</option><option>Pending</option></select></div>
           <div class="fg"><label>INV2 Pay Status</label><select id="f-inv2status"><option value="">-- Not Set --</option><option>Paid</option><option>Pending</option></select></div>
           <div class="fg"><label>INV1 Hard Copy</label><select id="f-hardcopy1status" onchange="syncHardcopy2IfLinked()"><option value="">-- Not Set --</option><option>Received</option><option>Not Received</option></select></div>
@@ -1168,12 +1415,24 @@ tbody tr:hover{background:var(--line);}
             <label>INV2 Hard Copy <button type="button" class="btn btn-ghost" id="f-hardcopy-same-btn" style="font-size:10px;padding:2px 8px;margin-left:6px;vertical-align:middle;" onclick="setHardcopy2SameAsInv1()">Same as INV1</button></label>
             <select id="f-hardcopy2status"><option value="">-- Not Set --</option><option>Received</option><option>Not Received</option></select>
           </div>
-        </div>
-        <div class="form-grid" style="grid-template-columns: 1fr 1fr; margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 12px;">
           <div class="fg"><label>Company Dispatch Status</label><select id="f-companyhardcopy"><option value="Pending">Pending</option><option value="Dispatched">Dispatched</option><option value="Delivered">Delivered</option></select></div>
           <div class="fg"><label>Dispatch AWB / Tracking No</label><input type="text" id="f-companyawb" placeholder="e.g. DTDC-8273645"></div>
         </div>
-        <div class="fg" style="margin-top:12px;">
+        <div class="caseform-step-nav">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="switchCaseFormTab('billing')">⬅ Back: Fees</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="switchCaseFormTab('findings')">Next: Outcome & Remarks ➔</button>
+        </div>
+      </div>
+
+      <!-- SECTION 5: OUTCOME, REMARKS & CUSTOM DATA -->
+      <div class="caseform-section" id="case-sec-findings" data-casesec="findings">
+        <div class="caseform-section-head">
+          <div class="caseform-section-title">
+            <span>📑</span> Outcome, Remarks & Custom Data
+          </div>
+          <span class="badge" style="background:var(--paper);color:var(--sub);font-size:10px;">Step 5 of 5</span>
+        </div>
+        <div class="fg" style="margin-bottom:12px;">
           <label>Investigation Outcome</label>
           <select id="f-outcome">
             <option value="Pending">Pending / In Progress</option>
@@ -1184,11 +1443,24 @@ tbody tr:hover{background:var(--line);}
             <option value="Settled">Settled / Closed</option>
           </select>
         </div>
-        <div class="fg" style="margin-top:12px;"><label>Remarks</label><textarea id="f-remarks" rows="2"></textarea></div>
+        <div class="fg" style="margin-bottom:12px;"><label>Remarks</label><textarea id="f-remarks" rows="2"></textarea></div>
         <div id="dynamic-custom-fields" class="form-grid" style="margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 12px; display: none;"></div>
+        <div class="caseform-step-nav">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="switchCaseFormTab('dispatch')">⬅ Back: Dispatch</button>
+          <span></span>
+        </div>
       </div>
+
+      <!-- Search No Matches State -->
+      <div id="caseform-no-matches" style="display:none;text-align:center;padding:36px 20px;color:var(--sub);">
+        <div style="font-size:32px;margin-bottom:8px;">🔍</div>
+        <div style="font-weight:700;font-size:14px;color:var(--ink);margin-bottom:4px;">No fields matching your search</div>
+        <div style="font-size:12px;">Try a different keyword or click "Clear Filter" to view all fields.</div>
+        <button type="button" class="btn btn-ghost btn-sm" style="margin-top:12px;" onclick="clearCaseFormSearch()">Clear Filter</button>
+      </div>
+
     </div>
-    <div class="modal-foot">
+    <div class="modal-foot" style="padding:10px 16px;">
       <button type="button" class="btn btn-danger" id="delete-case-btn" style="display:none;margin-right:auto;" onclick="deleteCurrentCase()">Delete Case</button>
       <button type="button" class="btn btn-warning" id="mark-exception-btn" style="display:none; margin-right: 8px;" onclick="openExceptionModal()">Mark as Exception</button>
       <button type="button" class="btn" id="modal-dispatch-foot-btn" style="display:none;margin-right:8px;background:#25D366;color:#fff;border:none;" onclick="openCaseDispatchModal(editingDocCode)">📲 Dispatch WhatsApp</button>
@@ -1229,6 +1501,319 @@ tbody tr:hover{background:var(--line);}
     </div>
     <div class="modal-foot" style="justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="closeModal('dispatch-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🏢 COMPANY OUTSTANDING & PAYMENT RECOVERY HUB MODAL -->
+<div class="overlay" id="company-recovery-modal">
+  <div class="modal" style="max-width:1150px; width:96%; max-height:92vh; display:flex; flex-direction:column;">
+    <div class="modal-head" style="border-bottom:1px solid var(--line); padding:14px 18px; display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-size:24px;">🏢</span>
+        <div>
+          <h3 style="margin:0; font-size:16px; color:var(--navy); font-weight:800;">Company Outstanding &amp; Recovery Hub</h3>
+          <div style="font-size:11px; color:var(--sub); margin-top:2px;">Export company-facing recovery Excel sheets, filter unpaid/rejected bills, and capture remittance/region details</div>
+        </div>
+      </div>
+      <button class="modal-x" onclick="closeModal('company-recovery-modal')">✕</button>
+    </div>
+
+    <!-- Filter & Scope Bar -->
+    <div style="padding:12px 18px; background:var(--paper); border-bottom:1px solid var(--line); display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between;">
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; flex:1;">
+        <div style="min-width:170px;">
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--sub); margin-bottom:3px;">Insurance Company</label>
+          <select id="cr-company-select" class="fin" style="width:100%; font-size:12px; font-weight:700; padding:6px 10px;" onchange="renderCompanyRecoveryHub()">
+            <!-- Populated via JS -->
+          </select>
+        </div>
+        <div style="min-width:230px;">
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--sub); margin-bottom:3px;">Recovery Classification / Logic</label>
+          <select id="cr-category-select" class="fin" style="width:100%; font-size:12px; font-weight:600; padding:6px 10px;" onchange="renderCompanyRecoveryHub()">
+            <option value="billable_unpaid" selected>🟢 Billable Overdue / Unpaid (Ready for Accounts)</option>
+            <option value="rejected">🔴 Disputed / Rejected Bills (Reason Query Sheet)</option>
+            <option value="withdrawn">⚫ Withdrawn / Cancelled Cases (Zero-Billing Audit)</option>
+            <option value="partially_paid">🟡 Partially Paid (TDS / Deductions Pending)</option>
+            <option value="all_unpaid">📋 All Unpaid / Pending Balance (Everything)</option>
+          </select>
+        </div>
+        <div style="min-width:130px;">
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--sub); margin-bottom:3px;">Month / Period</label>
+          <select id="cr-month-select" class="fin" style="width:100%; font-size:12px; padding:6px 10px;" onchange="renderCompanyRecoveryHub()">
+            <!-- Populated via JS -->
+          </select>
+        </div>
+        <div style="flex:1; min-width:160px;">
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--sub); margin-bottom:3px;">Search Claim / Name / Code</label>
+          <input type="text" id="cr-search-input" class="fin" placeholder="Filter in list..." style="width:100%; font-size:12px; padding:6px 10px;" oninput="renderCompanyRecoveryHub()">
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:flex-end;">
+        <button class="btn btn-sm btn-ghost" onclick="resetCompanyRecoveryFilters()">↺ Reset</button>
+      </div>
+    </div>
+
+    <!-- Intelligence Notice Banner -->
+    <div id="cr-intelligence-banner" style="margin:10px 18px 0; padding:10px 14px; border-radius:6px; font-size:11.5px; line-height:1.5;"></div>
+
+    <!-- KPI Metric Cards -->
+    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; padding:12px 18px 0;" id="cr-kpi-grid">
+      <div class="kpi navy" style="padding:10px 14px;"><div class="kpi-label" style="font-size:10.5px;">Target Cases</div><div class="kpi-value" id="cr-kpi-cases" style="font-size:20px;">0</div></div>
+      <div class="kpi" style="padding:10px 14px; background:var(--card); border:1px solid var(--line);"><div class="kpi-label" style="font-size:10.5px; color:var(--sub);">Total Billed (Invoice)</div><div class="kpi-value" id="cr-kpi-billed" style="font-size:20px; color:var(--navy);">₹0</div></div>
+      <div class="kpi green" style="padding:10px 14px;"><div class="kpi-label" style="font-size:10.5px;">Already Received</div><div class="kpi-value green" id="cr-kpi-received" style="font-size:20px;">₹0</div></div>
+      <div class="kpi red" style="padding:10px 14px; background:color-mix(in srgb, #fef2f2 70%, var(--card)); border-color:#fecaca;"><div class="kpi-label" style="font-size:10.5px; color:#991b1b; font-weight:700;">Outstanding Due</div><div class="kpi-value red" id="cr-kpi-due" style="font-size:20px; color:#dc2626;">₹0</div></div>
+    </div>
+
+    <!-- Main Table Toolbar -->
+    <div style="padding:12px 18px 6px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:12px; font-weight:700; color:var(--navy);">Cases List</span>
+        <span class="count-chip" id="cr-table-count">0 Cases</span>
+        <span id="cr-selected-count-badge" style="font-size:11px; color:var(--sub); margin-left:6px;"></span>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <button class="btn btn-sm" onclick="exportCompanyRecoveryExcel()" style="background:#0F5132; border-color:#0F5132; color:#fff; font-weight:700; display:flex; align-items:center; gap:6px;">
+          <span>📊</span> Export Company Excel (.xlsx)
+        </button>
+        <button class="btn btn-sm btn-ghost" onclick="exportCompanyRecoveryPDF()" style="display:flex; align-items:center; gap:6px;">
+          <span>📄</span> Export PDF Statement
+        </button>
+        <button class="btn btn-sm btn-navy" onclick="openRecordRemittanceModal()" id="cr-record-pay-btn" style="display:flex; align-items:center; gap:6px; font-weight:700;">
+          <span>⚡</span> Record Payment / Region Details
+        </button>
+      </div>
+    </div>
+
+    <!-- Table Body -->
+    <div class="modal-body" style="padding:0 18px 14px; overflow-y:auto; flex:1;">
+      <div class="tbl-scroll" style="border:1px solid var(--line); border-radius:6px; max-height:400px; background:var(--card);">
+        <table class="data-table" style="width:100%; font-size:11.5px; margin:0;">
+          <thead style="position:sticky; top:0; z-index:2; background:var(--paper);">
+            <tr>
+              <th style="width:36px; text-align:center;"><input type="checkbox" id="cr-select-all" onchange="toggleCRSelectAll(this.checked)"></th>
+              <th>Doc Code</th>
+              <th>Claim No</th>
+              <th>Company</th>
+              <th>Insured Name</th>
+              <th>Hospital / Location</th>
+              <th>Date</th>
+              <th>Invoice No</th>
+              <th style="text-align:right;">Billed (₹)</th>
+              <th style="text-align:right;">Received (₹)</th>
+              <th style="text-align:right;">Balance (₹)</th>
+              <th style="text-align:center;">Outcome</th>
+              <th style="text-align:center;">Status / Logic</th>
+              <th style="text-align:center;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="cr-table-tbody">
+            <!-- Populated via JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="modal-foot" style="justify-content:space-between; padding:10px 18px; border-top:1px solid var(--line);">
+      <div style="font-size:11px; color:var(--sub); display:flex; align-items:center; gap:10px;">
+        <span>💡 <i>Tip: The exported Excel contains designated columns for the company to fill their UTR, Payment Date, Region, and Deductions.</i></span>
+      </div>
+      <button class="btn btn-ghost" onclick="closeModal('company-recovery-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ⚡ RECORD COMPANY REMITTANCE & REGION DETAILS MODAL -->
+<div class="overlay" id="cr-remittance-modal" style="z-index:9999;">
+  <div class="modal" style="max-width:580px; width:92%;">
+    <div class="modal-head" style="border-bottom:1px solid var(--line); padding:14px 18px;">
+      <div>
+        <h3 style="margin:0; font-size:15px; color:var(--navy);">⚡ Record Company Remittance &amp; Region Details</h3>
+        <div style="font-size:11px; color:var(--sub); margin-top:2px;">Update received payment, UTR number, Region/Branch, and remarks for selected cases</div>
+      </div>
+      <button class="modal-x" onclick="closeModal('cr-remittance-modal')">✕</button>
+    </div>
+    <div class="modal-body" style="padding:18px;">
+      <div id="cr-remit-target-info" style="background:var(--paper); border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-bottom:14px; font-size:12px;"></div>
+      
+      <div class="fg" style="margin-bottom:12px;">
+        <label>Payment Mode / Settlement Type</label>
+        <select id="cr-remit-mode" class="fin" onchange="onCRRemitModeChange()">
+          <option value="full">Mark Full Outstanding as Received (Settled in Full)</option>
+          <option value="custom">Enter Specific Received Amount</option>
+          <option value="status_only">Keep Received Amount Same, Update UTR / Region / Remarks Only</option>
+        </select>
+      </div>
+
+      <div class="fg" id="cr-remit-amt-group" style="display:none; margin-bottom:12px;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div>
+            <label>Received in Bank (₹)</label>
+            <input type="number" id="cr-remit-custom-amount" class="fin" placeholder="e.g. 3240">
+          </div>
+          <div>
+            <label>TDS Deducted (₹)</label>
+            <input type="number" id="cr-remit-tds-amount" class="fin" placeholder="e.g. 300">
+          </div>
+        </div>
+        <span style="font-size:10px; color:var(--sub); display:block; margin-top:2px;">Received in Bank + TDS Deducted will be credited against the case.</span>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+        <div class="fg" style="margin:0;">
+          <label>Payment UTR / Cheque Ref No</label>
+          <input type="text" id="cr-remit-utr" class="fin" placeholder="e.g. UTR198273645">
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Payment Received Date</label>
+          <input type="date" id="cr-remit-date" class="fin">
+        </div>
+      </div>
+
+      <div class="fg" style="margin-bottom:12px;">
+        <label>Company Region / Branch Office</label>
+        <input type="text" id="cr-remit-region" class="fin" placeholder="e.g. North Hub / Delhi RO / Mumbai Regional Office">
+        <span style="font-size:10px; color:var(--sub); display:block; margin-top:2px;">Updates the location / branch field on selected cases if entered.</span>
+      </div>
+
+      <div class="fg" style="margin-bottom:12px;">
+        <label>Company Remarks / Deduction Reason</label>
+        <textarea id="cr-remit-remarks" rows="2" class="fin" placeholder="e.g. TDS deducted @ 2%, settled as per agreed SLA rates..."></textarea>
+      </div>
+    </div>
+    <div class="modal-foot" style="justify-content:space-between;">
+      <button class="btn btn-ghost" onclick="closeModal('cr-remittance-modal')">Cancel</button>
+      <button class="btn btn-navy" id="cr-remit-save-btn" onclick="saveCRRemittance()" style="font-weight:700;">💾 Save Payment &amp; Update Database</button>
+    </div>
+  </div>
+</div>
+
+<!-- ⚡ QUICK RECEIVE MODAL (FAST EMAIL PAYMENT ENTRY) -->
+<div class="overlay" id="quick-receive-modal">
+  <div class="modal" style="max-width:740px; width:95%; max-height:90vh; display:flex; flex-direction:column;">
+    <div class="modal-head" style="border-bottom:1px solid var(--line); padding:14px 18px; display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-size:22px;">⚡</span>
+        <div>
+          <h3 style="margin:0; font-size:15px; color:var(--navy);">Quick Receive (Email Payment Portal)</h3>
+          <div style="font-size:11px; color:var(--sub); margin-top:2px;">Instant single-claim update or multi-claim remittance advice paste</div>
+        </div>
+      </div>
+      <button class="modal-x" onclick="closeModal('quick-receive-modal')">✕</button>
+    </div>
+
+    <!-- Mode Tabs -->
+    <div style="display:flex; gap:10px; padding:10px 18px; background:var(--bg); border-bottom:1px solid var(--line);">
+      <button class="btn btn-sm" id="qr-tab-single" onclick="setQuickReceiveTab('single')" style="font-weight:700; background:var(--navy); color:#fff;">🎯 Single Claim (Email)</button>
+      <button class="btn btn-sm btn-ghost" id="qr-tab-bulk" onclick="setQuickReceiveTab('bulk')" style="font-weight:700;">📋 Bulk Remittance Paste</button>
+    </div>
+
+    <!-- Body -->
+    <div class="modal-body" style="padding:18px; overflow-y:auto; flex:1;">
+      
+      <!-- SINGLE CLAIM MODE -->
+      <div id="qr-mode-single">
+        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:10px 14px; margin-bottom:14px; font-size:11.5px; color:#166534; display:flex; justify-content:space-between; align-items:center;">
+          <span>💡 <b>Speed Workflow:</b> Email se Claim No copy karke paste karein. System case match karke amount suggest karega. Press <b>Enter</b> to save & next.</span>
+          <span style="font-size:10px; background:#dcfce7; padding:2px 6px; border-radius:4px; font-weight:700;">Alt + R</span>
+        </div>
+
+        <div style="margin-bottom:14px;">
+          <label style="display:block; font-size:12px; font-weight:700; color:var(--navy); margin-bottom:6px;">Claim No / Doc Code</label>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="qr-claim-input" class="fin" placeholder="Paste claim no from email (e.g. 97647620)..." style="flex:1; font-size:14px; font-family:var(--mono); padding:10px 12px; border:2px solid var(--navy); border-radius:6px;" oninput="onQuickReceiveLookup()" onkeydown="handleQuickReceiveKey(event)">
+            <button class="btn btn-ghost btn-sm" onclick="clearQuickReceiveSingle()" title="Clear">✕ Clear</button>
+          </div>
+        </div>
+
+        <!-- Live Lookup Match Card -->
+        <div id="qr-match-card" style="display:none; border:1px solid var(--line); border-radius:8px; padding:14px; background:var(--card); margin-bottom:16px; box-shadow:0 2px 6px rgba(0,0,0,0.04);"></div>
+
+        <!-- Input Fields for Payment (Enabled when matched) -->
+        <div id="qr-inputs-area" style="display:none; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:16px;">
+          <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:var(--sub); margin-bottom:4px;">Received in Bank (₹)*</label>
+              <input type="number" id="qr-amount-input" class="fin" placeholder="0" style="width:100%; font-size:15px; font-weight:700; color:#0F5132; padding:8px;" oninput="onQuickReceiveAmountChange()" onkeydown="handleQuickReceiveKey(event)">
+            </div>
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:var(--sub); margin-bottom:4px;">TDS Deducted (₹)</label>
+              <input type="number" id="qr-tds-input" class="fin" placeholder="0" style="width:100%; font-size:15px; font-weight:700; color:#b45309; padding:8px;" oninput="onQuickReceiveAmountChange()" onkeydown="handleQuickReceiveKey(event)">
+            </div>
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:var(--sub); margin-bottom:4px;">Invoice No (Optional)</label>
+              <input type="text" id="qr-invoice-input" class="fin" placeholder="e.g. INV-102" style="width:100%; padding:8px;" onkeydown="handleQuickReceiveKey(event)">
+            </div>
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:var(--sub); margin-bottom:4px;">Payment Date</label>
+              <input type="date" id="qr-date-input" class="fin" style="width:100%; padding:8px;">
+            </div>
+          </div>
+
+          <!-- Smart Auto-TDS & Settlement Reconcile Bar -->
+          <div id="qr-tds-reconcile-bar" style="margin-bottom:12px;"></div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:11px; color:var(--sub);">Pressing <b>Enter</b> saves instantly and clears for next email</span>
+            <button class="btn btn-navy" id="qr-save-btn" onclick="submitQuickReceiveSingle()" style="background:#0F5132; border-color:#0F5132; padding:8px 18px; font-weight:700;">⚡ Save & Next (Enter)</button>
+          </div>
+        </div>
+
+        <!-- Session History List -->
+        <div id="qr-session-history-wrap" style="display:none; margin-top:16px;">
+          <div style="font-size:11.5px; font-weight:700; color:var(--sub); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Recent Updates in this Session (<span id="qr-history-count">0</span>)</div>
+          <div id="qr-session-history-list" style="max-height:160px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; background:#fff; font-size:11px;"></div>
+        </div>
+      </div>
+
+      <!-- BULK REMITTANCE PASTE MODE -->
+      <div id="qr-mode-bulk" style="display:none;">
+        <p style="font-size:11.5px; color:var(--sub); margin-bottom:12px; line-height:1.5;">
+          Copy payment advice table from Email / Excel and paste below. Supports <b>Claim No</b>, <b>Received Amount</b>, and optional <b>TDS</b>.
+        </p>
+        <textarea id="qr-bulk-textarea" rows="6" class="fin" style="width:100%; font-family:var(--mono); font-size:11.5px; line-height:1.4; padding:10px; margin-bottom:12px;" placeholder="Example:&#10;97647620   3240&#10;97623380   1800&#10;or with TDS:&#10;97647620   3240   300&#10;or comma-separated:&#10;97647620, 3240"></textarea>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button class="btn btn-navy btn-sm" onclick="parseBulkQuickReceive()">🔍 Parse & Match Claims</button>
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('qr-bulk-textarea').value=''; document.getElementById('qr-bulk-preview-wrap').style.display='none';">Clear</button>
+          </div>
+          <label style="font-size:11px; font-weight:600; color:var(--navy); display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="checkbox" id="qr-bulk-auto-tds" checked>
+            <span>Auto-apply difference as TDS (Billed - Recv = TDS, ₹0 Due)</span>
+          </label>
+        </div>
+
+        <!-- Bulk Match Preview Table -->
+        <div id="qr-bulk-preview-wrap" style="display:none;">
+          <div id="qr-bulk-stats" style="margin-bottom:10px; font-size:12px; font-weight:700;"></div>
+          <div style="max-height:240px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; margin-bottom:14px;">
+            <table style="width:100%; border-collapse:collapse; font-size:11px;">
+              <thead>
+                <tr style="background:var(--bg); border-bottom:1px solid var(--line); position:sticky; top:0;">
+                  <th style="padding:6px; text-align:left;">#</th>
+                  <th style="padding:6px; text-align:left;">Claim No</th>
+                  <th style="padding:6px; text-align:left;">Insured / Co</th>
+                  <th style="padding:6px; text-align:right;">Billed Amt</th>
+                  <th style="padding:6px; text-align:right; color:#0F5132;">New Recv</th>
+                  <th style="padding:6px; text-align:right; color:#b45309;">TDS Deducted</th>
+                  <th style="padding:6px; text-align:center;">Status</th>
+                </tr>
+              </thead>
+              <tbody id="qr-bulk-tbody"></tbody>
+            </table>
+          </div>
+          <div style="display:flex; justify-content:flex-end;">
+            <button class="btn btn-navy" id="qr-bulk-confirm-btn" onclick="submitBulkQuickReceive()" style="background:#0F5132; border-color:#0F5132; font-weight:700;">⚡ Confirm & Update All Matched Cases</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="modal-foot" style="border-top:1px solid var(--line); padding:10px 18px; justify-content:space-between;">
+      <span style="font-size:11px; color:var(--sub);">Changes auto-sync with Supabase and activity logs.</span>
+      <button class="btn btn-ghost" onclick="closeModal('quick-receive-modal')">Close</button>
     </div>
   </div>
 </div>
@@ -1822,7 +2407,8 @@ tbody tr:hover{background:var(--line);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js"></script>
 <script src="ux-enhancements.js"></script>
-<script src="app.js?v=23"></script>
+<script src="app.js?v=34"></script>
+<script src="company-recovery.js?v=6"></script>
 <script src="batch-rollback.js?v=2"></script>
 <script src="realtime-sync.js"></script>
 <script src="role-permissions.js"></script>
@@ -1832,7 +2418,7 @@ tbody tr:hover{background:var(--line);}
 <script src="investigator-case-breakdown.js"></script>
 <script src="plugins-manager.js"></script>
 <script src="custom-fields.js"></script>
-<script src="smart-merge-engine.js"></script>
+<script src="smart-merge-engine.js?v=3"></script>
 
 </body>
 </html>

@@ -22,38 +22,91 @@ CREATE TABLE investigators (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 3. Cases
+-- 3. Cases (Main Investigation & Financial Ledger)
 CREATE TABLE cases (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    date DATE,
-    doc_code VARCHAR(100) UNIQUE,
-    case_type VARCHAR(100),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    -- Document & Date
+    doc_code VARCHAR(100) UNIQUE NOT NULL,
+    date DATE NOT NULL,
+    
+    -- Company & Policy Details
+    company VARCHAR(255) NOT NULL,
+    case_type VARCHAR(100), -- PA, CASHLESS, REIMBURSEMENT, MB, FVR, SPOT, PROJECT, HOSPICASH, POST FACTO
     claim_no VARCHAR(100),
+    policy_no VARCHAR(100),
     insured_name VARCHAR(255),
-    hospital_name VARCHAR(255),
-    company VARCHAR(255),
+    hospital VARCHAR(255),
+    location VARCHAR(255),
     
-    -- Assignment 1
-    inv1 VARCHAR(255), -- References investigators.name
-    inv1_fee DECIMAL(10,2) DEFAULT 0,
-    inv1_ta DECIMAL(10,2) DEFAULT 0,
-    inv1_status VARCHAR(50) DEFAULT 'Unpaid',
-    inv1_hardcopy VARCHAR(50) DEFAULT 'Pending',
+    -- Invoicing & Client Receivables
+    invoice_no VARCHAR(100),
+    invoice_amount NUMERIC(12,2) DEFAULT 0,
+    received NUMERIC(12,2) DEFAULT 0,
+    tds_deducted NUMERIC(12,2) DEFAULT 0,
+    profit NUMERIC(12,2) DEFAULT 0,
     
-    -- Assignment 2
-    inv2 VARCHAR(255), -- References investigators.name
-    inv2_fee DECIMAL(10,2) DEFAULT 0,
-    inv2_ta DECIMAL(10,2) DEFAULT 0,
-    inv2_status VARCHAR(50) DEFAULT 'Unpaid',
-    inv2_hardcopy VARCHAR(50) DEFAULT 'Pending',
+    -- Investigator 1 Assignment & Financials
+    inv1 VARCHAR(255), -- Investigator name
+    fee1 NUMERIC(12,2) DEFAULT 0,
+    ta1 NUMERIC(12,2) DEFAULT 0,
+    inv1_status VARCHAR(50) DEFAULT 'Unpaid', -- 'Unpaid' or 'Paid'
+    hardcopy1_status VARCHAR(50) DEFAULT 'Pending', -- 'Pending' or 'Received'
     
-    -- Status
-    outcome VARCHAR(100),
-    exception_type VARCHAR(255),
+    -- Investigator 2 Assignment & Financials
+    inv2 VARCHAR(255), -- Investigator name
+    fee2 NUMERIC(12,2) DEFAULT 0,
+    ta2 NUMERIC(12,2) DEFAULT 0,
+    inv2_status VARCHAR(50) DEFAULT 'Unpaid', -- 'Unpaid' or 'Paid'
+    hardcopy2_status VARCHAR(50) DEFAULT 'Pending', -- 'Pending' or 'Received'
+    
+    -- Aggregated Payables
+    total_payable NUMERIC(12,2) DEFAULT 0,
+    
+    -- Hardcopy Tracking & Dispatch
+    hardcopy_receive_date DATE,
+    company_dispatch_date DATE,
+    company_hardcopy_status VARCHAR(50) DEFAULT 'Pending', -- 'Pending' or 'Dispatched'
+    company_hardcopy_awb VARCHAR(100),
+    
+    -- Status, SLA & Outcomes
+    outcome VARCHAR(100) DEFAULT 'Pending', -- 'Pending', 'Genuine', 'Fraud', 'Suspicious', 'Withdrawn', 'Repudiated'
+    fraud_reason TEXT,
     investigation_status VARCHAR(100),
-    company_dispatch_date DATE
+    remarks TEXT,
+    
+    -- SLA Engine & Turnaround Time (TAT)
+    sla_hours INTEGER DEFAULT 24,
+    due_date TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    risk_level VARCHAR(50), -- 'Low', 'Medium', 'High'
+    
+    -- Exception Lifecycle Management
+    exception_type VARCHAR(100), -- 'Withdrawn', 'Rejected', etc.
+    exception_reason TEXT,
+    exception_at TIMESTAMP WITH TIME ZONE,
+    exception_by VARCHAR(255),
+    
+    -- Integrations & Extensibility
+    drive_folder_id TEXT,
+    drive_url TEXT,
+    custom_data JSONB DEFAULT '{}'::jsonb
 );
+
+-- Performance Indexes
+CREATE INDEX IF NOT EXISTS idx_cases_doc_code ON cases(doc_code);
+CREATE INDEX IF NOT EXISTS idx_cases_claim_no ON cases(claim_no);
+CREATE INDEX IF NOT EXISTS idx_cases_company_claim ON cases(company, claim_no);
+CREATE INDEX IF NOT EXISTS idx_cases_date ON cases(date);
+CREATE INDEX IF NOT EXISTS idx_cases_inv1 ON cases(inv1);
+CREATE INDEX IF NOT EXISTS idx_cases_inv2 ON cases(inv2);
+CREATE INDEX IF NOT EXISTS idx_cases_outcome ON cases(outcome);
+CREATE INDEX IF NOT EXISTS idx_cases_due_date ON cases(due_date);
+CREATE INDEX IF NOT EXISTS idx_cases_completed_at ON cases(completed_at);
+CREATE INDEX IF NOT EXISTS idx_cases_exception_type ON cases(exception_type);
+CREATE INDEX IF NOT EXISTS idx_cases_sla_hours ON cases(sla_hours);
 
 -- 4. Investigator Expenses (Vouchers, Salary Advances, Bonuses)
 CREATE TABLE investigator_expenses (

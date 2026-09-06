@@ -118,6 +118,7 @@ window.injectCustomHeadersIntoTable = function() {
     window.CUSTOM_FIELDS.forEach(cf => {
         const th = document.createElement('th');
         th.className = 'dynamic-th';
+        th.setAttribute('data-col', 'custom_' + cf.id);
         th.textContent = cf.name;
         if (targetTh) {
             theadTr.insertBefore(th, targetTh);
@@ -125,6 +126,9 @@ window.injectCustomHeadersIntoTable = function() {
             theadTr.appendChild(th);
         }
     });
+    if (typeof window.applyCasesColumnOrderToDOM === 'function') {
+        window.applyCasesColumnOrderToDOM();
+    }
 }
 
 // Override parseCsvRows dynamic injection mapping

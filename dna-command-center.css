@@ -580,3 +580,333 @@ body.dark-mode .inv360-edit-field select {
 }
 #cases-tbody tr { cursor: pointer; }
 #doc-list-tbody tr { cursor: pointer; }
+
+/* Column Drag and Drop (All Cases Table) */
+#cases-table th[draggable="true"] {
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+}
+#cases-table th[draggable="true"]:active {
+  cursor: grabbing;
+}
+#cases-table th.th-dragging {
+  opacity: 0.45;
+  background: var(--navy, #0D2B46) !important;
+  color: #ffffff !important;
+}
+#cases-table th.drop-target-left {
+  box-shadow: inset 4px 0 0 0 #C79A3B, 0 0 8px rgba(199, 154, 59, 0.45) !important;
+  background: rgba(199, 154, 59, 0.12) !important;
+}
+#cases-table th.drop-target-right {
+  box-shadow: inset -4px 0 0 0 #C79A3B, 0 0 8px rgba(199, 154, 59, 0.45) !important;
+  background: rgba(199, 154, 59, 0.12) !important;
+}
+body.dark-mode #cases-table th.drop-target-left {
+  box-shadow: inset 4px 0 0 0 #E2B961, 0 0 8px rgba(226, 185, 97, 0.45) !important;
+  background: rgba(226, 185, 97, 0.15) !important;
+}
+body.dark-mode #cases-table th.drop-target-right {
+  box-shadow: inset -4px 0 0 0 #E2B961, 0 0 8px rgba(226, 185, 97, 0.45) !important;
+  background: rgba(226, 185, 97, 0.15) !important;
+}
+
+/* ============================================================
+   SETTINGS VIEW / CONTROL CENTER RESTRUCTURE
+   ============================================================ */
+.settings-hub-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.03);
+}
+
+.settings-hub-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-hub-title h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--navy);
+  letter-spacing: -0.2px;
+}
+
+.settings-hub-title .sub {
+  font-size: 11.5px;
+  color: var(--sub);
+  margin-top: 2px;
+}
+
+.settings-search-box {
+  position: relative;
+  min-width: 260px;
+  max-width: 380px;
+  flex: 1;
+}
+
+.settings-search-box input {
+  width: 100%;
+  padding: 8px 32px 8px 12px;
+  font-size: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.settings-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--sub);
+  cursor: pointer;
+  font-size: 14px;
+  display: none;
+}
+
+.settings-subtabs-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--sub);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.settings-subtab:hover {
+  border-color: var(--navy);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--navy) 4%, var(--card));
+}
+
+.settings-subtab.active {
+  background: var(--navy);
+  color: #fff;
+  border-color: var(--navy);
+  box-shadow: 0 4px 12px rgba(7, 24, 37, 0.18);
+}
+
+body.dark-mode .settings-subtab.active {
+  background: linear-gradient(135deg, #126b98, #1b91c4);
+  border-color: transparent;
+}
+
+.settings-section-card {
+  margin-bottom: 24px;
+}
+
+.settings-category-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.settings-category-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--navy);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.settings-category-header .badge-count {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--navy2);
+  color: #fff;
+}
+
+.settings-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.settings-three-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 960px) {
+  .settings-two-col, .settings-three-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   SMART CASE FORM MODAL TABS, SEARCH & FIELD MANAGEMENT
+   ============================================================ */
+.caseform-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+
+.caseform-search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 360px;
+}
+
+.caseform-search-box input {
+  width: 100%;
+  padding: 6px 28px 6px 10px;
+  font-size: 11.5px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.caseform-search-box input:focus {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 2px rgba(18, 107, 152, 0.15);
+}
+
+.caseform-subtabs-bar {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 18px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: thin;
+}
+
+.caseform-subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--sub);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.caseform-subtab:hover {
+  border-color: var(--navy);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--navy) 4%, var(--paper));
+}
+
+.caseform-subtab.active {
+  background: var(--navy);
+  color: #fff;
+  border-color: var(--navy);
+  box-shadow: 0 2px 6px rgba(7, 24, 37, 0.16);
+}
+
+body.dark-mode .caseform-subtab.active {
+  background: linear-gradient(135deg, #126b98, #1b91c4);
+  border-color: transparent;
+}
+
+.caseform-mini-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 7px 18px;
+  background: color-mix(in srgb, var(--navy) 4%, var(--paper));
+  border-bottom: 1px dashed var(--line);
+  font-size: 11px;
+}
+
+.caseform-mini-summary .mini-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.caseform-mini-summary .mini-val {
+  font-weight: 800;
+  font-family: var(--mono);
+}
+
+.caseform-section {
+  padding: 14px 18px;
+  animation: fadeIn 0.15s ease;
+}
+
+.caseform-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.caseform-section-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--navy);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.caseform-step-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+

@@ -35,6 +35,91 @@
     return isNaN(n) ? 0 : n;
   }
 
+  // Safe Multi-Format Date Parser (Handles ISO, DD-MM-YYYY, DD/MM/YYYY, MM/DD/YYYY, and Excel serial numbers)
+  function parseAnyDate(raw, referenceDate = null) {
+    if (!raw) return null;
+    if (raw instanceof Date && !isNaN(raw.getTime())) return raw.toISOString().slice(0, 10);
+
+    let s = String(raw).trim();
+    if (!s) return null;
+
+    // Excel Serial Date Numbers (e.g. 45540)
+    if (/^\d{5}(\.\d+)?$/.test(s)) {
+      const serial = parseFloat(s);
+      const utcDays = Math.floor(serial - 25569);
+      const utcValue = utcDays * 86400;
+      const dateInfo = new Date(utcValue * 1000);
+      if (!isNaN(dateInfo.getTime())) return dateInfo.toISOString().slice(0, 10);
+    }
+
+    // YYYY-MM-DD or YYYY/MM/DD
+    const ymd = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+    if (ymd) {
+      const y = ymd[1], m = ymd[2].padStart(2, '0'), d = ymd[3].padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    // DD-MM-YYYY or MM-DD-YYYY
+    const dmy = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);
+    if (dmy) {
+      let p1 = parseInt(dmy[1], 10);
+      let p2 = parseInt(dmy[2], 10);
+      const y = dmy[3];
+
+      let day = p1, month = p2;
+      if (p1 <= 12 && p2 > 12) {
+        // Must be MM-DD-YYYY
+        month = p1; day = p2;
+      } else if (p1 > 12 && p2 <= 12) {
+        // Must be DD-MM-YYYY
+        day = p1; month = p2;
+      } else if (referenceDate && p1 <= 12 && p2 <= 12) {
+        // Ambiguous date (e.g. 05/09 vs 09/05). Use reference allocation date to prevent impossible past dates
+        const refTime = new Date(referenceDate).getTime();
+        const candDDMM = new Date(`${y}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`).getTime();
+        const candMMDD = new Date(`${y}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`).getTime();
+
+        if (candDDMM >= refTime && candMMDD < refTime) {
+          day = p1; month = p2;
+        } else if (candMMDD >= refTime && candDDMM < refTime) {
+          month = p1; day = p2;
+        }
+      }
+      return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+
+    // String Date Parse Fallback (e.g. "04 Sep 2026")
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+    return null;
+  }
+
+  // Smart Exception Detector: Differentiates Investigation Findings from Case Exceptions
+  function detectExceptionType(rawVal, rawOutcome = '') {
+    const exStr = String(rawVal || '').trim().toLowerCase();
+    const outStr = String(rawOutcome || '').trim().toLowerCase();
+
+    // 1. Withdrawn / Cancelled (Takes immediate precedence)
+    if (/\b(withdrawn|withdraw|cancelled|canceled|dropped|recalled)\b/i.test(exStr) ||
+        /\b(withdrawn|withdraw|cancelled|canceled|dropped|recalled)\b/i.test(outStr)) {
+      return 'Withdrawn';
+    }
+
+    // 2. Rejected (Case level rejection by Insurance Company)
+    if (/\b(rejected|reject|repudiated\s+by\s+company|case\s+rejected)\b/i.test(exStr)) {
+      return 'Rejected';
+    }
+
+    // Only recognize in outcome if explicitly qualified as case rejection, not fraud finding
+    if (/\b(case\s+rejected|rejected\s+by\s+company|repudiated\s+by\s+company)\b/i.test(outStr)) {
+      return 'Rejected';
+    }
+
+    return null;
+  }
+
   // Extended Dictionary for Intelligent Excel Column Mapping
   const EXTENDED_COL_MAP = {
     company: ['company', 'company name', 'client', 'insurance company', 'insurer', 'co', 'co.'],
@@ -54,11 +139,14 @@
     received: ['received', 'payment received', 'amount received', 'received amount', 'amount paid', 'recv amt', 'recv amount', 'company payment'],
     invoice_no: ['invoice_no', 'invoice no', 'invoice no.', 'inv no', 'inv no.', 'invoice #', 'bill no', 'bill no.', 'invoice number'],
     invoice_amount: ['invoice_amount', 'invoice amount', 'invoice amt', 'inv amt', 'inv amount', 'billed', 'bill amount', 'billed amount', 'invoice value', 'bill amt'],
-    outcome: ['outcome', 'investigation outcome', 'investigation_outcome', 'case outcome', 'status outcome', 'finding', 'findings', 'decision', 'result', 'status_outcome'],
+    outcome: ['outcome', 'investigation outcome', 'investigation_outcome', 'case outcome', 'status outcome', 'finding', 'findings', 'decision', 'result', 'status_outcome', 'status'],
     fraud_reason: ['fraud_reason', 'fraud reason', 'fraud type', 'fraud trigger', 'fraud remarks', 'findings remarks', 'fraud details', 'discrepancy'],
     inv1_status: ['inv1_status', 'inv1 status', 'inv1 pay status', 'inv1 payment status'],
     inv2_status: ['inv2_status', 'inv2 status', 'inv2 pay status', 'inv2 payment status'],
-    remarks: ['remarks', 'remark', 'comment', 'comments', 'notes', 'narration', 'case remarks']
+    remarks: ['remarks', 'remark', 'comment', 'comments', 'notes', 'narration', 'case remarks'],
+    sla_hours: ['sla', 'sla hours', 'sla (hours)', 'sla_hours', 'sla_hrs', 'tat', 'tat hours', 'tat (hours)', 'tat target', 'turnaround', 'turnaround time'],
+    closed_date: ['closed date', 'closed_date', 'close date', 'case closed date', 'completed date', 'completed_date', 'completion date', 'completed_at', 'completed at', 'dispatch date', 'closure date', 'resolution date', 'withdrawal date', 'withdrawal_date', 'withdrawn date', 'withdrawn_date', 'cancellation date', 'cancellation_date', 'cancelled date', 'cancelled_date', 'drop date', 'dropped date'],
+    exception_type: ['exception', 'exception_type', 'exception type', 'case status', 'case_status', 'closure status', 'closure type', 'rejection status', 'cancellation status', 'exception_status', 'withdrawal status', 'withdrawal_status', 'drop status', 'exception reason']
   };
 
   /**
@@ -139,6 +227,7 @@
       let fee1 = 0, fee2 = 0, ta1 = 0, ta2 = 0, received = 0, invoice_amount = 0;
       let invoice_no = '', outcome = '', fraud_reason = '', inv1_status = '', inv2_status = '';
       let remarks = '';
+      let rawSlaHours = '', rawClosedDate = '', rawException = '';
 
       if (hasHeader) {
         const get = (f) => idx[f] >= 0 ? (r[idx[f]] || '').toString().trim() : '';
@@ -164,6 +253,9 @@
         inv1_status = get('inv1_status');
         inv2_status = get('inv2_status');
         remarks = get('remarks');
+        rawSlaHours = get('sla_hours');
+        rawClosedDate = get('closed_date');
+        rawException = get('exception_type');
       } else {
         // Positional fallback for standard un-headered template
         company = r[0] || '';
@@ -187,6 +279,9 @@
         remarks = r[20] || '';
         outcome = r[21] || '';
         invoice_amount = parseAmount(r[22]);
+        if (r[23]) rawSlaHours = r[23];
+        if (r[24]) rawClosedDate = r[24];
+        if (r[25]) rawException = r[25];
       }
 
       if (!claim_no && !invoice_no && !insured_name) {
@@ -207,13 +302,61 @@
         matchedExisting = dbByDocCode.get(cleanKey(claim_no));
       }
 
-      // Standardize Date
+      // 1. Standardize Allocation Date (Baseline for SLA)
       let useDate = date || (matchedExisting ? matchedExisting.date : new Date().toISOString().slice(0, 10));
-      const dm = useDate.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
-      if (dm) useDate = `${dm[3]}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}`;
+      const parsedAllocDate = parseAnyDate(useDate);
+      if (parsedAllocDate) useDate = parsedAllocDate;
+
+      // 2. SLA Hours & Dynamic Due Date Calculation
+      let sla_hours = parseAmount(rawSlaHours);
+      if (!sla_hours || sla_hours <= 0) {
+        sla_hours = matchedExisting && matchedExisting.sla_hours ? matchedExisting.sla_hours : 24;
+      }
+      let due_date = null;
+      if (useDate) {
+        const baseTime = new Date(useDate).getTime();
+        if (!isNaN(baseTime)) {
+          due_date = new Date(baseTime + (sla_hours * 3600000)).toISOString();
+        }
+      }
+
+      // 3. Case Closed Date (completed_at)
+      let completed_at = null;
+      if (rawClosedDate) {
+        const parsedClosed = parseAnyDate(rawClosedDate, useDate);
+        if (parsedClosed) {
+          completed_at = `${parsedClosed}T18:00:00.000Z`;
+        }
+      } else if (matchedExisting && matchedExisting.completed_at) {
+        completed_at = matchedExisting.completed_at;
+      }
+
+      // 4. Exception Detection (Rejected / Withdrawn)
+      const detectedException = detectExceptionType(rawException, outcome);
+      let exception_type = detectedException || (matchedExisting ? matchedExisting.exception_type : null);
+      let exception_reason = null;
+
+      if (exception_type === 'Withdrawn') {
+        exception_reason = 'Marked as Withdrawn via Sheet Import';
+        received = 0;
+        fee1 = 0;
+        fee2 = 0;
+        ta1 = 0;
+        ta2 = 0;
+        if (!invoice_no || invoice_no === '0') invoice_no = 'WITHDRAWN';
+        if (!completed_at && useDate) completed_at = `${useDate}T18:00:00.000Z`;
+      } else if (exception_type === 'Rejected') {
+        exception_reason = 'Marked as Rejected via Sheet Import';
+        received = 0;
+        if (!invoice_no || invoice_no === '0') invoice_no = 'REJECTED';
+        if (!completed_at && useDate) completed_at = `${useDate}T18:00:00.000Z`;
+      }
 
       // Standardize Outcome
-      const cleanOutcome = standardizeOutcome(outcome || (matchedExisting ? matchedExisting.outcome : 'Pending'));
+      let cleanOutcome = standardizeOutcome(outcome || (matchedExisting ? matchedExisting.outcome : 'Pending'));
+      if (cleanOutcome === 'Pending' && completed_at && !exception_type) {
+        cleanOutcome = 'Settled';
+      }
 
       // If fraud reason provided in remarks or dedicated column
       let combinedRemarks = remarks;
@@ -270,7 +413,12 @@
         fraud_reason: fraud_reason || '',
         inv1_status: inv1_status || (matchedExisting ? matchedExisting.inv1_status : ''),
         inv2_status: inv2_status || (matchedExisting ? matchedExisting.inv2_status : ''),
-        remarks: combinedRemarks || (matchedExisting ? matchedExisting.remarks : '')
+        remarks: combinedRemarks || (matchedExisting ? matchedExisting.remarks : ''),
+        sla_hours,
+        due_date,
+        completed_at,
+        exception_type,
+        exception_reason
       });
     }
 
@@ -405,6 +553,9 @@
       }
 
       checkField('Outcome', ex.outcome || 'Pending', r.outcome);
+      checkField('Closed Date', ex.completed_at ? ex.completed_at.slice(0, 10) : '', r.completed_at ? r.completed_at.slice(0, 10) : '');
+      checkField('Exception', ex.exception_type, r.exception_type);
+      checkField('SLA (Hours)', ex.sla_hours, r.sla_hours, true);
       checkField('Invoice No', ex.invoice_no, r.invoice_no);
       checkField('Invoice Amount', ex.invoice_amount, r.invoice_amount, true);
       checkField('Amount Received', ex.received, r.received, true);
@@ -415,6 +566,8 @@
 
       return diffs;
     }
+
+    const exceptionRows = rows.filter(r => !r.error && r.exception_type);
 
     let html = `
       <!-- Summary Kicker & KPI banner -->
@@ -435,6 +588,11 @@
           <div style="font-size:9.5px;text-transform:uppercase;color:#991b1b;font-weight:700;">⚡ Fraud Flagged</div>
           <div style="font-size:18px;font-weight:800;color:#b91c1c;margin-top:2px;">${outcomeCounts.Fraud}</div>
         </div>
+        ${exceptionRows.length > 0 ? `
+        <div style="background:rgba(220,38,38,0.12);border:1px solid #dc2626;border-radius:6px;padding:8px 12px;text-align:center;">
+          <div style="font-size:9.5px;text-transform:uppercase;color:#991b1b;font-weight:700;">🚫 Exceptions</div>
+          <div style="font-size:18px;font-weight:800;color:#b91c1c;margin-top:2px;">${exceptionRows.length}</div>
+        </div>` : ''}
         <div style="background:rgba(245,158,11,0.1);border:1px solid #f59e0b;border-radius:6px;padding:8px 12px;text-align:center;">
           <div style="font-size:9.5px;text-transform:uppercase;color:#92400e;font-weight:700;">Batch Dup / Skip</div>
           <div style="font-size:18px;font-weight:800;color:#b45309;margin-top:2px;">${errorRows.length + batchDupRows.length}</div>
@@ -444,7 +602,7 @@
       <!-- Merge Mode Options & Legend -->
       <div class="notice" style="background:#f0f7ff;border-left:3px solid #0052cc;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
         <div style="font-size:11.5px;color:#0747a6;">
-          <b>🔄 Smart Merge Active:</b> Live database matched. Blank fields are auto-filled. Original customer details remain safely protected without duplicate errors.
+          <b>🔄 Smart Merge Active:</b> Allocation date anchors SLA baseline. Closed dates automate resolution. Rejections and Withdrawn statuses safely sanitize billing.
         </div>
         <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--navy);cursor:pointer;">
           <input type="checkbox" id="smart-overwrite-toggle" onchange="window.reRenderSmartDiffPreview()">
@@ -453,10 +611,13 @@
       </div>
 
       <!-- Filter Tabs -->
-      <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
+      <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
         <button type="button" class="btn btn-sm btn-navy" id="tab-all-rows" onclick="window.filterSmartPreviewTab('all')">All Rows (${rows.length})</button>
         <button type="button" class="btn btn-sm btn-ghost" id="tab-merge-rows" onclick="window.filterSmartPreviewTab('merge')">🔄 Merged / Updated Only (${mergeRows.length})</button>
         <button type="button" class="btn btn-sm btn-ghost" id="tab-new-rows" onclick="window.filterSmartPreviewTab('new')">➕ New Cases Only (${newRows.length})</button>
+        ${exceptionRows.length > 0 ? `
+        <button type="button" class="btn btn-sm btn-ghost" id="tab-exception-rows" onclick="window.filterSmartPreviewTab('exception')" style="color:#dc2626;">🚫 Exceptions (${exceptionRows.length})</button>
+        ` : ''}
       </div>
     `;
 
@@ -495,7 +656,8 @@
               <th style="padding:8px 10px;">Action / Doc Code</th>
               <th style="padding:8px 10px;">Claim No</th>
               <th style="padding:8px 10px;">Insured & Company</th>
-              <th style="padding:8px 10px;">Outcome & Findings</th>
+              <th style="padding:8px 10px;">SLA / Closed Date</th>
+              <th style="padding:8px 10px;">Outcome & Exception</th>
               <th style="padding:8px 10px;">Billing & Invoice</th>
               <th style="padding:8px 10px;min-width:240px;">🔍 What Is Changing (Old ➔ New Diff)</th>
             </tr>
@@ -503,10 +665,11 @@
           <tbody>
             ${rows.slice(0, 300).map((r, rowIdx) => {
               if (r.error) {
-                return `<tr class="smart-row-error" style="background:var(--red-bg);"><td colspan="6" style="padding:8px 10px;">⚠️ <b>${r.error}</b> — <span class="mono">${(r.raw || '').slice(0, 80)}</span></td></tr>`;
+                return `<tr class="smart-row-error" style="background:var(--red-bg);"><td colspan="7" style="padding:8px 10px;">⚠️ <b>${r.error}</b> — <span class="mono">${(r.raw || '').slice(0, 80)}</span></td></tr>`;
               }
 
               const rowType = r.isMerge ? 'merge' : (r.isBatchDup ? 'dup' : 'new');
+              const exceptionClass = r.exception_type ? ' smart-row-exception' : '';
 
               let actionBadge = '<span class="badge paid" style="font-weight:700;">➕ NEW CASE</span>';
               if (r.isMerge) {
@@ -515,10 +678,29 @@
                 actionBadge = '<span class="badge overdue">BATCH DUP (SKIP)</span>';
               }
 
-              let outcomeBadge = `<span class="badge pending">${r.outcome || 'Pending'}</span>`;
-              if (r.outcome === 'Genuine') outcomeBadge = '<span class="badge" style="background:#dcfce7;color:#15803d;font-weight:700;">✓ Genuine</span>';
-              else if (r.outcome === 'Fraud') outcomeBadge = `<span class="badge" style="background:#fee2e2;color:#b91c1c;font-weight:700;" title="${r.remarks || ''}">⚡ FRAUD</span>`;
-              else if (r.outcome === 'Repudiated') outcomeBadge = '<span class="badge" style="background:#fef3c7;color:#b45309;font-weight:700;">✕ Repudiated</span>';
+              // SLA & Closure display
+              let slaHtml = `<div style="font-size:10px;color:var(--sub);">Alloc: <b>${r.date || '—'}</b></div>`;
+              if (r.completed_at) {
+                slaHtml += `<div style="margin-top:2px;"><span class="badge success" style="font-size:9px;font-weight:700;">CLOSED: ${r.completed_at.slice(0, 10)}</span></div>`;
+              } else {
+                slaHtml += `<div style="margin-top:2px;"><span class="badge na" style="font-size:9px;">SLA: ${r.sla_hours || 24}h</span> <span style="font-size:9.5px;color:var(--sub);">${r.due_date ? 'Due: ' + r.due_date.slice(0, 10) : ''}</span></div>`;
+              }
+
+              // Status / Exception badge
+              let statusBadge = `<span class="badge pending">${r.outcome || 'Pending'}</span>`;
+              if (r.exception_type === 'Withdrawn') {
+                statusBadge = `<span class="badge withdrawn" style="font-weight:700;background:#334155;color:#fff;">⚫ WITHDRAWN</span>
+                  <div style="font-size:9px;color:#64748b;font-weight:600;margin-top:2px;">(All Fees & Billing = ₹0)</div>`;
+              } else if (r.exception_type === 'Rejected') {
+                statusBadge = `<span class="badge danger" style="font-weight:700;">🔴 REJECTED</span>
+                  <div style="font-size:9px;color:#b91c1c;font-weight:600;margin-top:2px;">(Agency Payment = ₹0)</div>`;
+              } else if (r.outcome === 'Genuine') {
+                statusBadge = '<span class="badge" style="background:#dcfce7;color:#15803d;font-weight:700;">✓ Genuine</span>';
+              } else if (r.outcome === 'Fraud') {
+                statusBadge = `<span class="badge" style="background:#fee2e2;color:#b91c1c;font-weight:700;" title="${r.remarks || ''}">⚡ FRAUD</span>`;
+              } else if (r.outcome === 'Repudiated') {
+                statusBadge = '<span class="badge" style="background:#fef3c7;color:#b45309;font-weight:700;">✕ Repudiated</span>';
+              }
 
               // Generate Diff Card for this row
               const diffs = getRowDiffs(r, false);
@@ -549,11 +731,12 @@
               const displayDocCode = r.isMerge ? r.matchedDocCode : 'Auto';
 
               return `
-                <tr class="smart-row-${rowType}" style="border-bottom:1px solid var(--line);">
+                <tr class="smart-row-${rowType}${exceptionClass}" style="border-bottom:1px solid var(--line);">
                   <td style="padding:8px 10px;vertical-align:middle;">${actionBadge}<div class="mono" style="font-size:9.5px;color:var(--sub);margin-top:2px;">${displayDocCode}</div></td>
                   <td class="mono" style="padding:8px 10px;vertical-align:middle;font-weight:700;">${r.claim_no || '—'}</td>
                   <td style="padding:8px 10px;vertical-align:middle;"><b>${r.insured_name || '—'}</b><div style="font-size:10px;color:var(--sub);">${r.company || '—'}</div></td>
-                  <td style="padding:8px 10px;vertical-align:middle;">${outcomeBadge}${r.remarks ? `<div style="font-size:9.5px;color:#64748b;margin-top:2px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${r.remarks}">${r.remarks}</div>` : ''}</td>
+                  <td style="padding:8px 10px;vertical-align:middle;">${slaHtml}</td>
+                  <td style="padding:8px 10px;vertical-align:middle;">${statusBadge}${r.remarks ? `<div style="font-size:9.5px;color:#64748b;margin-top:2px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${r.remarks}">${r.remarks}</div>` : ''}</td>
                   <td style="padding:8px 10px;vertical-align:middle;">
                     <div style="font-weight:600;">${r.invoice_amount ? '₹' + Number(r.invoice_amount).toLocaleString('en-IN') : '—'}</div>
                     <div style="font-size:9.5px;color:var(--sub);">${r.invoice_no ? '#' + r.invoice_no : ''} ${r.received ? '(Recv: ₹' + Number(r.received).toLocaleString('en-IN') + ')' : ''}</div>
@@ -587,12 +770,12 @@
     if (previewModal) previewModal.classList.add('open');
   };
 
-  // Live filter tabs between All, Merge-only, and New-only
+  // Live filter tabs between All, Merge-only, New-only, and Exceptions
   window.filterSmartPreviewTab = function(tab) {
     const table = document.getElementById('smart-preview-table');
     if (!table) return;
 
-    ['all', 'merge', 'new'].forEach(t => {
+    ['all', 'merge', 'new', 'exception'].forEach(t => {
       const btn = document.getElementById(`tab-${t}-rows`);
       if (btn) {
         if (t === tab) {
@@ -606,6 +789,7 @@
     const mergeRows = table.querySelectorAll('.smart-row-merge');
     const newRows = table.querySelectorAll('.smart-row-new');
     const dupRows = table.querySelectorAll('.smart-row-dup');
+    const exceptionRows = table.querySelectorAll('.smart-row-exception');
 
     if (tab === 'all') {
       mergeRows.forEach(r => r.style.display = '');
@@ -619,6 +803,11 @@
       mergeRows.forEach(r => r.style.display = 'none');
       newRows.forEach(r => r.style.display = '');
       dupRows.forEach(r => r.style.display = 'none');
+    } else if (tab === 'exception') {
+      mergeRows.forEach(r => r.style.display = 'none');
+      newRows.forEach(r => r.style.display = 'none');
+      dupRows.forEach(r => r.style.display = 'none');
+      exceptionRows.forEach(r => r.style.display = '');
     }
   };
 
@@ -655,6 +844,9 @@
       }
 
       checkField('Outcome', ex.outcome || 'Pending', r.outcome);
+      checkField('Closed Date', ex.completed_at ? ex.completed_at.slice(0, 10) : '', r.completed_at ? r.completed_at.slice(0, 10) : '');
+      checkField('Exception', ex.exception_type, r.exception_type);
+      checkField('SLA (Hours)', ex.sla_hours, r.sla_hours, true);
       checkField('Invoice No', ex.invoice_no, r.invoice_no);
       checkField('Invoice Amount', ex.invoice_amount, r.invoice_amount, true);
       checkField('Amount Received', ex.received, r.received, true);
@@ -713,7 +905,41 @@
       else if (!ex.remarks.includes(mr.remarks)) payload.remarks = `${ex.remarks} | ${mr.remarks}`;
     }
 
-    const f1 = ex.fee1 || 0, f2 = ex.fee2 || 0, t1 = ex.ta1 || 0, t2 = ex.ta2 || 0;
+    if (mr.completed_at) {
+      if (overwrite || !ex.completed_at) payload.completed_at = mr.completed_at;
+    }
+
+    if (mr.exception_type) {
+      if (overwrite || !ex.exception_type) {
+        payload.exception_type = mr.exception_type;
+        payload.exception_reason = mr.exception_reason || 'Marked via Smart Import';
+        payload.exception_marked_at = new Date().toISOString();
+        payload.exception_marked_by = window.currentUser?.id || 'Import';
+        if (mr.exception_type === 'Withdrawn') {
+          payload.received = 0;
+          payload.fee1 = 0; payload.fee2 = 0; payload.ta1 = 0; payload.ta2 = 0;
+          payload.total_payable = 0;
+          payload.profit = 0;
+          payload.invoice_no = 'WITHDRAWN';
+        } else if (mr.exception_type === 'Rejected') {
+          payload.received = 0;
+          payload.profit = 0 - payable;
+          payload.invoice_no = 'REJECTED';
+        }
+      }
+    }
+
+    if (mr.sla_hours) {
+      if (overwrite || !ex.sla_hours) {
+        payload.sla_hours = mr.sla_hours;
+        if (mr.due_date) payload.due_date = mr.due_date;
+      }
+    }
+
+    const f1 = payload.fee1 !== undefined ? payload.fee1 : (ex.fee1 || 0);
+    const f2 = payload.fee2 !== undefined ? payload.fee2 : (ex.fee2 || 0);
+    const t1 = payload.ta1 !== undefined ? payload.ta1 : (ex.ta1 || 0);
+    const t2 = payload.ta2 !== undefined ? payload.ta2 : (ex.ta2 || 0);
     const payable = f1 + f2 + t1 + t2;
     const recv = payload.received !== undefined ? payload.received : (ex.received || 0);
     payload.total_payable = payable;
@@ -876,7 +1102,14 @@
             outcome: r.outcome || 'Pending',
             inv1_status: r.inv1_status,
             inv2_status: r.inv2_status,
-            remarks: r.remarks
+            remarks: r.remarks,
+            sla_hours: r.sla_hours || 24,
+            due_date: r.due_date || null,
+            completed_at: r.completed_at || null,
+            exception_type: r.exception_type || null,
+            exception_reason: r.exception_reason || null,
+            exception_marked_at: r.exception_type ? new Date().toISOString() : null,
+            exception_marked_by: r.exception_type ? (window.currentUser?.id || 'Import') : null
           });
 
           insertedDocCodes.push(doc_code);
