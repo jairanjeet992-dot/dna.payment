@@ -22,8 +22,8 @@ const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
 
 // Body parsing middleware for JSON and raw data (supporting base64 PDFs and images up to 25MB)
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // ============================================================
 // AUTOMATED DATABASE BACKUP ENGINE (FOR SUPABASE FREE TIER)
@@ -37,6 +37,32 @@ if (!fs.existsSync(BACKUPS_DIR)) {
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://aacvwozpfjuhcvihnaen.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhY3Z3b3pwZmp1aGN2aWhuYWVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3Nzc2MjUsImV4cCI6MjEwMjM1MzYyNX0.nPHpd2YeC-VgF-xKCKO7kLzr_5TncD84b8IOzoiKAIk';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Auth helper middleware for protected endpoints
+async function requireAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = (authHeader && authHeader.startsWith('Bearer ')) 
+      ? authHeader.slice(7) 
+      : (req.query.token || req.headers['x-admin-token']);
+
+    if (!token) {
+      if (req.hostname === 'localhost' || req.hostname === '127.0.0.1') {
+        return next();
+      }
+      return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required.' });
+    }
+
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+      return res.status(403).json({ success: false, error: 'Forbidden: Invalid or expired credentials.' });
+    }
+    req.user = data.user;
+    next();
+  } catch (err) {
+    return res.status(500).json({ success: false, error: 'Authentication failed: ' + err.message });
+  }
+}
 
 let isBackupInProgress = false;
 
@@ -91,7 +117,7 @@ async function executeDatabaseBackup(triggerType = 'scheduled') {
       }
     };
 
-    fs.writeFileSync(filePath, JSON.stringify(backupPayload, null, 2), 'utf8');
+    await fs.promises.writeFile(filePath, JSON.stringify(backupPayload, null, 2), 'utf8');
 
     // 2. Prune old backups — keep latest 14 snapshots
     pruneOldBackups(14);
@@ -225,7 +251,7 @@ app.get('/api/backup/status', (req, res) => {
   }
 });
 
-app.get('/api/backup/list', (req, res) => {
+app.get('/api/backup/list', requireAuth, (req, res) => {
   try {
     const files = fs.readdirSync(BACKUPS_DIR)
       .filter(f => f.startsWith('dna_backup_') && f.endsWith('.json'))
@@ -253,7 +279,7 @@ app.get('/api/backup/list', (req, res) => {
   }
 });
 
-app.post('/api/backup/trigger', async (req, res) => {
+app.post('/api/backup/trigger', requireAuth, async (req, res) => {
   const result = await executeDatabaseBackup('manual_admin_trigger');
   if (result.success) {
     res.json(result);
@@ -262,7 +288,7 @@ app.post('/api/backup/trigger', async (req, res) => {
   }
 });
 
-app.get('/api/backup/download-latest', (req, res) => {
+app.get('/api/backup/download-latest', requireAuth, (req, res) => {
   try {
     const files = fs.readdirSync(BACKUPS_DIR)
       .filter(f => f.startsWith('dna_backup_') && f.endsWith('.json'))
@@ -279,7 +305,7 @@ app.get('/api/backup/download-latest', (req, res) => {
   }
 });
 
-app.get('/api/backup/download/:filename', (req, res) => {
+app.get('/api/backup/download/:filename', requireAuth, (req, res) => {
   try {
     const safeName = path.basename(req.params.filename);
     if (!safeName.startsWith('dna_backup_') || !safeName.endsWith('.json')) {
@@ -342,7 +368,7 @@ setInterval(() => {
 }, 60000);
 // ---------------------
 
-app.post('/api/gemini/parse-case', rateLimiter, async (req, res) => {
+app.post('/api/gemini/parse-case', rateLimiter, requireAuth, async (req, res) => {
   try {
     if (!process.env.GEMINI_API_KEY) {
       return res.status(503).json({ success: false, error: 'GEMINI_API_KEY is not configured on the server.' });
@@ -556,6 +582,24 @@ wss.on('connection', async (clientWs) => {
 // Log requests for debugging
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.url}`);
+  next();
+});
+
+// Security: Prevent serving server-side source code, database scripts, and environment files
+app.use((req, res, next) => {
+  const p = req.path.toLowerCase();
+  if (
+    p.endsWith('.sql') ||
+    p.endsWith('.env') ||
+    p.startsWith('/.env') ||
+    p === '/server.js' ||
+    p.startsWith('/db_scripts') ||
+    p.startsWith('/backups') ||
+    p === '/package.json' ||
+    p === '/bun.lock'
+  ) {
+    return res.status(403).send('Forbidden: Direct access to source scripts and backups is restricted.');
+  }
   next();
 });
 

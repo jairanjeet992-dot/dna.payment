@@ -734,8 +734,7 @@ DROP TRIGGER IF EXISTS trg_guard_case_mutations ON public.cases;
 CREATE TRIGGER trg_guard_case_mutations BEFORE UPDATE OR DELETE ON public.cases FOR EACH ROW EXECUTE FUNCTION public.guard_case_mutations();
 REVOKE EXECUTE ON FUNCTION public.guard_case_mutations() FROM PUBLIC;
 
--- Atomic admin-only case restore. The delete and insert happen in one
--- function statement, so a failed insert rolls the delete back automatically.
+-- Admin-only case restore. Uses ON CONFLICT (doc_code) DO UPDATE to safely restore or sync all modern columns without losing financial or SLA fields.
 CREATE OR REPLACE FUNCTION public.restore_cases_backup(p_cases jsonb)
 RETURNS integer
 LANGUAGE plpgsql
@@ -751,22 +750,69 @@ BEGIN
     RAISE EXCEPTION 'Backup cases payload must be a JSON array';
   END IF;
 
-  DELETE FROM public.cases;
-
   INSERT INTO public.cases(
-    id,doc_code,date,company,case_type,claim_no,policy_no,insured_name,hospital,location,invoice_no,
-    inv1,inv2,fee1,fee2,ta1,ta2,received,inv1_status,inv2_status,hardcopy1_status,hardcopy2_status,
-    remarks,owner_id,created_by,created_at,updated_at
+    doc_code,date,company,case_type,claim_no,policy_no,insured_name,hospital,location,invoice_no,
+    invoice_amount,inv1,inv2,fee1,fee2,ta1,ta2,received,received_date,tds_deducted,
+    inv1_status,inv2_status,hardcopy1_status,hardcopy2_status,company_hardcopy_status,company_hardcopy_awb,
+    hardcopy_receive_date,company_dispatch_date,outcome,exception_type,exception_reason,
+    exception_at,exception_by,remarks,sla_hours,due_date,risk_level,completed_at,custom_data
   )
-  SELECT id,doc_code,date,company,case_type,claim_no,policy_no,insured_name,hospital,location,invoice_no,
-    inv1,inv2,fee1,fee2,ta1,ta2,received,inv1_status,inv2_status,hardcopy1_status,hardcopy2_status,
-    remarks,owner_id,created_by,created_at,updated_at
+  SELECT
+    doc_code,date,company,case_type,claim_no,policy_no,insured_name,hospital,location,invoice_no,
+    invoice_amount,inv1,inv2,fee1,fee2,ta1,ta2,received,received_date,COALESCE(tds_deducted, 0),
+    inv1_status,inv2_status,hardcopy1_status,hardcopy2_status,company_hardcopy_status,company_hardcopy_awb,
+    hardcopy_receive_date,company_dispatch_date,outcome,exception_type,exception_reason,
+    exception_at,exception_by,remarks,sla_hours,due_date,risk_level,completed_at,custom_data
   FROM jsonb_to_recordset(p_cases) AS x(
-    id uuid,doc_code text,date date,company text,case_type text,claim_no text,policy_no text,insured_name text,
-    hospital text,location text,invoice_no text,inv1 text,inv2 text,fee1 numeric,fee2 numeric,ta1 numeric,ta2 numeric,
-    received numeric,inv1_status text,inv2_status text,hardcopy1_status text,hardcopy2_status text,remarks text,
-    owner_id uuid,created_by uuid,created_at timestamptz,updated_at timestamptz
-  );
+    doc_code text,date date,company text,case_type text,claim_no text,policy_no text,insured_name text,
+    hospital text,location text,invoice_no text,invoice_amount numeric,inv1 text,inv2 text,
+    fee1 numeric,fee2 numeric,ta1 numeric,ta2 numeric,received numeric,received_date date,tds_deducted numeric,
+    inv1_status text,inv2_status text,hardcopy1_status text,hardcopy2_status text,
+    company_hardcopy_status text,company_hardcopy_awb text,hardcopy_receive_date date,
+    company_dispatch_date date,outcome text,exception_type text,exception_reason text,
+    exception_at timestamptz,exception_by text,remarks text,sla_hours integer,due_date timestamptz,
+    risk_level text,completed_at timestamptz,custom_data jsonb
+  )
+  ON CONFLICT (doc_code) DO UPDATE SET
+    date = EXCLUDED.date,
+    company = EXCLUDED.company,
+    case_type = EXCLUDED.case_type,
+    claim_no = EXCLUDED.claim_no,
+    policy_no = EXCLUDED.policy_no,
+    insured_name = EXCLUDED.insured_name,
+    hospital = EXCLUDED.hospital,
+    location = EXCLUDED.location,
+    invoice_no = EXCLUDED.invoice_no,
+    invoice_amount = EXCLUDED.invoice_amount,
+    inv1 = EXCLUDED.inv1,
+    inv2 = EXCLUDED.inv2,
+    fee1 = EXCLUDED.fee1,
+    fee2 = EXCLUDED.fee2,
+    ta1 = EXCLUDED.ta1,
+    ta2 = EXCLUDED.ta2,
+    received = EXCLUDED.received,
+    received_date = EXCLUDED.received_date,
+    tds_deducted = EXCLUDED.tds_deducted,
+    inv1_status = EXCLUDED.inv1_status,
+    inv2_status = EXCLUDED.inv2_status,
+    hardcopy1_status = EXCLUDED.hardcopy1_status,
+    hardcopy2_status = EXCLUDED.hardcopy2_status,
+    company_hardcopy_status = EXCLUDED.company_hardcopy_status,
+    company_hardcopy_awb = EXCLUDED.company_hardcopy_awb,
+    hardcopy_receive_date = EXCLUDED.hardcopy_receive_date,
+    company_dispatch_date = EXCLUDED.company_dispatch_date,
+    outcome = EXCLUDED.outcome,
+    exception_type = EXCLUDED.exception_type,
+    exception_reason = EXCLUDED.exception_reason,
+    exception_at = EXCLUDED.exception_at,
+    exception_by = EXCLUDED.exception_by,
+    remarks = EXCLUDED.remarks,
+    sla_hours = EXCLUDED.sla_hours,
+    due_date = EXCLUDED.due_date,
+    risk_level = EXCLUDED.risk_level,
+    completed_at = EXCLUDED.completed_at,
+    custom_data = EXCLUDED.custom_data,
+    updated_at = now();
 
   GET DIAGNOSTICS inserted_count = ROW_COUNT;
   RETURN inserted_count;

@@ -1,4 +1,20 @@
 // ============================================================
+// GLOBAL STRING ESCAPING UTILITIES
+// ============================================================
+function esc(v) {
+  if (v == null) return '';
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function escAttr(v) { return esc(v); }
+window.esc = esc;
+window.escAttr = escAttr;
+
+// ============================================================
 // SUPABASE CLIENT
 // ============================================================
 // Uses dynamic configuration from config.js
@@ -100,7 +116,10 @@ function refreshDynamicCompanies() {
 function generateMonths() {
   const arr = [];
   const codes = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-  for (let y = 2024; y <= 2030; y++) {
+  const curY = new Date().getFullYear();
+  const startYear = 2022;
+  const endYear = Math.max(2035, curY + 5);
+  for (let y = startYear; y <= endYear; y++) {
     for (let m = 1; m <= 12; m++) {
       arr.push({label: `${['January','February','March','April','May','June','July','August','September','October','November','December'][m-1]} ${y}`, m, y, code: codes[m-1]+String(y).slice(-2)});
     }
@@ -679,7 +698,7 @@ async function loadCasesFromDB() {
       let hasMore = true;
       let newlyLoaded = 0;
       
-      const MAX_CLIENT_RECORDS = 5000; // Hard cap to prevent browser OOM (Memory crash)
+      const MAX_CLIENT_RECORDS = 50000; // Scaled cap for high-volume agency operations
       while (hasMore && cases.length < MAX_CLIENT_RECORDS) {
         const { data: bgData, error: bgError } = await supabaseClient.from('cases')
           .select('*')
@@ -723,8 +742,16 @@ function parseDateComponents(dateStr) {
       m = parseInt(parts[1], 10);
     } else {
       // DD-MM-YYYY or MM-DD-YYYY
+      const p0 = parseInt(parts[0], 10);
+      const p1 = parseInt(parts[1], 10);
       y = parseInt(parts[2], 10);
-      m = parseInt(parts[1], 10);
+      if (p1 > 12 && p0 <= 12) {
+        // MM/DD/YYYY format (e.g. 03/25/2026 -> month=3, day=25)
+        m = p0;
+      } else {
+        // DD/MM/YYYY format (e.g. 25/03/2026 or standard)
+        m = p1;
+      }
     }
   } else {
     const d = new Date(dateStr);
@@ -3996,9 +4023,10 @@ async function triggerAIMandateAutoFill() {
       mimeType: selectedAICaseFile ? selectedAICaseFile.mimeType : null
     };
 
+    const authHeaders = (typeof getAuthHeaders === 'function') ? await getAuthHeaders() : {};
     const res = await fetch('/api/gemini/parse-case', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload)
     });
 
@@ -4972,6 +5000,9 @@ async function confirmRenameInvestigator() {
       const { error } = await supabaseClient.from('cases').update({inv2: newName}).in('doc_code', affectedDocCodes2);
       if (error) throw error;
     }
+    // Cascade rename to investigator expenses and payouts
+    await supabaseClient.from('investigator_expenses').update({investigator_name: newName}).eq('investigator_name', oldName);
+    await supabaseClient.from('investigator_payouts').update({investigator_name: newName}).eq('investigator_name', oldName);
   } catch (err) {
     showToast('Rename failed: ' + err.message, true);
     return;
@@ -5035,6 +5066,9 @@ async function confirmMergeInvestigator() {
       const { error } = await supabaseClient.from('cases').update({inv2: targetName}).in('doc_code', affectedDocCodes2);
       if (error) throw error;
     }
+    // Cascade merge vouchers and payouts
+    await supabaseClient.from('investigator_expenses').update({investigator_name: targetName}).eq('investigator_name', sourceName);
+    await supabaseClient.from('investigator_payouts').update({investigator_name: targetName}).eq('investigator_name', sourceName);
   } catch (err) {
     showToast('Merge failed: ' + err.message, true);
     return;
@@ -5888,8 +5922,8 @@ async function commitImportPreview() {
         completed_at: r.completed_at || null,
         exception_type: r.exception_type || null,
         exception_reason: r.exception_reason || null,
-        exception_marked_at: r.exception_type ? new Date().toISOString() : null,
-        exception_marked_by: r.exception_type ? (window.currentUser?.id || 'Import') : null
+        exception_at: r.exception_type ? new Date().toISOString() : null,
+        exception_by: r.exception_type ? (window.currentUser?.id || 'Import') : null
       });
       [inv1, inv2].forEach(n => {
         if (n && n!=='NA' && !getAllInvestigators().some(x=>x.toLowerCase()===n.toLowerCase())) genuinelyNew.add(n);
@@ -6933,7 +6967,11 @@ async function loadSettingsFromDB() {
   refreshDynamicCompanies();
   if (typeof renderSettingsLists === 'function') renderSettingsLists();
   
-  if (data.custom_fields_config && Array.isArray(data.custom_fields_config)) window.CUSTOM_FIELDS = data.custom_fields_config;
+  if (data.custom_fields_config && Array.isArray(data.custom_fields_config)) {
+    window.CUSTOM_FIELDS = data.custom_fields_config;
+  } else if (data.field_permissions && Array.isArray(data.field_permissions.custom_fields_config)) {
+    window.CUSTOM_FIELDS = data.field_permissions.custom_fields_config;
+  }
   if (typeof window.renderCustomFieldsSettings === 'function') window.renderCustomFieldsSettings();
   if (typeof window.injectCustomHeadersIntoTable === 'function') window.injectCustomHeadersIntoTable();
   if (typeof window.injectCustomFieldsIntoForm === 'function') window.injectCustomFieldsIntoForm();
@@ -7417,11 +7455,30 @@ async function restoreBackup(e) {
 // ============================================================
 // AUTOMATED SERVER BACKUPS (SUPABASE FREE TIER SAFETY)
 // ============================================================
+async function getAuthHeaders() {
+  try {
+    const session = (await supabaseClient?.auth?.getSession())?.data?.session;
+    return session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+async function getAuthTokenParam() {
+  try {
+    const session = (await supabaseClient?.auth?.getSession())?.data?.session;
+    return session?.access_token ? `?token=${encodeURIComponent(session.access_token)}` : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 async function refreshBackupStatus() {
   const detailsEl = document.getElementById('auto-backup-details');
   if (!detailsEl) return;
   try {
-    const res = await fetch('/api/backup/status');
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch('/api/backup/status', { headers: authHeaders });
     const data = await res.json();
     if (data.success && data.latest) {
       const dt = new Date(data.latest.timestamp);
@@ -7448,7 +7505,8 @@ async function triggerManualServerBackup() {
   if (btn) { btn.disabled = true; btn.textContent = 'Capturing Snapshot…'; }
   showToast('Connecting to Supabase to capture database snapshot…');
   try {
-    const res = await fetch('/api/backup/trigger', { method: 'POST' });
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch('/api/backup/trigger', { method: 'POST', headers: authHeaders });
     const data = await res.json();
     if (data.success) {
       showToast(`✓ Server Snapshot created! (${data.stats ? (data.stats.totalCases || 0) : 0} cases saved)`);
@@ -7466,8 +7524,9 @@ async function triggerManualServerBackup() {
   }
 }
 
-function downloadLatestServerBackup() {
-  window.location.href = '/api/backup/download-latest';
+async function downloadLatestServerBackup() {
+  const tokenParam = await getAuthTokenParam();
+  window.location.href = `/api/backup/download-latest${tokenParam}`;
   showToast('Downloading latest server snapshot…');
 }
 
@@ -7481,7 +7540,9 @@ async function renderServerBackupsTable() {
   if (!tbody) return;
   tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:16px; color:var(--sub);">Loading snapshots list…</td></tr>`;
   try {
-    const res = await fetch('/api/backup/list');
+    const authHeaders = await getAuthHeaders();
+    const tokenParam = await getAuthTokenParam();
+    const res = await fetch('/api/backup/list', { headers: authHeaders });
     const data = await res.json();
     if (!data.success || !data.backups || data.backups.length === 0) {
       tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:16px; color:var(--sub);">No snapshots available yet.</td></tr>`;
@@ -7497,7 +7558,7 @@ async function renderServerBackupsTable() {
           <td style="text-align:right; font-weight:700; color:var(--navy);">${b.recordCount}</td>
           <td style="text-align:right; color:var(--sub);">${b.sizeFormatted}</td>
           <td style="text-align:center;">
-            <a href="/api/backup/download/${encodeURIComponent(b.filename)}" class="btn btn-ghost btn-sm" style="padding:3px 8px; font-size:11px;" download>📥 Download</a>
+            <a href="/api/backup/download/${encodeURIComponent(b.filename)}${tokenParam}" class="btn btn-ghost btn-sm" style="padding:3px 8px; font-size:11px;" download>📥 Download</a>
           </td>
         </tr>
       `;
@@ -7738,10 +7799,17 @@ function subscribeToCasesRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'cases' }, () => {
       clearTimeout(realtimeReloadTimer);
       realtimeReloadTimer = setTimeout(async () => {
+        if (window.__dnaRealtimeSyncActive) {
+          // In-memory update and debounced render already handled by realtime-sync.js
+          return;
+        }
+        const activeModal = document.querySelector('.modal.open');
+        const isEditing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT' || document.activeElement.tagName === 'TEXTAREA');
+        if (activeModal || isEditing) return;
         await loadCasesFromDB();
         renderAll();
         if (typeof checkOverdueAlerts === 'function') checkOverdueAlerts();
-      }, 400);
+      }, 500);
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'investigators' }, () => {
       clearTimeout(realtimeSecondaryTimer);
@@ -7773,7 +7841,7 @@ function subscribeToCasesRealtime() {
 }
 
 function fmt(n) { if (!n) return '0'; return Number(n).toLocaleString('en-IN'); }
-function escAttr(v) { return String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;'); }
+function escAttr(v) { return esc(v); }
 // saveData() historically persisted `cases` to localStorage. That's now
 // handled per-mutation by insertCaseDB/updateCaseDB/deleteCaseDB writing
 // straight to Supabase, so this is kept only for the backup-reminder timer

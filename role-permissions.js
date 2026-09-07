@@ -30,7 +30,7 @@ function applyRole(){
 
   
 }
-async function loadCurrentUserRole(user){window.isCurrentUserAdmin=false;window.currentUserRole=null;window.rolePermissionsReady=false;applyRole();if(!user){window.rolePermissionsReady=true;applyRole();return}try{if(user.email==='jairanjeet992@gmail.com'||user.email==='admin@example.com'){ window.currentUserRole='admin';window.isCurrentUserAdmin=true;window.rolePermissionsReady=true;applyRole();await ensureInvestigator360(); try{ if(getClient()) { await getClient().from('user_roles').upsert([{user_id: user.id, role: 'admin'}]); } }catch(e){} return; }const c=getClient();if(!c)throw Error('Supabase client unavailable');
+async function loadCurrentUserRole(user){window.isCurrentUserAdmin=false;window.currentUserRole=null;window.rolePermissionsReady=false;applyRole();if(!user){window.rolePermissionsReady=true;applyRole();return}try{if(user.email==='jairanjeet992@gmail.com'){ window.currentUserRole='admin';window.isCurrentUserAdmin=true;window.rolePermissionsReady=true;applyRole();await ensureInvestigator360(); try{ if(getClient()) { await getClient().from('user_roles').upsert([{user_id: user.id, role: 'admin'}]); } }catch(e){} return; }const c=getClient();if(!c)throw Error('Supabase client unavailable');
   let dbRole = 'staff';
   try {
     const {data: urData} = await c.from('user_roles').select('role').eq('user_id', user.id).maybeSingle();
@@ -57,8 +57,15 @@ async function restoreBackupLive(e){
     if(!data||!Array.isArray(data.cases))throw new Error('Backup file is missing a valid cases array.');
     const docs=new Set(),claims=new Set();
     for(const c of data.cases){if(!c?.doc_code||!c?.claim_no||!c?.company)throw new Error('Every backup case must contain doc_code, company and claim_no.');if(docs.has(c.doc_code))throw new Error(`Duplicate document code in backup: ${c.doc_code}`);docs.add(c.doc_code);const key=String(c.company).trim().toUpperCase()+'|'+String(c.claim_no).trim();if(claims.has(key))throw new Error(`Duplicate company + claim in backup: ${c.company} / ${c.claim_no}`);claims.add(key)}
-    if(!confirm(`This will replace all ${cases.length} current case(s) with ${data.cases.length} case(s) from this backup. The database replacement is atomic. Continue?`)){e.target.value='';return}
-    const {data:restored,error}=await supabaseClient.rpc('restore_cases_backup',{p_cases:data.cases});if(error)throw error;
+    if(!confirm(`This will restore ${data.cases.length} case(s) from this backup into the database without losing modern financial or SLA fields. Continue?`)){e.target.value='';return}
+    const validCols=['doc_code','date','company','case_type','claim_no','policy_no','insured_name','hospital','location','invoice_no','invoice_amount','inv1','inv2','fee1','fee2','ta1','ta2','received','received_date','tds_deducted','inv1_status','inv2_status','hardcopy1_status','hardcopy2_status','company_hardcopy_status','company_hardcopy_awb','hardcopy_receive_date','company_dispatch_date','outcome','exception_type','exception_reason','exception_at','exception_by','total_payable','profit','closed_date','remarks','sla_hours','due_date','risk_level','completed_at','custom_data'];
+    const cleanRows=data.cases.map(c=>{const row={};validCols.forEach(col=>{if(c[col]!==undefined&&c[col]!==null)row[col]=c[col]});row.doc_code=c.doc_code;row.claim_no=c.claim_no;row.company=c.company;return row});
+    const CHUNK=50;
+    for(let i=0;i<cleanRows.length;i+=CHUNK){
+      const chunk=cleanRows.slice(i,i+CHUNK);
+      const {error:upErr}=await supabaseClient.from('cases').upsert(chunk,{onConflict:'doc_code'});
+      if(upErr)throw upErr;
+    }
     if(data.settings){const s=data.settings;const {error:setErr}=await supabaseClient.from('agency_settings').update({agency_name:s.agencyName||'DNA Professional Investigation Agency',agency_address:s.agencyAddress||'',logo:s.logo||null}).eq('id','1');if(setErr)throw setErr}
     if(Array.isArray(data.investigators)&&data.investigators.length){const rows=data.investigators.map(inv=>({name:inv.name,phone:inv.phone||null,email:inv.email||null,address:inv.address||null,is_base:!!inv.is_base,removed:!!inv.removed,city:inv.city||null,state:inv.state||null,availability:inv.availability||'available',designation:inv.designation||null,alternate_phone:inv.alternate_phone||null,employee_id:inv.employee_id||null,office_branch:inv.office_branch||null,pincode:inv.pincode||null,joining_date:inv.joining_date||null,experience_years:inv.experience_years||null,max_active_cases:inv.max_active_cases||10,payment_rate:inv.payment_rate||null,payment_rate_type:inv.payment_rate_type||null,specialization:inv.specialization||null,emergency_contact_name:inv.emergency_contact_name||null,emergency_contact_phone:inv.emergency_contact_phone||null}));const {error:invErr}=await supabaseClient.from('investigators').upsert(rows,{onConflict:'name'});if(invErr)throw invErr}
     await loadCasesFromDB();await loadInvestigatorsFromDB();await loadSettingsFromDB();refreshInvestigatorDropdowns();applySettingsToForm();renderAll();toast(`Backup restored successfully: ${restored??data.cases.length} case(s).`);

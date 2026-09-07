@@ -50,7 +50,22 @@ ready(()=>{
     const exception_by = existingCase ? existingCase.exception_by : null;
     const risk_level = existingCase ? existingCase.risk_level : null;
     const completed_at = existingCase ? existingCase.completed_at : null;
-    const fields={company,date,case_type:$('f-casetype')?.value||'',claim_no:claim,policy_no:$('f-policy')?.value||'',insured_name:insured,hospital:$('f-hospital')?.value||'',location:$('f-location')?.value||'',inv1,inv2:$('f-inv2')?.value||'',fee1:parseFloat($('f-fee1')?.value)||0,fee2:parseFloat($('f-fee2')?.value)||0,ta1:parseFloat($('f-ta1')?.value)||0,ta2:parseFloat($('f-ta2')?.value)||0,received:parseFloat($('f-received')?.value)||0,invoice_no:$('f-invoice')?.value||'',invoice_amount:parseFloat($('f-invoice-amount')?.value)||null,inv1_status:$('f-inv1status')?.value||'',inv2_status:$('f-inv2status')?.value||'',hardcopy1_status:$('f-hardcopy1status')?.value||'',hardcopy2_status:$('f-hardcopy2status')?.value||'',outcome,sla_hours,due_date,exception_type,exception_reason,exception_at,exception_by,risk_level,completed_at,remarks:$('f-remarks')?.value||''};
+    const tds_deducted = Math.max(0, parseFloat($('f-tds')?.value) || 0);
+    const company_hardcopy_status = $('f-companyhardcopy') ? $('f-companyhardcopy').value : 'Pending';
+    const company_hardcopy_awb = $('f-companyawb') ? $('f-companyawb').value : '';
+    let custom_data = null;
+    if (typeof window.extractCustomFieldValuesFromForm === 'function') {
+      custom_data = window.extractCustomFieldValuesFromForm();
+    }
+    const transferReason = $('f-transfer-reason')?.value?.trim() || '';
+    if (editing && existingCase && (inv1 !== existingCase.inv1 || (($('f-inv2')?.value || '') !== (existingCase.inv2 || '')))) {
+      if (!transferReason) {
+        toast('Please provide a reason for ownership transfer.', true);
+        $('f-transfer-reason')?.focus();
+        return;
+      }
+    }
+    const fields={company,date,case_type:$('f-casetype')?.value||'',claim_no:claim,policy_no:$('f-policy')?.value||'',insured_name:insured,hospital:$('f-hospital')?.value||'',location:$('f-location')?.value||'',inv1,inv2:$('f-inv2')?.value||'',fee1:parseFloat($('f-fee1')?.value)||0,fee2:parseFloat($('f-fee2')?.value)||0,ta1:parseFloat($('f-ta1')?.value)||0,ta2:parseFloat($('f-ta2')?.value)||0,received:parseFloat($('f-received')?.value)||0,tds_deducted,invoice_no:$('f-invoice')?.value||'',invoice_amount:parseFloat($('f-invoice-amount')?.value)||null,inv1_status:$('f-inv1status')?.value||'',inv2_status:$('f-inv2status')?.value||'',hardcopy1_status:$('f-hardcopy1status')?.value||'',hardcopy2_status:$('f-hardcopy2status')?.value||'',company_hardcopy_status,company_hardcopy_awb,outcome,sla_hours,due_date,exception_type,exception_reason,exception_at,exception_by,risk_level,completed_at,remarks:$('f-remarks')?.value||'',custom_data};
     const btn=document.querySelector('#case-modal .modal-foot .btn-navy');if(btn){btn.disabled=true;btn.textContent='Saving…'}
     try{if(editing)await updateCaseDB(editing,fields);else{const doc=await genDocCodeDB(date);if(!doc)throw new Error('Document code generation returned empty.');await insertCaseDB({doc_code:doc,...fields});}await loadCasesFromDB();closeModal?.('case-modal');window.__dnaEditingDocCode=null;renderAll?.();checkOverdueAlerts?.();toast(editing?'Case updated.':'Case added.')}catch(err){toast(err?.code==='23505'?'Duplicate Claim No for this company already exists.':'Save failed: '+(err?.message||err),true)}finally{if(btn){btn.disabled=false;btn.textContent='Save Case'}}
   };

@@ -22,7 +22,8 @@ if (window.supabaseClient) {
           fee2: Number(row.fee2 || 0), 
           ta1: Number(row.ta1 || 0), 
           ta2: Number(row.ta2 || 0), 
-          received: Number(row.received || 0)
+          received: Number(row.received || 0),
+          tds_deducted: Number(row.tds_deducted || 0)
         });
 
         if (payload.eventType === 'INSERT' && payload.new) {
@@ -55,16 +56,22 @@ if (window.supabaseClient) {
         
         window.cases = targetCases;
         if (typeof cases !== 'undefined') cases = targetCases;
+        window.__dnaRealtimeSyncActive = true;
         
         // Debounced UI render: prevents browser freezing on rapid bulk updates
         if (typeof window.__realtimeRenderDebounceTimer !== 'undefined') {
           clearTimeout(window.__realtimeRenderDebounceTimer);
         }
         window.__realtimeRenderDebounceTimer = setTimeout(() => {
+          const activeModal = document.querySelector('.modal.open');
+          const isTyping = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT' || document.activeElement.tagName === 'TEXTAREA');
+          if (activeModal || isTyping) {
+            return;
+          }
           if (typeof window.renderAll === 'function') {
             window.renderAll();
           }
-        }, 200);
+        }, 300);
       }
     )
     .subscribe((status) => {

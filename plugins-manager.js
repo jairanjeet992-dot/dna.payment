@@ -99,18 +99,16 @@ document.addEventListener('DOMContentLoaded', () => {
     body.plugin-compact .badge { padding: 1px 4px !important; font-size: 9px !important; }
     
     /* Screenshare Privacy Blur Plugin */
-    /* Blurs specific columns in the Cases table: Insured Name, Phone, Account No */
+    /* Blurs sensitive columns in Cases table: Insured Name, Claim No, Hospital */
     body.plugin-privacy #cases-tbody tr td[data-col="insured_name"],
-    body.plugin-privacy #cases-tbody tr td:nth-child(7),
-    body.plugin-privacy #cases-tbody tr td:nth-child(10),
-    body.plugin-privacy #cases-tbody tr td:nth-child(14) {
+    body.plugin-privacy #cases-tbody tr td[data-col="claim_no"],
+    body.plugin-privacy #cases-tbody tr td[data-col="hospital"] {
       filter: blur(5px);
       transition: filter 0.2s;
     }
     body.plugin-privacy #cases-tbody tr td[data-col="insured_name"]:hover,
-    body.plugin-privacy #cases-tbody tr td:nth-child(7):hover,
-    body.plugin-privacy #cases-tbody tr td:nth-child(10):hover,
-    body.plugin-privacy #cases-tbody tr td:nth-child(14):hover {
+    body.plugin-privacy #cases-tbody tr td[data-col="claim_no"]:hover,
+    body.plugin-privacy #cases-tbody tr td[data-col="hospital"]:hover {
       filter: blur(0px); /* Reveal on hover */
     }
     

@@ -46,18 +46,33 @@ window.removeCustomField = async function(id) {
 
 window.saveCustomFieldsConfig = async function() {
     if (typeof window.supabaseClient === 'undefined') return;
-    const { error } = await window.supabaseClient.from('agency_settings').update({
-        custom_fields_config: window.CUSTOM_FIELDS
-    }).eq('id', 1);
-    
-    if (error) {
-        if(window.showToast) window.showToast('Failed to save custom fields: ' + error.message, true);
-    } else {
+    let saved = false;
+    try {
+        const { error } = await window.supabaseClient.from('agency_settings').update({
+            custom_fields_config: window.CUSTOM_FIELDS
+        }).eq('id', 1);
+        if (!error) saved = true;
+    } catch (e) {}
+
+    // Fallback or dual-storage in field_permissions ensures persistence even if column cache is stale
+    try {
+        const { data: currentSettings } = await window.supabaseClient.from('agency_settings').select('field_permissions').eq('id', 1).maybeSingle();
+        const fp = (currentSettings && currentSettings.field_permissions) || {};
+        fp.custom_fields_config = window.CUSTOM_FIELDS;
+        const { error: fpErr } = await window.supabaseClient.from('agency_settings').update({
+            field_permissions: fp
+        }).eq('id', 1);
+        if (!fpErr) saved = true;
+    } catch (e) {}
+
+    if (saved) {
         if(window.showToast) window.showToast('Custom fields updated');
         window.renderCustomFieldsSettings();
         window.injectCustomHeadersIntoTable();
         window.injectCustomFieldsIntoForm();
         if (typeof window.renderAll === 'function') window.renderAll();
+    } else {
+        if(window.showToast) window.showToast('Failed to save custom fields to database.', true);
     }
 }
 

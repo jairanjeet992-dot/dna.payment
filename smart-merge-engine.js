@@ -1108,8 +1108,8 @@
             completed_at: r.completed_at || null,
             exception_type: r.exception_type || null,
             exception_reason: r.exception_reason || null,
-            exception_marked_at: r.exception_type ? new Date().toISOString() : null,
-            exception_marked_by: r.exception_type ? (window.currentUser?.id || 'Import') : null
+            exception_at: r.exception_type ? new Date().toISOString() : null,
+            exception_by: r.exception_type ? (window.currentUser?.id || 'Import') : null
           });
 
           insertedDocCodes.push(doc_code);
