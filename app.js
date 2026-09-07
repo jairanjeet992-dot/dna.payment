@@ -7983,37 +7983,45 @@ window.initGoogleDriveOnLoad = function() {
 let currentDocTab = 'receive';
 
 function openBulkDocManager() {
-  if (!window.isCurrentUserAdmin) {
-    showToast('Only admins can bulk-manage documents', true);
-    return;
-  }
-  
   // Populate Investigator Dropdown with 'ALL' as default
   const invSelect = document.getElementById('bulkdoc-receive-inv');
-  invSelect.innerHTML = '<option value="ALL">★ All Investigators (Pending Hard Copies)</option>' + 
-    INVESTIGATORS.map(n => `<option value="${escAttr(n)}">${escAttr(n)}</option>`).join('');
-  invSelect.value = 'ALL';
+  if (invSelect) {
+    const invList = (typeof INVESTIGATORS !== 'undefined' && Array.isArray(INVESTIGATORS)) ? INVESTIGATORS : [];
+    invSelect.innerHTML = '<option value="ALL">★ All Investigators (Pending Hard Copies)</option>' + 
+      invList.map(n => `<option value="${escAttr(n)}">${escAttr(n)}</option>`).join('');
+    invSelect.value = 'ALL';
+  }
     
   // Populate Company Dropdown with 'ALL' as default
   const coSelect = document.getElementById('bulkdoc-dispatch-co');
-  coSelect.innerHTML = '<option value="ALL">★ All Companies (Pending Dispatch)</option>' + 
-    COMPANIES.map(c => `<option value="${escAttr(c)}">${escAttr(c)}</option>`).join('');
-  coSelect.value = 'ALL';
+  if (coSelect) {
+    const coList = (typeof COMPANIES !== 'undefined' && Array.isArray(COMPANIES)) ? COMPANIES : [];
+    coSelect.innerHTML = '<option value="ALL">★ All Companies (Pending Dispatch)</option>' + 
+      coList.map(c => `<option value="${escAttr(c)}">${escAttr(c)}</option>`).join('');
+    coSelect.value = 'ALL';
+  }
 
-  document.getElementById('bulkdoc-dispatch-awb').value = '';
-  document.getElementById('bulkdoc-receive-paste').value = '';
-  document.getElementById('bulkdoc-dispatch-paste').value = '';
+  const awbEl = document.getElementById('bulkdoc-dispatch-awb');
+  if (awbEl) awbEl.value = '';
+  const recPasteEl = document.getElementById('bulkdoc-receive-paste');
+  if (recPasteEl) recPasteEl.value = '';
+  const dispPasteEl = document.getElementById('bulkdoc-dispatch-paste');
+  if (dispPasteEl) dispPasteEl.value = '';
   
   const today = new Date().toISOString().split('T')[0];
-  document.getElementById('bulkdoc-receive-date').value = today;
-  document.getElementById('bulkdoc-dispatch-date').value = today;
+  const recDateEl = document.getElementById('bulkdoc-receive-date');
+  if (recDateEl) recDateEl.value = today;
+  const dispDateEl = document.getElementById('bulkdoc-dispatch-date');
+  if (dispDateEl) dispDateEl.value = today;
   
-  renderBulkDocReceive();
-  renderBulkDocDispatch();
+  if (typeof renderBulkDocReceive === 'function') renderBulkDocReceive();
+  if (typeof renderBulkDocDispatch === 'function') renderBulkDocDispatch();
   
-  switchDocTab('receive');
-  document.getElementById('bulkdoc-modal').classList.add('open');
+  if (typeof switchDocTab === 'function') switchDocTab('receive');
+  const modal = document.getElementById('bulkdoc-modal');
+  if (modal) modal.classList.add('open');
 }
+window.openBulkDocManager = openBulkDocManager;
 
 function updateBulkDocSelectionCount() {
   const tableId = currentDocTab === 'receive' ? 'bulkdoc-receive-table' : 'bulkdoc-dispatch-table';

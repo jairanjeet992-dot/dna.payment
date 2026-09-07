@@ -680,7 +680,7 @@ tbody tr:hover{background:var(--line);}
     <div class="panel" style="padding:18px;">
       <div class="panel-title" style="margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
         <span>📁 Hard Copy Document Lookup</span>
-        <button class="btn btn-gold btn-sm admin-only" onclick="openBulkDocManager()">📦 Bulk Docs & Dispatch Manager</button>
+        <button class="btn btn-gold btn-sm" id="btn-open-bulkdoc" onclick="openBulkDocManager()">📦 Bulk Docs & Dispatch Manager</button>
       </div>
       <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;line-height:1.5;">Every case gets a unique document code (e.g. <span class="mono" style="color:var(--navy);font-weight:700">INV-APR26-001</span>). Write this code on the physical file/folder from the investigator. Type the code below to instantly pull up that case — no need to dig through paper.</p>
       <div class="doc-lookup"><input type="text" id="doc-search" placeholder="Search by doc code, claim no, insured name, or policy no" oninput="lookupDoc()"></div>
@@ -2407,10 +2407,10 @@ tbody tr:hover{background:var(--line);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js"></script>
 <script src="ux-enhancements.js"></script>
-<script src="app.js?v=34"></script>
+<script src="app.js?v=35"></script>
 <script src="company-recovery.js?v=6"></script>
 <script src="batch-rollback.js?v=2"></script>
-<script src="realtime-sync.js"></script>
+<script src="realtime-sync.js?v=2"></script>
 <script src="role-permissions.js"></script>
 <script src="import-pdf-enhancements.js?v=3"></script>
 <script src="dna-bugfixes.js?v=3"></script>

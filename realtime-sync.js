@@ -56,10 +56,15 @@ if (window.supabaseClient) {
         window.cases = targetCases;
         if (typeof cases !== 'undefined') cases = targetCases;
         
-        // Re-render UI immediately
-        if (typeof window.renderAll === 'function') {
-          window.renderAll();
+        // Debounced UI render: prevents browser freezing on rapid bulk updates
+        if (typeof window.__realtimeRenderDebounceTimer !== 'undefined') {
+          clearTimeout(window.__realtimeRenderDebounceTimer);
         }
+        window.__realtimeRenderDebounceTimer = setTimeout(() => {
+          if (typeof window.renderAll === 'function') {
+            window.renderAll();
+          }
+        }, 200);
       }
     )
     .subscribe((status) => {
