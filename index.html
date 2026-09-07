@@ -503,14 +503,14 @@ tbody tr:hover{background:var(--line);}
       <div class="panel-head">
         <span class="panel-title">All Cases <span class="count-chip" id="case-count">0</span></span>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-navy btn-sm" onclick="openCompanyRecoveryModal()" style="background:#1e3a8a;border-color:#1e3a8a;color:#fff;font-weight:700;" title="Generate Company Outstanding Recovery Excel & Track Unpaid Bills">🏢 Company Outstanding Excel</button>
-          <button class="btn btn-navy btn-sm" onclick="openQuickReceive()" style="background:#0F5132;border-color:#0F5132;color:#fff;font-weight:700;" title="Fast Payment Receive for Single or Bulk Claim Emails (Alt+R)">⚡ Quick Receive</button>
+          <button class="btn btn-ghost btn-sm" onclick="openCompanyRecoveryModal()" title="Generate Company Outstanding Recovery Excel & Track Unpaid Bills">🏢 Company Outstanding Excel</button>
+          <button class="btn btn-ghost btn-sm" onclick="openQuickReceive()" title="Fast Payment Receive for Single or Bulk Claim Emails (Alt+R)">⚡ Quick Receive</button>
           <button class="btn btn-ghost btn-sm admin-only" onclick="document.getElementById('import-file').click()">📥 Import Excel/CSV</button>
           <input type="file" id="import-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImport(event)">
           <button class="btn btn-ghost btn-sm admin-only" onclick="openBulkPaste()">📋 Bulk Paste</button>
           <button class="btn btn-ghost btn-sm admin-only" onclick="downloadTemplate()">📄 Download Template</button>
           <button class="btn btn-danger btn-sm admin-only" id="bulk-delete-btn" style="display:none;" onclick="bulkDeleteSelected()">🗑 Delete Selected (<span id="bulk-delete-count">0</span>)</button>
-          <button class="btn btn-navy btn-sm" id="bulk-pay-btn" onclick="openBulkPayment()">💰 Bulk Payment</button>
+          <button class="btn btn-ghost btn-sm" id="bulk-pay-btn" onclick="openBulkPayment()">💰 Bulk Payment</button>
           <button class="btn btn-gold btn-sm admin-only" onclick="openReconciliation()">🏦 Reconcile Bank</button>
           <button class="btn btn-ghost btn-sm admin-only" id="bulk-edit-btn" style="display:none;" onclick="openBulkEdit()">✏️ Bulk Edit Selected (<span id="bulk-edit-count">0</span>)</button>
           <button class="btn btn-ghost btn-sm admin-only" onclick="openRollbackHistoryModal()" title="View Batch Change Logs & 1-Click Rollback">↩ Rollback Log <span class="badge warning" id="rollback-badge-count" style="display:none;padding:1px 5px;font-size:10px;margin-left:2px;">0</span></button>
@@ -1507,89 +1507,116 @@ tbody tr:hover{background:var(--line);}
 
 <!-- 🏢 COMPANY OUTSTANDING & PAYMENT RECOVERY HUB MODAL -->
 <div class="overlay" id="company-recovery-modal">
-  <div class="modal" style="max-width:1150px; width:96%; max-height:92vh; display:flex; flex-direction:column;">
-    <div class="modal-head" style="border-bottom:1px solid var(--line); padding:14px 18px; display:flex; justify-content:space-between; align-items:center;">
+  <div class="modal" style="max-width:1240px; width:98%; height:94vh; max-height:94vh; display:flex; flex-direction:column; border-radius:12px; overflow:hidden; background:var(--card); border:1px solid var(--line); box-shadow:0 24px 60px rgba(0,0,0,0.25);">
+    <!-- Modal Head: Compact & Clean -->
+    <div class="modal-head" style="border-bottom:1px solid var(--line); padding:10px 18px; display:flex; justify-content:space-between; align-items:center; background:var(--card); flex-shrink:0;">
       <div style="display:flex; align-items:center; gap:10px;">
-        <span style="font-size:24px;">🏢</span>
+        <span style="font-size:20px;">🏢</span>
         <div>
-          <h3 style="margin:0; font-size:16px; color:var(--navy); font-weight:800;">Company Outstanding &amp; Recovery Hub</h3>
-          <div style="font-size:11px; color:var(--sub); margin-top:2px;">Export company-facing recovery Excel sheets, filter unpaid/rejected bills, and capture remittance/region details</div>
+          <h3 style="margin:0; font-size:15px; color:var(--navy); font-weight:800; line-height:1.2;">Company Outstanding &amp; Recovery Hub</h3>
+          <div style="font-size:10.5px; color:var(--sub); margin-top:2px;">Export recovery Excel sheets, filter unpaid/rejected claims &amp; record remittance</div>
         </div>
       </div>
-      <button class="modal-x" onclick="closeModal('company-recovery-modal')">✕</button>
+      <button class="modal-x" onclick="closeModal('company-recovery-modal')" style="font-size:18px; padding:4px 8px;">✕</button>
     </div>
 
-    <!-- Filter & Scope Bar -->
-    <div style="padding:12px 18px; background:var(--paper); border-bottom:1px solid var(--line); display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between;">
-      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; flex:1;">
-        <div style="min-width:170px;">
-          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--sub); margin-bottom:3px;">Insurance Company</label>
-          <select id="cr-company-select" class="fin" style="width:100%; font-size:12px; font-weight:700; padding:6px 10px;" onchange="renderCompanyRecoveryHub()">
-            <!-- Populated via JS -->
-          </select>
-        </div>
-        <div style="min-width:230px;">
-          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--sub); margin-bottom:3px;">Recovery Classification / Logic</label>
-          <select id="cr-category-select" class="fin" style="width:100%; font-size:12px; font-weight:600; padding:6px 10px;" onchange="renderCompanyRecoveryHub()">
-            <option value="billable_unpaid" selected>🟢 Billable Overdue / Unpaid (Ready for Accounts)</option>
-            <option value="rejected">🔴 Disputed / Rejected Bills (Reason Query Sheet)</option>
-            <option value="withdrawn">⚫ Withdrawn / Cancelled Cases (Zero-Billing Audit)</option>
-            <option value="partially_paid">🟡 Partially Paid (TDS / Deductions Pending)</option>
-            <option value="all_unpaid">📋 All Unpaid / Pending Balance (Everything)</option>
-          </select>
-        </div>
-        <div style="min-width:130px;">
-          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--sub); margin-bottom:3px;">Month / Period</label>
-          <select id="cr-month-select" class="fin" style="width:100%; font-size:12px; padding:6px 10px;" onchange="renderCompanyRecoveryHub()">
-            <!-- Populated via JS -->
-          </select>
-        </div>
-        <div style="flex:1; min-width:160px;">
-          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--sub); margin-bottom:3px;">Search Claim / Name / Code</label>
-          <input type="text" id="cr-search-input" class="fin" placeholder="Filter in list..." style="width:100%; font-size:12px; padding:6px 10px;" oninput="renderCompanyRecoveryHub()">
-        </div>
+    <!-- Filter & Scope Bar: Streamlined & Compact Single Row -->
+    <div style="padding:8px 18px; background:color-mix(in srgb, var(--paper) 70%, var(--card)); border-bottom:1px solid var(--line); display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; flex-shrink:0;">
+      <div style="flex:1 1 150px; min-width:140px;">
+        <label style="display:block; font-size:10px; font-weight:700; color:var(--sub); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.3px;">Insurance Company</label>
+        <select id="cr-company-select" class="fin" style="width:100%; height:32px; font-size:11.5px; font-weight:700; padding:0 8px; border-radius:6px; background:var(--card); border:1px solid var(--line);" onchange="renderCompanyRecoveryHub()">
+          <!-- Populated via JS -->
+        </select>
       </div>
-      <div style="display:flex; gap:8px; align-items:flex-end;">
-        <button class="btn btn-sm btn-ghost" onclick="resetCompanyRecoveryFilters()">↺ Reset</button>
+      <div style="flex:1.4 1 200px; min-width:180px;">
+        <label style="display:block; font-size:10px; font-weight:700; color:var(--sub); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.3px;">Recovery Classification</label>
+        <select id="cr-category-select" class="fin" style="width:100%; height:32px; font-size:11.5px; font-weight:600; padding:0 8px; border-radius:6px; background:var(--card); border:1px solid var(--line);" onchange="renderCompanyRecoveryHub()">
+          <option value="billable_unpaid" selected>🟢 Billable Overdue / Unpaid (Ready for Accounts)</option>
+          <option value="rejected">🔴 Disputed / Rejected Bills (Query Sheet)</option>
+          <option value="withdrawn">⚫ Withdrawn / Cancelled Cases (Audit)</option>
+          <option value="partially_paid">🟡 Partially Paid (TDS Pending)</option>
+          <option value="all_unpaid">📋 All Unpaid / Pending Balance</option>
+        </select>
+      </div>
+      <div style="flex:0.7 1 110px; min-width:95px;">
+        <label style="display:block; font-size:10px; font-weight:700; color:var(--sub); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.3px;">Month / Period</label>
+        <select id="cr-month-select" class="fin" style="width:100%; height:32px; font-size:11.5px; padding:0 8px; border-radius:6px; background:var(--card); border:1px solid var(--line);" onchange="renderCompanyRecoveryHub()">
+          <!-- Populated via JS -->
+        </select>
+      </div>
+      <div style="flex:1.2 1 160px; min-width:140px;">
+        <label style="display:block; font-size:10px; font-weight:700; color:var(--sub); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.3px;">Search Claim / Patient</label>
+        <input type="text" id="cr-search-input" class="fin" placeholder="Claim, patient, code..." style="width:100%; height:32px; font-size:11.5px; padding:0 10px; border-radius:6px; background:var(--card); border:1px solid var(--line);" oninput="renderCompanyRecoveryHub()">
+      </div>
+      <div style="display:flex; align-items:flex-end;">
+        <button class="btn btn-sm btn-ghost" onclick="resetCompanyRecoveryFilters()" style="height:32px; padding:0 12px; border-radius:6px; font-weight:600; font-size:11px; white-space:nowrap;" title="Reset Filters">↺ Reset</button>
       </div>
     </div>
 
-    <!-- Intelligence Notice Banner -->
-    <div id="cr-intelligence-banner" style="margin:10px 18px 0; padding:10px 14px; border-radius:6px; font-size:11.5px; line-height:1.5;"></div>
+    <!-- Collapsible Summary Cards & Notice Panel (Can be hidden to give 100% space to table rows) -->
+    <div id="cr-collapsible-panel" style="flex-shrink:0; background:var(--card); border-bottom:1px solid var(--line); padding-bottom:8px;">
+      <!-- Intelligence Notice Banner -->
+      <div id="cr-intelligence-banner" style="margin:8px 18px 0; padding:8px 14px; border-radius:6px; font-size:11px; line-height:1.4;"></div>
 
-    <!-- KPI Metric Cards -->
-    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; padding:12px 18px 0;" id="cr-kpi-grid">
-      <div class="kpi navy" style="padding:10px 14px;"><div class="kpi-label" style="font-size:10.5px;">Target Cases</div><div class="kpi-value" id="cr-kpi-cases" style="font-size:20px;">0</div></div>
-      <div class="kpi" style="padding:10px 14px; background:var(--card); border:1px solid var(--line);"><div class="kpi-label" style="font-size:10.5px; color:var(--sub);">Total Billed (Invoice)</div><div class="kpi-value" id="cr-kpi-billed" style="font-size:20px; color:var(--navy);">₹0</div></div>
-      <div class="kpi green" style="padding:10px 14px;"><div class="kpi-label" style="font-size:10.5px;">Already Received</div><div class="kpi-value green" id="cr-kpi-received" style="font-size:20px;">₹0</div></div>
-      <div class="kpi red" style="padding:10px 14px; background:color-mix(in srgb, #fef2f2 70%, var(--card)); border-color:#fecaca;"><div class="kpi-label" style="font-size:10.5px; color:#991b1b; font-weight:700;">Outstanding Due</div><div class="kpi-value red" id="cr-kpi-due" style="font-size:20px; color:#dc2626;">₹0</div></div>
+      <!-- KPI Metric Cards: Compact & High Density -->
+      <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; padding:8px 18px 0;" id="cr-kpi-grid">
+        <div style="background:var(--card); border:1px solid var(--line); border-top:3px solid var(--navy); border-radius:8px; padding:8px 12px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+          <div style="font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--sub); margin-bottom:2px;">Target Cases</div>
+          <div class="kpi-value" id="cr-kpi-cases" style="font-size:18px; font-weight:800; font-family:var(--mono); color:var(--navy); line-height:1.1;">0</div>
+        </div>
+        <div style="background:var(--card); border:1px solid var(--line); border-top:3px solid #6366f1; border-radius:8px; padding:8px 12px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+          <div style="font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--sub); margin-bottom:2px;">Total Billed (Invoice)</div>
+          <div class="kpi-value" id="cr-kpi-billed" style="font-size:18px; font-weight:800; font-family:var(--mono); color:var(--ink); line-height:1.1;">₹0</div>
+        </div>
+        <div style="background:var(--card); border:1px solid var(--line); border-top:3px solid #16a34a; border-radius:8px; padding:8px 12px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+          <div style="font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#16a34a; margin-bottom:2px;">Already Received</div>
+          <div class="kpi-value" id="cr-kpi-received" style="font-size:18px; font-weight:800; font-family:var(--mono); color:#16a34a; line-height:1.1;">₹0</div>
+        </div>
+        <div style="background:var(--card); border:1px solid var(--line); border-top:3px solid #dc2626; border-radius:8px; padding:8px 12px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+          <div style="font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#dc2626; margin-bottom:2px;">Outstanding Due</div>
+          <div class="kpi-value" id="cr-kpi-due" style="font-size:18px; font-weight:800; font-family:var(--mono); color:#dc2626; line-height:1.1;">₹0</div>
+        </div>
+      </div>
     </div>
 
-    <!-- Main Table Toolbar -->
-    <div style="padding:12px 18px 6px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span style="font-size:12px; font-weight:700; color:var(--navy);">Cases List</span>
-        <span class="count-chip" id="cr-table-count">0 Cases</span>
-        <span id="cr-selected-count-badge" style="font-size:11px; color:var(--sub); margin-left:6px;"></span>
+    <!-- Main Table Toolbar with Live Mini-Summary and Max-Room Toggle -->
+    <div style="padding:8px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; flex-shrink:0; background:var(--card);">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span style="font-size:12.5px; font-weight:800; color:var(--navy); letter-spacing:0.2px;">Cases List</span>
+        <span class="count-chip" id="cr-table-count" style="font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:10px;">0 Cases</span>
+        <span id="cr-selected-count-badge" style="font-size:11px; font-weight:700; color:var(--gold);"></span>
+
+        <!-- Live Inline Mini Stats (Always ready, especially when big cards are collapsed) -->
+        <div id="cr-mini-stats-strip" style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-family:var(--mono); margin-left:4px;">
+          <span style="background:var(--paper); border:1px solid var(--line); padding:2px 7px; border-radius:4px; color:var(--sub);">Billed: <b id="cr-mini-billed" style="color:var(--ink);">₹0</b></span>
+          <span style="background:#f0fdf4; border:1px solid #bbf7d0; padding:2px 7px; border-radius:4px; color:#166534;">Recv: <b id="cr-mini-received" style="color:#16a34a;">₹0</b></span>
+          <span style="background:#fef2f2; border:1px solid #fecaca; padding:2px 7px; border-radius:4px; color:#991b1b;">Due: <b id="cr-mini-due" style="color:#dc2626;">₹0</b></span>
+        </div>
+
+        <!-- Toggle Big Cards Button -->
+        <button id="cr-toggle-stats-btn" class="btn btn-sm btn-ghost" onclick="toggleCRStats()" style="font-size:10.5px; padding:2px 8px; height:28px; border-radius:6px; font-weight:700; color:var(--navy); border:1px solid var(--line);" title="Toggle KPI cards to see more case rows">
+          📊 Show Stats Cards
+        </button>
       </div>
+
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        <button class="btn btn-sm" onclick="exportCompanyRecoveryExcel()" style="background:#0F5132; border-color:#0F5132; color:#fff; font-weight:700; display:flex; align-items:center; gap:6px;">
-          <span>📊</span> Export Company Excel (.xlsx)
+        <button class="btn btn-sm btn-ghost" onclick="exportCompanyRecoveryExcel()" style="display:flex; align-items:center; gap:5px; font-weight:600; font-size:11px; height:30px; padding:0 10px;" title="Export formatted company Excel">
+          <span>📊</span> Export Excel (.xlsx)
         </button>
-        <button class="btn btn-sm btn-ghost" onclick="exportCompanyRecoveryPDF()" style="display:flex; align-items:center; gap:6px;">
-          <span>📄</span> Export PDF Statement
+        <button class="btn btn-sm btn-ghost" onclick="exportCompanyRecoveryPDF()" style="display:flex; align-items:center; gap:5px; font-weight:600; font-size:11px; height:30px; padding:0 10px;" title="Generate PDF Statement">
+          <span>📄</span> Export PDF
         </button>
-        <button class="btn btn-sm btn-navy" onclick="openRecordRemittanceModal()" id="cr-record-pay-btn" style="display:flex; align-items:center; gap:6px; font-weight:700;">
+        <button class="btn btn-sm btn-navy" onclick="openRecordRemittanceModal()" id="cr-record-pay-btn" style="display:flex; align-items:center; gap:5px; font-weight:700; font-size:11px; height:30px; padding:0 12px;">
           <span>⚡</span> Record Payment / Region Details
         </button>
       </div>
     </div>
 
-    <!-- Table Body -->
-    <div class="modal-body" style="padding:0 18px 14px; overflow-y:auto; flex:1;">
-      <div class="tbl-scroll" style="border:1px solid var(--line); border-radius:6px; max-height:400px; background:var(--card);">
+    <!-- Table Body: Takes 100% Remaining Height Dynamically -->
+    <div class="modal-body" style="padding:0 18px 8px; overflow:hidden; flex:1; min-height:0; display:flex; flex-direction:column;">
+      <div class="tbl-scroll" style="border:1px solid var(--line); border-radius:8px; flex:1; height:100%; min-height:240px; max-height:none; overflow-y:auto; background:var(--card);">
         <table class="data-table" style="width:100%; font-size:11.5px; margin:0;">
-          <thead style="position:sticky; top:0; z-index:2; background:var(--paper);">
+          <thead style="position:sticky; top:0; z-index:5; background:var(--paper); box-shadow:0 1px 2px rgba(0,0,0,0.05);">
             <tr>
               <th style="width:36px; text-align:center;"><input type="checkbox" id="cr-select-all" onchange="toggleCRSelectAll(this.checked)"></th>
               <th>Doc Code</th>
@@ -1614,11 +1641,12 @@ tbody tr:hover{background:var(--line);}
       </div>
     </div>
 
-    <div class="modal-foot" style="justify-content:space-between; padding:10px 18px; border-top:1px solid var(--line);">
-      <div style="font-size:11px; color:var(--sub); display:flex; align-items:center; gap:10px;">
-        <span>💡 <i>Tip: The exported Excel contains designated columns for the company to fill their UTR, Payment Date, Region, and Deductions.</i></span>
+    <!-- Modal Footer: Slim & Clean -->
+    <div class="modal-foot" style="justify-content:space-between; padding:6px 18px; border-top:1px solid var(--line); flex-shrink:0;">
+      <div style="font-size:10.5px; color:var(--sub); display:flex; align-items:center; gap:8px;">
+        <span>💡 <i>Exported Excel contains company-ready remittance columns (UTR, Payment Date, Region, Deductions).</i></span>
       </div>
-      <button class="btn btn-ghost" onclick="closeModal('company-recovery-modal')">Close</button>
+      <button class="btn btn-sm btn-ghost" onclick="closeModal('company-recovery-modal')" style="height:28px; padding:0 14px; font-size:11px;">Close</button>
     </div>
   </div>
 </div>
@@ -2408,7 +2436,7 @@ tbody tr:hover{background:var(--line);}
 <script src="google-drive-service.js"></script>
 <script src="ux-enhancements.js"></script>
 <script src="app.js?v=30"></script>
-<script src="company-recovery.js?v=6"></script>
+<script src="company-recovery.js?v=8"></script>
 <script src="batch-rollback.js?v=2"></script>
 <script src="realtime-sync.js?v=3"></script>
 <script src="role-permissions.js?v=2"></script>

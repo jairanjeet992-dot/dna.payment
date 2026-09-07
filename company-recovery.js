@@ -139,7 +139,44 @@ window.openCompanyRecoveryModal = function(preselectedCompany = '') {
 
   window.crSelectedDocCodes.clear();
   modal.classList.add('open');
+
+  // Check saved collapsed preference (default to collapsed for maximum cases room)
+  const savedCollapsed = localStorage.getItem('dna_cr_stats_collapsed');
+  const shouldCollapse = savedCollapsed === null ? true : (savedCollapsed === 'true');
+  applyCRStatsDisplay(shouldCollapse);
+
   renderCompanyRecoveryHub();
+};
+
+function applyCRStatsDisplay(collapse) {
+  const panel = document.getElementById('cr-collapsible-panel');
+  const btn = document.getElementById('cr-toggle-stats-btn');
+  const miniStrip = document.getElementById('cr-mini-stats-strip');
+  if (!panel) return;
+  if (collapse) {
+    panel.style.display = 'none';
+    if (btn) btn.innerHTML = '📊 Show Stats Cards';
+    if (miniStrip) miniStrip.style.display = 'inline-flex';
+  } else {
+    panel.style.display = 'block';
+    if (btn) btn.innerHTML = '▴ Hide Stats Cards';
+    if (miniStrip) miniStrip.style.display = 'none';
+  }
+}
+
+/**
+ * Toggles the KPI & intelligence stats panel to give maximum height to the table
+ */
+window.toggleCRStats = function() {
+  const panel = document.getElementById('cr-collapsible-panel');
+  if (!panel) return;
+  const isCurrentlyHidden = panel.style.display === 'none';
+  // If hidden, show it; if shown, collapse it
+  const newCollapse = !isCurrentlyHidden;
+  applyCRStatsDisplay(newCollapse);
+  try {
+    localStorage.setItem('dna_cr_stats_collapsed', String(newCollapse));
+  } catch (_) {}
 };
 
 /**
@@ -261,6 +298,16 @@ window.renderCompanyRecoveryHub = function() {
     elRecv.innerHTML = `₹${fmt(totalReceived)}${totalTds > 0 ? `<span style="font-size:11px; font-weight:600; color:#b45309; display:block; margin-top:2px;">(+₹${fmt(totalTds)} TDS)</span>` : ''}`;
   }
   if (elDue) elDue.textContent = '₹' + fmt(totalDue);
+
+  // Update Mini Header / Toolbar Stats Strip (for compact view)
+  const miniCases = document.getElementById('cr-mini-cases');
+  const miniBilled = document.getElementById('cr-mini-billed');
+  const miniRecv = document.getElementById('cr-mini-received');
+  const miniDue = document.getElementById('cr-mini-due');
+  if (miniCases) miniCases.textContent = `${filtered.length} Cases`;
+  if (miniBilled) miniBilled.textContent = '₹' + fmt(totalBilled);
+  if (miniRecv) miniRecv.textContent = '₹' + fmt(totalReceived);
+  if (miniDue) miniDue.textContent = '₹' + fmt(totalDue);
 
   // Table count
   const countChip = document.getElementById('cr-table-count');
