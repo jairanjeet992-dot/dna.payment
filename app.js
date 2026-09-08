@@ -34,8 +34,13 @@ const getSupabaseConfig = () => {
 
 window.getGoogleClientId = () => {
   const localId = localStorage.getItem('GOOGLE_CLIENT_ID');
-  if (localId) return localId;
-  return window.APP_CONFIG?.googleDrive?.clientId || window.APP_CONFIG?.googleClientId || '1051883487866-db1eelsu3ue0f2ue4b29aqa0qt2ca4qv.apps.googleusercontent.com';
+  // Clear known old or deleted client ID if lingering in browser storage
+  if (localId && localId.includes('db1eelsu3ue0f2ue4b29aqa0qt2ca4qv')) {
+    localStorage.removeItem('GOOGLE_CLIENT_ID');
+  } else if (localId) {
+    return localId.trim();
+  }
+  return window.APP_CONFIG?.googleDrive?.clientId || window.APP_CONFIG?.googleClientId || '1051883487866-cn5qo2dvblq0hgcg92o6p1ne2kmf98c0.apps.googleusercontent.com';
 };
 
 const SUPABASE_CONFIG = getSupabaseConfig();
@@ -547,9 +552,14 @@ async function searchDrive() {
 }
 
 async function connectGoogleDrive() {
-  if (!window.getGoogleClientId()) {
+  const clientId = window.getGoogleClientId();
+  if (!clientId) {
     showToast('Google Client ID not configured in config.js.', true);
     return;
+  }
+  
+  if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+    window.googleDriveService.init(clientId);
   }
   
   window.googleDriveService.onTokenAcquired = async (response) => {
@@ -7269,7 +7279,7 @@ function inviteStaff() {
   const email = document.getElementById('invite-email').value.trim();
   const statusEl = document.getElementById('invite-status');
   if (!email) { showToast('Enter the staff member\'s email first.', true); return; }
-  const supabaseUrl = SUPABASE_CONFIG?.url || 'https://hmtimjssanxpjcshfjdo.supabase.co';
+  const supabaseUrl = SUPABASE_CONFIG?.url || 'https://aacvwozpfjuhcvihnaen.supabase.co';
   const match = supabaseUrl.match(/https:\/\/(.*)\.supabase\.co/);
   const projectId = match ? match[1] : 'YOUR_PROJECT_ID';
   statusEl.innerHTML = `Direct invites aren't available from this screen for security reasons (it would require exposing an admin key in the browser). Create <b>${email}</b>'s account from the <a href="https://supabase.com/dashboard/project/${projectId}/auth/users" target="_blank" style="color:var(--gold);">Supabase Dashboard → Authentication → Users → Add User</a> instead — takes under a minute.`;

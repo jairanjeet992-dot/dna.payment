@@ -24,6 +24,9 @@ window.googleDriveService = {
       callback: (response) => {
         if (response.error !== undefined) {
           console.error('[DRIVE] OAuth Error:', response);
+          if (typeof window.showToast === 'function') {
+            window.showToast(`Google OAuth Error: ${response.error_description || response.error}`, true);
+          }
           return;
         }
         this.accessToken = response.access_token;
