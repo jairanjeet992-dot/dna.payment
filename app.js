@@ -3368,19 +3368,54 @@ function renderMonthly(idx) {
 // ============================================================
 function renderSalary() {
   const sel = document.getElementById('salary-month-select');
-  if (!sel || !sel.options.length) {
-    const available = getAvailableMonths();
-    if (sel) sel.innerHTML = available.map((mo, i) => `<option value="${i}" ${i===activeMonth?'selected':''}>${mo.label}</option>`).join('');
-  }
   if (!sel) return;
-  
+
+  const available = getAvailableMonths();
+  if (!available.length) {
+    const tbody = document.getElementById('salary-tbody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state">No dated cases yet.</div></td></tr>`;
+    return;
+  }
+
+  // Populate options using the true index in MONTHS
+  const currentVal = sel.value;
+  const newOptionsHtml = available.map((mo) => {
+    const mIdx = MONTHS.indexOf(mo);
+    return `<option value="${mIdx}">${mo.label}</option>`;
+  }).join('');
+
+  if (sel.innerHTML !== newOptionsHtml) {
+    sel.innerHTML = newOptionsHtml;
+    if (currentVal && available.some(mo => String(MONTHS.indexOf(mo)) === String(currentVal))) {
+      sel.value = currentVal;
+    } else if (available.some(mo => MONTHS.indexOf(mo) === activeMonth)) {
+      sel.value = activeMonth;
+    } else if (available.length > 0) {
+      sel.value = MONTHS.indexOf(available[available.length - 1]);
+    }
+  }
+
   const idx = parseInt(sel.value);
-  const mo = MONTHS[idx];
-  
+  const mo = MONTHS[idx] || MONTHS[activeMonth] || available[0];
+  if (!mo) return;
+
+  // Safe year-month extractor avoiding timezone shift
+  const getYM = (dateStr) => {
+    if (!dateStr) return null;
+    if (typeof dateStr === 'string') {
+      const match = dateStr.match(/^(\d{4})-(\d{1,2})/);
+      if (match) return { y: parseInt(match[1]), m: parseInt(match[2]) };
+      const dmy = dateStr.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+      if (dmy) return { y: parseInt(dmy[3]), m: parseInt(dmy[2]) };
+    }
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) return { y: d.getFullYear(), m: d.getMonth() + 1 };
+    return null;
+  };
+
   const monthCases = getVisibleCases().filter(c => {
-    if (!c.date) return false;
-    const d = new Date(c.date);
-    return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+    const ym = getYM(c.date) || getYM(c.created_at);
+    return ym && ym.m === mo.m && ym.y === mo.y;
   });
 
   const monthExpenses = getExpensesForMonth(mo);
@@ -3393,10 +3428,22 @@ function renderSalary() {
   let totalSalaryVouchers = 0;
 
   salaryInvestigators.forEach(r => {
+    const rName = (r.name || '').trim().toLowerCase();
     const typeChangedAt = r.payment_type_changed_at ? new Date(r.payment_type_changed_at) : null;
+    
+    // If the investigator became salaried in a future month compared to 'mo', skip them for this historical month
+    if (typeChangedAt && !isNaN(typeChangedAt.getTime())) {
+      const changeY = typeChangedAt.getFullYear();
+      const changeM = typeChangedAt.getMonth() + 1;
+      if (mo.y < changeY || (mo.y === changeY && mo.m < changeM)) {
+        return;
+      }
+    }
+
     const iCases = monthCases.filter(c => {
-       const caseDate = c.date ? new Date(c.date) : (c.created_at ? new Date(c.created_at) : new Date());
-       return (c.inv1 === r.name || c.inv2 === r.name) && (!typeChangedAt || caseDate >= typeChangedAt);
+       const inv1 = (c.inv1 || '').trim().toLowerCase();
+       const inv2 = (c.inv2 || '').trim().toLowerCase();
+       return inv1 === rName || inv2 === rName;
     });
     
     totalSalariedCases += iCases.length;
@@ -3404,15 +3451,17 @@ function renderSalary() {
     // Count productivity (0.5 for half case, 1 for full)
     const productivity = iCases.reduce((sum, c) => {
         if (c.exception_type === 'Withdrawn') return sum;
-        if (c.inv1 === r.name && c.inv2 === r.name) return sum + 1;
+        const inv1 = (c.inv1 || '').trim().toLowerCase();
+        const inv2 = (c.inv2 || '').trim().toLowerCase();
+        if (inv1 === rName && inv2 === rName) return sum + 1;
         return sum + 0.5;
     }, 0);
 
-    const invExp = monthExpenses.filter(e => e.investigator_name === r.name);
+    const invExp = monthExpenses.filter(e => (e.investigator_name || '').trim().toLowerCase() === rName);
     const invExpTotal = invExp.reduce((s, e) => s + (Number(e.amount) || 0), 0);
     totalSalaryVouchers += invExpTotal;
 
-    const salary = r.salary_amount || 0;
+    const salary = Number(r.salary_amount) || 0;
     const totalPayout = salary + invExpTotal;
     totalExpense += totalPayout;
 
@@ -3423,7 +3472,7 @@ function renderSalary() {
     if (tbody) tbody.innerHTML += `<tr>
       <td><strong>${escAttr(r.name)}</strong></td>
       <td>₹${salary.toLocaleString('en-IN')}${voucherTag}</td>
-      <td>${productivity} case(s)</td>
+      <td><strong>${productivity}</strong> case(s)</td>
       <td><strong>₹${totalPayout.toLocaleString('en-IN')}</strong></td>
     </tr>`;
   });
