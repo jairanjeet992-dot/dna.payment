@@ -683,6 +683,78 @@ function showView(name, el) {
 // working unchanged — it's just refreshed from the DB after every mutation
 // instead of being the source of truth itself.
 // ============================================================
+
+function calculateCasePayableAndProfit(caseObj) {
+  if (!caseObj) return { payable: 0, profit: 0, effectiveFee1: 0, effectiveFee2: 0, effectiveTa1: 0, effectiveTa2: 0 };
+  const f1 = Math.max(0, parseFloat(caseObj.fee1) || 0);
+  const f2 = Math.max(0, parseFloat(caseObj.fee2) || 0);
+  const t1 = Math.max(0, parseFloat(caseObj.ta1) || 0);
+  const t2 = Math.max(0, parseFloat(caseObj.ta2) || 0);
+  const rec = Math.max(0, parseFloat(caseObj.received) || 0);
+  const tds = Math.max(0, parseFloat(caseObj.tds_deducted) || 0);
+
+  let effectiveFee1 = f1, effectiveTa1 = t1;
+  let effectiveFee2 = f2, effectiveTa2 = t2;
+
+  const inv1Name = (caseObj.inv1 || '').trim();
+  const inv2Name = (caseObj.inv2 || '').trim();
+  const dateStr = caseObj.date || caseObj.created_at || '';
+  const caseDate = dateStr ? new Date(dateStr) : new Date();
+
+  if (typeof investigatorRows !== 'undefined' && Array.isArray(investigatorRows)) {
+    if (inv1Name) {
+      const inv1 = investigatorRows.find(r => r.name === inv1Name);
+      if (inv1 && inv1.payment_type === 'Salary') {
+        const typeChangedAt = inv1.payment_type_changed_at ? new Date(inv1.payment_type_changed_at) : null;
+        if (!typeChangedAt || caseDate >= typeChangedAt) {
+          effectiveFee1 = 0; effectiveTa1 = 0;
+        }
+      }
+    }
+    if (inv2Name) {
+      const inv2 = investigatorRows.find(r => r.name === inv2Name);
+      if (inv2 && inv2.payment_type === 'Salary') {
+        const typeChangedAt = inv2.payment_type_changed_at ? new Date(inv2.payment_type_changed_at) : null;
+        if (!typeChangedAt || caseDate >= typeChangedAt) {
+          effectiveFee2 = 0; effectiveTa2 = 0;
+        }
+      }
+    }
+  }
+
+  const payable = effectiveFee1 + effectiveFee2 + effectiveTa1 + effectiveTa2;
+  const profit = (rec + tds) - payable;
+  return { payable, profit, effectiveFee1, effectiveFee2, effectiveTa1, effectiveTa2 };
+}
+window.calculateCasePayableAndProfit = calculateCasePayableAndProfit;
+
+function parseCaseRow(row) {
+  const fee1 = Number(row.fee1) || 0;
+  const fee2 = Number(row.fee2) || 0;
+  const ta1 = Number(row.ta1) || 0;
+  const ta2 = Number(row.ta2) || 0;
+  const received = Number(row.received) || 0;
+  const tds_deducted = Number(row.tds_deducted) || 0;
+
+  const calc = calculateCasePayableAndProfit({
+    ...row,
+    fee1, fee2, ta1, ta2, received, tds_deducted
+  });
+
+  return {
+    ...row,
+    fee1,
+    fee2,
+    ta1,
+    ta2,
+    received,
+    tds_deducted,
+    total_payable: calc.payable,
+    profit: calc.profit
+  };
+}
+window.parseCaseRow = parseCaseRow;
+
 async function loadCasesFromDB() {
   const limit = 1000;
   let start = 0;
@@ -695,9 +767,7 @@ async function loadCasesFromDB() {
     
   if (error) { showToast('Failed to load cases: ' + error.message, true); return; }
   
-  cases = (data || []).map(row => ({...row, total_payable: Number(row.total_payable), profit: Number(row.profit),
-    fee1: Number(row.fee1)||0, fee2: Number(row.fee2)||0, ta1: Number(row.ta1)||0, ta2: Number(row.ta2)||0, received: Number(row.received)||0,
-    tds_deducted: Number(row.tds_deducted)||0}));
+  cases = (data || []).map(parseCaseRow);
   window.cases = cases; // keep exposed copy in sync
   refreshDynamicCompanies();
   start += limit;
@@ -718,9 +788,7 @@ async function loadCasesFromDB() {
         if (bgError) { console.error('Background load error:', bgError); break; }
         
         if (bgData && bgData.length > 0) {
-          const parsedBg = bgData.map(row => ({...row, total_payable: Number(row.total_payable), profit: Number(row.profit),
-            fee1: Number(row.fee1)||0, fee2: Number(row.fee2)||0, ta1: Number(row.ta1)||0, ta2: Number(row.ta2)||0, received: Number(row.received)||0,
-            tds_deducted: Number(row.tds_deducted)||0}));
+          const parsedBg = bgData.map(parseCaseRow);
           cases.push(...parsedBg);
           newlyLoaded += parsedBg.length;
           start += limit;
@@ -828,6 +896,13 @@ async function loadInvestigatorsFromDB() {
   INVESTIGATORS = data.map(r => r.name);
   INVESTIGATOR_PHONES = {};
   data.forEach(r => { if (r.phone) INVESTIGATOR_PHONES[r.name] = r.phone; });
+  if (Array.isArray(cases) && cases.length > 0) {
+    cases.forEach(c => {
+      const calc = calculateCasePayableAndProfit(c);
+      c.total_payable = calc.payable;
+      c.profit = calc.profit;
+    });
+  }
   window.dispatchEvent(new CustomEvent('dna:investigators-ready'));
 }
 
@@ -1746,15 +1821,15 @@ function renderCasesTable() {
       fee2: `<td class="col-finance" data-col="fee2" ${ed} data-field="fee2" data-val="${c.fee2||0}" data-type="number">${money(c.fee2)}</td>`,
       ta1: `<td class="col-finance" data-col="ta1" ${ed} data-field="ta1" data-val="${c.ta1||0}" data-type="number">${money(c.ta1)}</td>`,
       ta2: `<td class="col-finance" data-col="ta2" ${ed} data-field="ta2" data-val="${c.ta2||0}" data-type="number">${money(c.ta2)}</td>`,
-      total_payable: `<td class="col-finance" data-col="total_payable"><strong>Rs ${fmt(c.total_payable)}</strong></td>`,
+      total_payable: `<td class="col-finance" data-col="total_payable"><strong>Rs ${fmt(c.total_payable !== undefined && c.total_payable !== null && (c.total_payable > 0 || !(c.fee1 || c.fee2 || c.ta1 || c.ta2)) ? c.total_payable : calculateCasePayableAndProfit(c).payable)}</strong></td>`,
       received: `<td class="col-finance" data-col="received" ${ed} data-field="received" data-val="${c.received||0}" data-type="number">${money(c.received)}</td>`,
-      profit: `<td class="col-finance" data-col="profit" style="color:${(c.profit||0)>=0?'var(--green)':'var(--red)'}"><strong>Rs ${fmt(c.profit)}</strong></td>`,
+      profit: `<td class="col-finance" data-col="profit" style="color:${(c.profit !== undefined && c.profit !== null && (c.total_payable > 0 || !(c.fee1 || c.fee2 || c.ta1 || c.ta2)) ? c.profit : calculateCasePayableAndProfit(c).profit)>=0?'var(--green)':'var(--red)'}"><strong>Rs ${fmt(c.profit !== undefined && c.profit !== null && (c.total_payable > 0 || !(c.fee1 || c.fee2 || c.ta1 || c.ta2)) ? c.profit : calculateCasePayableAndProfit(c).profit)}</strong></td>`,
       margin: `<td class="col-finance" data-col="margin" style="text-align:center;">${marginBadge(c)}</td>`,
       inv1_status: `<td data-col="inv1_status" ${ed} data-field="inv1_status" data-val="${escAttr(c.inv1_status||'')}" data-type="status">${statusBadge(c.inv1_status)}</td>`,
       inv2_status: `<td data-col="inv2_status" ${ed} data-field="inv2_status" data-val="${escAttr(c.inv2_status||'')}" data-type="status">${statusBadge(c.inv2_status)}</td>`,
       hardcopy1_status: `<td data-col="hardcopy1_status" ${ed} data-field="hardcopy1_status" data-val="${escAttr(c.hardcopy1_status||'')}" data-type="hardcopy">${hardcopyStatusCell(c)}</td>`,
       outcome: `<td data-col="outcome" ${ed} data-field="outcome" data-val="${escAttr(c.outcome||'Pending')}" data-type="outcome">${outcomeBadge(c.outcome)}</td>`,
-      actions: `<td data-col="actions" style="white-space:nowrap;">${isAdmin ? `<div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-ghost btn-sm" onclick="editCase(${idx})" title="Edit Case">Edit</button><button class="btn btn-sm" style="padding:2px 6px;background:#25D366;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;" onclick="openCaseDispatchModal('${c.doc_code}')" title="Dispatch WhatsApp / Email">📲</button></div>` : ''}</td>`
+      actions: `<td data-col="actions" style="white-space:nowrap;">${isAdmin ? `<div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-ghost btn-sm" onclick="editCase(${idx})" title="Edit Case">Edit</button><button class="btn btn-sm" style="padding:2px 6px;background:#25D366;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;" onclick="openCaseDispatchModal('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="Dispatch WhatsApp / Email">📲</button></div>` : ''}</td>`
     };
 
     if (window.CUSTOM_FIELDS && window.CUSTOM_FIELDS.length > 0) {
@@ -3916,6 +3991,13 @@ async function finishInlineEdit(cell, cancelled) {
         update[field] = parsedVal;
     }
     
+    if (['fee1', 'fee2', 'ta1', 'ta2', 'received', 'tds_deducted', 'inv1', 'inv2', 'date'].includes(field)) {
+        const simulated = { ...c, [field]: parsedVal };
+        const calc = calculateCasePayableAndProfit(simulated);
+        update.total_payable = calc.payable;
+        update.profit = calc.profit;
+    }
+    
     await updateCaseDB(c.doc_code, update);
     if (window.logActivity) window.logActivity('Cases', `inline updated ${field} on case ${c.doc_code}`); showToast('Updated.');
     await loadCasesFromDB();
@@ -4283,10 +4365,10 @@ function openCaseDispatchModal(docCode) {
           </div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="btn btn-whatsapp btn-sm" onclick="sendCaseWhatsApp('${caseObj.doc_code}', '${t.role}')" title="Send WhatsApp Message">
+          <button class="btn btn-whatsapp btn-sm" onclick="sendCaseWhatsApp('${escAttr(caseObj.doc_code||'').replace(/'/g, "\\'")}', '${escAttr(t.role||'').replace(/'/g, "\\'")}')" title="Send WhatsApp Message">
             <span>💬</span> <span>WhatsApp</span>
           </button>
-          <button class="btn btn-email btn-sm" onclick="sendCaseEmail('${caseObj.doc_code}', '${t.role}')" title="Send Email">
+          <button class="btn btn-email btn-sm" onclick="sendCaseEmail('${escAttr(caseObj.doc_code||'').replace(/'/g, "\\'")}', '${escAttr(t.role||'').replace(/'/g, "\\'")}')" title="Send Email">
             <span>✉️</span> <span>Email</span>
           </button>
         </div>
@@ -4386,39 +4468,20 @@ function calcTotal() {
   const ta2 = Math.max(0, parseFloat(document.getElementById('f-ta2').value) || 0);
   const received = Math.max(0, parseFloat(document.getElementById('f-received').value) || 0);
   const tds = Math.max(0, parseFloat(document.getElementById('f-tds')?.value) || 0);
-  
-  let effectiveFee1 = fee1, effectiveTa1 = ta1;
-  let effectiveFee2 = fee2, effectiveTa2 = ta2;
-
   const inv1Name = document.getElementById('f-inv1').value;
   const inv2Name = document.getElementById('f-inv2').value;
   const dateStr = document.getElementById('f-date').value;
-  const caseDate = dateStr ? new Date(dateStr) : new Date();
 
-  if (typeof investigatorRows !== 'undefined' && investigatorRows) {
-    const inv1 = investigatorRows.find(r => r.name === inv1Name);
-    if (inv1 && inv1.payment_type === 'Salary') {
-      const typeChangedAt = inv1.payment_type_changed_at ? new Date(inv1.payment_type_changed_at) : null;
-      if (!typeChangedAt || caseDate >= typeChangedAt) {
-        effectiveFee1 = 0; effectiveTa1 = 0;
-      }
-    }
-    const inv2 = investigatorRows.find(r => r.name === inv2Name);
-    if (inv2 && inv2.payment_type === 'Salary') {
-      const typeChangedAt = inv2.payment_type_changed_at ? new Date(inv2.payment_type_changed_at) : null;
-      if (!typeChangedAt || caseDate >= typeChangedAt) {
-        effectiveFee2 = 0; effectiveTa2 = 0;
-      }
-    }
-  }
+  const calc = calculateCasePayableAndProfit({
+    fee1, fee2, ta1, ta2, received, tds_deducted: tds,
+    inv1: inv1Name, inv2: inv2Name, date: dateStr
+  });
 
-  const total = effectiveFee1 + effectiveFee2 + effectiveTa1 + effectiveTa2;
-  document.getElementById('f-total').value = total;
+  document.getElementById('f-total').value = calc.payable;
   
-  const profit = (received + tds) - total;
   const pEl = document.getElementById('f-profit');
-  pEl.value = profit;
-  pEl.style.color = profit >= 0 ? 'var(--green)' : 'var(--red)';
+  pEl.value = calc.profit;
+  pEl.style.color = calc.profit >= 0 ? 'var(--green)' : 'var(--red)';
   if (typeof updateCaseFormMiniSummary === 'function') updateCaseFormMiniSummary();
 }
 
@@ -4637,7 +4700,14 @@ async function saveCase() {
       if (customData) caseFields.custom_data = customData;
   }
 
-  // total_payable and profit are DB-generated columns — never sent on write.
+  const calc = calculateCasePayableAndProfit({
+    fee1, fee2, ta1, ta2, received,
+    tds_deducted: parseFloat(document.getElementById('f-tds')?.value) || 0,
+    inv1, inv2: document.getElementById('f-inv2').value,
+    date
+  });
+  caseFields.total_payable = calc.payable;
+  caseFields.profit = calc.profit;
 
   const saveBtn = document.querySelector('#case-modal .modal-foot .btn-navy');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
@@ -8559,9 +8629,9 @@ function renderAssignedRoles() {
   let html = '<table class="data-table" style="width:100%; margin:0;"><tbody>';
   emails.forEach(email => {
     html += `<tr>
-      <td style="font-weight:600;">${email}</td>
-      <td style="text-transform:capitalize;">${staffRoles[email]}</td>
-      <td style="text-align:right;"><button class="btn btn-ghost btn-sm" style="color:var(--amber); padding:2px 6px;" onclick="removeAssignedRole('${email}')">Remove</button></td>
+      <td style="font-weight:600;">${esc(email)}</td>
+      <td style="text-transform:capitalize;">${esc(staffRoles[email] || '')}</td>
+      <td style="text-align:right;"><button class="btn btn-ghost btn-sm" style="color:var(--amber); padding:2px 6px;" onclick="removeAssignedRole('${escAttr(email).replace(/'/g, "\\'")}')">Remove</button></td>
     </tr>`;
   });
   html += '</tbody></table>';
@@ -8699,7 +8769,7 @@ window.viewHospitalCases = function(hName) {
 window.renderAll = renderAll;
 window.handleRealtimePayload = (payload) => {
   if (typeof cases === 'undefined') return;
-  const processRow = (row) => ({
+  const processRow = (row) => (typeof parseCaseRow === 'function' ? parseCaseRow(row) : ({
     ...row, 
     total_payable: Number(row.total_payable || 0), 
     profit: Number(row.profit || 0),
@@ -8708,7 +8778,7 @@ window.handleRealtimePayload = (payload) => {
     ta1: Number(row.ta1 || 0), 
     ta2: Number(row.ta2 || 0), 
     received: Number(row.received || 0)
-  });
+  }));
 
   if (payload.eventType === 'INSERT') {
     const exists = cases.some(c => c.id === payload.new.id);

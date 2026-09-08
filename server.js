@@ -46,8 +46,16 @@ async function requireAuth(req, res, next) {
       ? authHeader.slice(7) 
       : (req.query.token || req.headers['x-admin-token']);
 
+    // Dedicated admin secret support
+    if (process.env.ADMIN_SECRET_KEY && req.headers['x-admin-token'] === process.env.ADMIN_SECRET_KEY) {
+      return next();
+    }
+
     if (!token) {
-      if (req.hostname === 'localhost' || req.hostname === '127.0.0.1') {
+      // Direct local development check (cannot be spoofed via HTTP Host header or reverse proxy)
+      const clientIp = req.socket.remoteAddress || '';
+      const isDirectLocal = !req.headers['x-forwarded-for'] && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(clientIp);
+      if (isDirectLocal) {
         return next();
       }
       return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required.' });
@@ -591,12 +599,21 @@ app.use((req, res, next) => {
   if (
     p.endsWith('.sql') ||
     p.endsWith('.env') ||
+    p.endsWith('.md') ||
     p.startsWith('/.env') ||
+    p.startsWith('/.git') ||
     p === '/server.js' ||
     p.startsWith('/db_scripts') ||
     p.startsWith('/backups') ||
+    p.startsWith('/patch_') ||
+    p.startsWith('/fix_') ||
+    p.startsWith('/test_') ||
+    p.startsWith('/revert_') ||
     p === '/package.json' ||
-    p === '/bun.lock'
+    p === '/package-lock.json' ||
+    p === '/bun.lock' ||
+    p === '/metadata.json' ||
+    p === '/eslint.config.js'
   ) {
     return res.status(403).send('Forbidden: Direct access to source scripts and backups is restricted.');
   }
