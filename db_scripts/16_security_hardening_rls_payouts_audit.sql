@@ -24,19 +24,28 @@ ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "user_roles_admin_all" ON public.user_roles;
 DROP POLICY IF EXISTS "user_roles_self_read" ON public.user_roles;
 DROP POLICY IF EXISTS "user_roles_bootstrap" ON public.user_roles;
+DROP POLICY IF EXISTS "user_roles_read_all" ON public.user_roles;
+DROP POLICY IF EXISTS "user_roles_admin_insert" ON public.user_roles;
+DROP POLICY IF EXISTS "user_roles_admin_update" ON public.user_roles;
+DROP POLICY IF EXISTS "user_roles_admin_delete" ON public.user_roles;
 
-CREATE POLICY "user_roles_self_read" ON public.user_roles
+-- Clean, non-recursive SELECT: Allows role inspection without self-referential subqueries
+CREATE POLICY "user_roles_read_all" ON public.user_roles
   FOR SELECT TO authenticated
-  USING (user_id = (SELECT auth.uid()));
+  USING (true);
 
-CREATE POLICY "user_roles_admin_all" ON public.user_roles
-  FOR ALL TO authenticated
-  USING (
-    EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = (SELECT auth.uid()) AND role = 'admin')
-  )
-  WITH CHECK (
-    EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = (SELECT auth.uid()) AND role = 'admin')
-  );
+-- Admin-only mutation policies (strictly separated from SELECT to avoid recursion)
+CREATE POLICY "user_roles_admin_insert" ON public.user_roles
+  FOR INSERT TO authenticated
+  WITH CHECK (public.is_admin());
+
+CREATE POLICY "user_roles_admin_update" ON public.user_roles
+  FOR UPDATE TO authenticated
+  USING (public.is_admin());
+
+CREATE POLICY "user_roles_admin_delete" ON public.user_roles
+  FOR DELETE TO authenticated
+  USING (public.is_admin());
 
 -- Auto-bootstrap current admin user from auth.users
 INSERT INTO public.user_roles (user_id, role)

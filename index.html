@@ -51,7 +51,7 @@
 })();
 </script>
 <meta name="theme-color" content="#0F2942">
-<link rel="stylesheet" href="dna-command-center.css?v=6">
+<link rel="stylesheet" id="dna-command-center-css" href="dna-command-center.css?v=6">
 <link rel="stylesheet" href="frontend/investigator-360/investigator-360.css">
 <style>
 :root{
@@ -1162,8 +1162,8 @@ tbody tr:hover{background:var(--line);}
           <div style="background:#fee2e2; border:1px solid #fca5a5; border-radius:8px; padding:12px; margin-bottom:16px; font-size:11.5px; color:#991b1b; line-height:1.5;">
             <b>Caution:</b> Permanent data operations cannot be undone unless you have a recent server snapshot or JSON export backup.
           </div>
-          <p style="font-size:11.5px; color:var(--sub); margin-bottom:14px;">Purge test cases or reset the database. Requires multiple administrative confirmations.</p>
-          <button class="btn btn-danger btn-sm" onclick="clearAllData()" style="background:#dc2626; color:#fff; font-weight:700; border:none; padding:9px 16px;">Delete All Data</button>
+          <p style="font-size:11.5px; color:var(--sub); margin-bottom:14px;">Purge test cases or reset the database. Strictly protected by Admin role verification and verified Email OTP.</p>
+          <button class="btn btn-danger btn-sm" onclick="openPurgeDatabaseModal()" style="background:#dc2626; color:#fff; font-weight:700; border:none; padding:9px 16px;">🛡️ Delete All Data (Admin OTP)</button>
         </div>
       </div>
     </div>
@@ -1224,6 +1224,82 @@ tbody tr:hover{background:var(--line);}
     <div class="modal-foot" style="display:flex; justify-content:space-between; align-items:center;">
       <button class="btn btn-navy" onclick="triggerManualServerBackup()">⚡ Take New Snapshot</button>
       <button class="btn btn-ghost" onclick="closeModal('server-backups-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Danger Zone: Admin + OTP Verified Database Purge Modal -->
+<div class="overlay" id="purge-database-modal">
+  <div class="modal" style="max-width:560px; width:95%; border:2px solid #ef4444; overflow:hidden;">
+    <div class="modal-head" style="background:#fee2e2; border-bottom:1px solid #fca5a5; padding:12px 18px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:24px;">🚨</span>
+        <div>
+          <h3 style="margin:0; font-size:16px; color:#991b1b; font-weight:800;">Danger Zone: Purge Database</h3>
+          <div style="font-size:11px; color:#b91c1c; font-weight:600;">Strict Admin Role + Verified OTP Required</div>
+        </div>
+      </div>
+      <button class="modal-x" onclick="closeModal('purge-database-modal')">✕</button>
+    </div>
+    
+    <div class="modal-body" style="padding:18px;">
+      <div style="background:#fff1f2; border:1px solid #fecdd3; border-radius:8px; padding:12px; margin-bottom:16px; font-size:12px; color:#881337; line-height:1.5;">
+        <b>Permanent & Irreversible:</b> This will permanently wipe all cases, investigators, audit logs, expenses, transfers, and uploaded documents from Supabase.
+        <div style="margin-top:6px; font-size:11.5px; color:#475569;">
+          🛡️ A safety backup JSON will be automatically downloaded to your computer before any data is deleted.
+        </div>
+      </div>
+
+      <div style="margin-bottom:14px; font-size:12px;">
+        <label style="font-weight:700; color:var(--text); display:block; margin-bottom:4px;">Authenticated Admin Account:</label>
+        <div id="purge-admin-email-display" style="padding:8px 12px; background:var(--bg); border:1px solid var(--line); border-radius:6px; font-family:var(--mono, monospace); font-weight:600; color:var(--navy);">
+          Loading admin identity...
+        </div>
+      </div>
+
+      <!-- Step 1: Confirmation Phrase -->
+      <div style="margin-bottom:14px;">
+        <label style="font-weight:700; color:var(--text); font-size:12px; display:block; margin-bottom:4px;">
+          Step 1: Type <span style="color:#dc2626; font-family:var(--mono, monospace); font-weight:800;">DELETE ALL DATA</span> to confirm intent:
+        </label>
+        <input type="text" id="purge-confirm-text" class="input" placeholder="Type DELETE ALL DATA exactly" style="width:100%; border-color:#f87171;" oninput="updatePurgeModalState()" autocomplete="off">
+      </div>
+
+      <!-- Step 2: OTP Verification -->
+      <div style="margin-bottom:16px; padding:12px; background:var(--bg); border:1px solid var(--line); border-radius:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <label style="font-weight:700; color:var(--text); font-size:12px; margin:0;">
+            Step 2: Admin Security Verification (OTP):
+          </label>
+          <span id="purge-otp-timer" style="font-size:11px; font-weight:700; color:var(--amber);"></span>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-navy btn-sm" id="purge-send-otp-btn" onclick="sendPurgeOtp()" style="flex-shrink:0;">
+            📧 Send OTP to Email
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" id="purge-alt-method-btn" onclick="togglePurgeAuthMethod()" style="font-size:11px;">
+            🔑 Or Verify via Password
+          </button>
+        </div>
+
+        <div id="purge-otp-container">
+          <input type="text" id="purge-otp-input" class="input" placeholder="Enter 6-digit OTP from email" maxlength="8" style="width:100%; letter-spacing:2px; font-family:var(--mono, monospace); font-weight:700;" oninput="updatePurgeModalState()" autocomplete="off">
+          <div id="purge-otp-status" style="margin-top:6px; font-size:11.5px; color:var(--sub);">Click "Send OTP to Email" to receive your one-time verification code.</div>
+        </div>
+
+        <div id="purge-password-container" style="display:none;">
+          <input type="password" id="purge-password-input" class="input" placeholder="Enter Admin Account Password" style="width:100%;" oninput="updatePurgeModalState()" autocomplete="current-password">
+          <div style="margin-top:6px; font-size:11.5px; color:var(--sub);">Use your current Supabase Admin account password as emergency verification.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-foot" style="display:flex; justify-content:space-between; align-items:center; padding:12px 18px; border-top:1px solid var(--line); background:var(--bg);">
+      <button class="btn btn-ghost" onclick="closeModal('purge-database-modal')">Cancel</button>
+      <button class="btn btn-danger" id="purge-execute-btn" onclick="confirmAndExecutePurge()" disabled style="background:#dc2626; color:#fff; font-weight:700; border:none; padding:9px 18px; opacity:0.5; cursor:not-allowed;">
+        🚨 Permanently Purge Database
+      </button>
     </div>
   </div>
 </div>
@@ -2435,18 +2511,18 @@ tbody tr:hover{background:var(--line);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js?v=2"></script>
 <script src="ux-enhancements.js"></script>
-<script src="app.js?v=35"></script>
+<script src="app.js?v=39"></script>
 <script src="company-recovery.js?v=8"></script>
 <script src="batch-rollback.js?v=2"></script>
 <script src="realtime-sync.js?v=4"></script>
 <script src="role-permissions.js?v=2"></script>
 <script src="import-pdf-enhancements.js?v=4"></script>
-<script src="dna-bugfixes.js?v=3"></script>
+<script src="dna-bugfixes.js?v=4"></script>
 <script src="frontend/investigator-360/investigator-360.js"></script>
 <script src="investigator-case-breakdown.js"></script>
 <script src="plugins-manager.js?v=2"></script>
 <script src="custom-fields.js?v=2"></script>
-<script src="smart-merge-engine.js?v=28"></script>
+<script src="smart-merge-engine.js?v=29"></script>
 
 </body>
 </html>

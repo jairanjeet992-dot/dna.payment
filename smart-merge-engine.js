@@ -913,8 +913,8 @@
       if (overwrite || !ex.exception_type) {
         payload.exception_type = mr.exception_type;
         payload.exception_reason = mr.exception_reason || 'Marked via Smart Import';
-        payload.exception_marked_at = new Date().toISOString();
-        payload.exception_marked_by = window.currentUser?.id || 'Import';
+        payload.exception_at = new Date().toISOString();
+        payload.exception_by = window.currentUser?.id || 'Import';
         if (mr.exception_type === 'Withdrawn') {
           payload.received = 0;
           payload.fee1 = 0; payload.fee2 = 0; payload.ta1 = 0; payload.ta2 = 0;
@@ -922,8 +922,13 @@
           payload.profit = 0;
           payload.invoice_no = 'WITHDRAWN';
         } else if (mr.exception_type === 'Rejected') {
+          const t_f1 = payload.fee1 !== undefined ? payload.fee1 : (ex.fee1 || 0);
+          const t_f2 = payload.fee2 !== undefined ? payload.fee2 : (ex.fee2 || 0);
+          const t_t1 = payload.ta1 !== undefined ? payload.ta1 : (ex.ta1 || 0);
+          const t_t2 = payload.ta2 !== undefined ? payload.ta2 : (ex.ta2 || 0);
+          const current_payable = t_f1 + t_f2 + t_t1 + t_t2;
           payload.received = 0;
-          payload.profit = 0 - payable;
+          payload.profit = 0 - current_payable;
           payload.invoice_no = 'REJECTED';
         }
       }

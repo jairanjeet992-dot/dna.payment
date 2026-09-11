@@ -263,10 +263,14 @@ function init() {
     supabaseClient.auth.onAuthStateChange((event, session) => {
       if (session && session.user) {
         currentUser = {id: session.user.id, email: session.user.email};
+        window.currentUser = currentUser;
+        window.currentUserEmail = session.user.email;
         if (document.getElementById('app').style.display !== 'block') enterApp();
         updateUserChip();
       } else {
         currentUser = null;
+        window.currentUser = null;
+        window.currentUserEmail = null;
         if (document.getElementById('login-screen').style.display !== 'flex') {
           document.getElementById('app').style.display = 'none';
           document.getElementById('login-screen').style.display = 'flex';
@@ -338,8 +342,48 @@ function populateStaticSelects() {
 }
 
 // ============================================================
-// LOGIN
+// LOGIN WITH RATE LIMITING & GENERIC ERROR PROTECTION
 // ============================================================
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 60 * 1000; // 60-second cooldown
+
+function getLoginRateLimitState() {
+  try {
+    const lockoutUntil = parseInt(localStorage.getItem('DNA_AUTH_LOCKOUT') || '0', 10);
+    const failures = parseInt(localStorage.getItem('DNA_AUTH_FAILURES') || '0', 10);
+    const now = Date.now();
+    if (lockoutUntil > now) {
+      return { locked: true, remainingSecs: Math.ceil((lockoutUntil - now) / 1000) };
+    }
+    return { locked: false, failures };
+  } catch (e) {
+    return { locked: false, failures: 0 };
+  }
+}
+
+function recordFailedLogin() {
+  try {
+    const currentFailures = parseInt(localStorage.getItem('DNA_AUTH_FAILURES') || '0', 10) + 1;
+    localStorage.setItem('DNA_AUTH_FAILURES', currentFailures.toString());
+    if (currentFailures >= LOGIN_MAX_ATTEMPTS) {
+      const lockoutTime = Date.now() + LOGIN_LOCKOUT_MS;
+      localStorage.setItem('DNA_AUTH_LOCKOUT', lockoutTime.toString());
+      localStorage.setItem('DNA_AUTH_FAILURES', '0');
+      return { locked: true, remainingSecs: Math.ceil(LOGIN_LOCKOUT_MS / 1000) };
+    }
+    return { locked: false, failures: currentFailures };
+  } catch (e) {
+    return { locked: false, failures: 0 };
+  }
+}
+
+function resetLoginRateLimit() {
+  try {
+    localStorage.removeItem('DNA_AUTH_LOCKOUT');
+    localStorage.removeItem('DNA_AUTH_FAILURES');
+  } catch (e) {}
+}
+
 async function doLogin() {
   const errEl = document.getElementById('login-error');
   const btn = document.getElementById('login-btn');
@@ -347,8 +391,25 @@ async function doLogin() {
   const pass = document.getElementById('login-pass').value;
   errEl.style.display = 'none';
 
+  // 1. Rate Limit Check
+  const rateLimit = getLoginRateLimitState();
+  if (rateLimit.locked) {
+    errEl.textContent = `Too many failed attempts. Access temporarily locked. Please wait ${rateLimit.remainingSecs}s.`;
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // 2. Input Presence Validation
   if (!email || !pass) {
-    errEl.textContent = 'Enter both email and password.';
+    errEl.textContent = 'Please enter both your email address and password.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // 3. Email Format Validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    errEl.textContent = 'Invalid email or password.';
     errEl.style.display = 'block';
     return;
   }
@@ -356,7 +417,7 @@ async function doLogin() {
   btn.disabled = true;
   btn.textContent = 'Signing in…';
 
-  // 1. Try Supabase Auth
+  // 4. Supabase Authentication
   if (supabaseClient?.auth) {
     try {
       const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
@@ -364,24 +425,30 @@ async function doLogin() {
       btn.textContent = 'Sign In';
 
       if (error) {
-        let msg = error.message;
-        if (msg.includes('Failed to fetch') || msg.includes('fetch')) {
-          msg = 'Connection error. Please check your internet or Supabase project status.';
+        const status = recordFailedLogin();
+        if (status.locked) {
+          errEl.textContent = `Too many failed attempts. Access temporarily locked for 60 seconds.`;
+        } else {
+          // Generic error message: NEVER disclose whether user exists or password was wrong
+          errEl.textContent = 'Invalid email or password.';
         }
-        errEl.textContent = msg === 'Invalid login credentials' ? 'Incorrect email or password.' : msg;
         errEl.style.display = 'block';
+      } else {
+        // Successful login: reset rate limiter counters
+        resetLoginRateLimit();
       }
     } catch (supabaseErr) {
       btn.disabled = false;
       btn.textContent = 'Sign In';
-      console.error('[SUPABASE AUTH EXCEPTION]', supabaseErr);
-      errEl.textContent = 'Connection error (Supabase unreachable). Please check your internet or contact admin.';
+      recordFailedLogin();
+      // Generic network/service error
+      errEl.textContent = 'Authentication service temporarily unavailable. Please verify your connection.';
       errEl.style.display = 'block';
     }
   } else {
     btn.disabled = false;
     btn.textContent = 'Sign In';
-    errEl.textContent = 'Auth service unavailable.';
+    errEl.textContent = 'Authentication service unavailable.';
     errEl.style.display = 'block';
   }
 }
@@ -833,8 +900,14 @@ function parseDateComponents(dateStr) {
     }
   } else {
     const d = new Date(dateStr);
-    y = d.getFullYear();
-    m = d.getMonth() + 1;
+    if (isNaN(d.getTime())) {
+      const now = new Date();
+      y = now.getFullYear();
+      m = now.getMonth() + 1;
+    } else {
+      y = d.getFullYear();
+      m = d.getMonth() + 1;
+    }
   }
   const codes = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
   const monthIdx = (m >= 1 && m <= 12) ? m - 1 : 0;
@@ -4657,11 +4730,24 @@ async function saveCase() {
     return;
   }
 
+  let transferLogged = false;
   if (editingDocCode && (inv1 !== originalInv1 || inv2 !== originalInv2)) {
     if (!transferReason) {
       showToast('Please provide a reason for ownership transfer.', true);
       document.getElementById('f-transfer-reason').focus();
       return;
+    }
+    // Attempt to log transfer if the function exists
+    if (typeof logOwnershipTransfer === 'function') {
+       try {
+         // Formulate prev and next strings
+         const prevStr = `${originalInv1 || 'NA'} / ${originalInv2 || 'NA'}`;
+         const nextStr = `${inv1 || 'NA'} / ${inv2 || 'NA'}`;
+         await logOwnershipTransfer(editingDocCode, prevStr, nextStr, transferReason);
+         transferLogged = true;
+       } catch (e) {
+         console.error('Failed to log transfer:', e);
+       }
     }
   }
   // Local check first for instant feedback; the DB's unique constraint on
@@ -6442,12 +6528,19 @@ async function markStatementPaid() {
 
     // Update Cases
     if (casesToUpdate.length > 0) {
+      const inv1Ids = [];
+      const inv2Ids = [];
       for (const c of casesToUpdate) {
-        let update = {};
-        if (c.inv1 === name) { update.inv1_status = 'Paid'; c.inv1_status = 'Paid'; }
-        if (c.inv2 === name) { update.inv2_status = 'Paid'; c.inv2_status = 'Paid'; }
-        if (supabaseClient) {
-          const { error } = await supabaseClient.from('cases').update(update).eq('id', c.id);
+        if (c.inv1 === name) { c.inv1_status = 'Paid'; inv1Ids.push(c.id); }
+        if (c.inv2 === name) { c.inv2_status = 'Paid'; inv2Ids.push(c.id); }
+      }
+      if (supabaseClient) {
+        if (inv1Ids.length > 0) {
+          const { error } = await supabaseClient.from('cases').update({ inv1_status: 'Paid' }).in('id', inv1Ids);
+          if (error) throw error;
+        }
+        if (inv2Ids.length > 0) {
+          const { error } = await supabaseClient.from('cases').update({ inv2_status: 'Paid' }).in('id', inv2Ids);
           if (error) throw error;
         }
       }
@@ -6455,12 +6548,13 @@ async function markStatementPaid() {
 
     // Update Expenses
     if (expensesToUpdate.length > 0) {
+      const expIds = expensesToUpdate.map(e => e.id);
       for (const e of expensesToUpdate) {
         e.status = 'Paid';
-        if (supabaseClient) {
-          const { error } = await supabaseClient.from('investigator_expenses').update({ status: 'Paid' }).eq('id', e.id);
-          if (error) throw error;
-        }
+      }
+      if (supabaseClient) {
+        const { error } = await supabaseClient.from('investigator_expenses').update({ status: 'Paid' }).in('id', expIds);
+        if (error) throw error;
       }
       localStorage.setItem('DNA_INVESTIGATOR_EXPENSES', JSON.stringify(window.investigatorExpenses));
     }
@@ -7864,41 +7958,297 @@ async function fixMalformedDocCodes() {
 }
 window.fixMalformedDocCodes = fixMalformedDocCodes;
 
-async function clearAllData() {
-  if (!confirm('This will permanently delete ALL cases, activity logs, and investigators from the database. This cannot be undone. Continue?')) return;
-  if (!confirm('Are you absolutely sure? This is the final warning.')) return;
-  
-  showToast('Deleting all data, please wait...');
+// ============================================================
+// DANGER ZONE: STRICT ADMIN + OTP VERIFIED DATABASE PURGE
+// ============================================================
+let purgeOtpCooldownTimer = null;
+let purgeOtpCooldownSecs = 0;
+let purgeAuthMethod = 'otp'; // 'otp' or 'password'
+
+function openPurgeDatabaseModal() {
+  const isAdmin = typeof window.isCurrentUserAdmin !== 'undefined' ? window.isCurrentUserAdmin : false;
+  if (!isAdmin && window.currentUserRole !== 'admin') {
+    showToast('Access Denied: Only administrators can purge database data.', true);
+    return;
+  }
+
+  const modal = document.getElementById('purge-database-modal');
+  if (!modal) return;
+
+  const email = (window.currentUser?.email) || (currentUser?.email) || 'jairanjeet992@gmail.com';
+  const emailDisplay = document.getElementById('purge-admin-email-display');
+  if (emailDisplay) emailDisplay.textContent = email + ' (Admin)';
+
+  const confirmText = document.getElementById('purge-confirm-text');
+  if (confirmText) confirmText.value = '';
+  const otpInput = document.getElementById('purge-otp-input');
+  if (otpInput) otpInput.value = '';
+  const passInput = document.getElementById('purge-password-input');
+  if (passInput) passInput.value = '';
+  const statusEl = document.getElementById('purge-otp-status');
+  if (statusEl) statusEl.textContent = 'Click "Send OTP to Email" to receive your one-time verification code.';
+
+  purgeAuthMethod = 'otp';
+  const otpContainer = document.getElementById('purge-otp-container');
+  const passContainer = document.getElementById('purge-password-container');
+  const altBtn = document.getElementById('purge-alt-method-btn');
+  if (otpContainer) otpContainer.style.display = 'block';
+  if (passContainer) passContainer.style.display = 'none';
+  if (altBtn) altBtn.textContent = '🔑 Or Verify via Password';
+
+  updatePurgeModalState();
+  modal.classList.add('open');
+}
+
+function togglePurgeAuthMethod() {
+  const otpContainer = document.getElementById('purge-otp-container');
+  const passContainer = document.getElementById('purge-password-container');
+  const altBtn = document.getElementById('purge-alt-method-btn');
+
+  if (purgeAuthMethod === 'otp') {
+    purgeAuthMethod = 'password';
+    if (otpContainer) otpContainer.style.display = 'none';
+    if (passContainer) passContainer.style.display = 'block';
+    if (altBtn) altBtn.textContent = '📧 Switch to Email OTP';
+  } else {
+    purgeAuthMethod = 'otp';
+    if (otpContainer) otpContainer.style.display = 'block';
+    if (passContainer) passContainer.style.display = 'none';
+    if (altBtn) altBtn.textContent = '🔑 Or Verify via Password';
+  }
+  updatePurgeModalState();
+}
+
+function updatePurgeModalState() {
+  const confirmText = (document.getElementById('purge-confirm-text')?.value || '').trim();
+  const textMatches = confirmText === 'DELETE ALL DATA';
+  const executeBtn = document.getElementById('purge-execute-btn');
+  if (!executeBtn) return;
+
+  let authValid = false;
+  if (purgeAuthMethod === 'otp') {
+    const otp = (document.getElementById('purge-otp-input')?.value || '').trim();
+    authValid = otp.length >= 6;
+  } else {
+    const pass = (document.getElementById('purge-password-input')?.value || '');
+    authValid = pass.length >= 6;
+  }
+
+  if (textMatches && authValid) {
+    executeBtn.disabled = false;
+    executeBtn.style.opacity = '1';
+    executeBtn.style.cursor = 'pointer';
+  } else {
+    executeBtn.disabled = true;
+    executeBtn.style.opacity = '0.5';
+    executeBtn.style.cursor = 'not-allowed';
+  }
+}
+
+async function sendPurgeOtp() {
+  const sendBtn = document.getElementById('purge-send-otp-btn');
+  const statusEl = document.getElementById('purge-otp-status');
+  const timerEl = document.getElementById('purge-otp-timer');
+  const email = (window.currentUser?.email) || (currentUser?.email) || 'jairanjeet992@gmail.com';
+
+  if (purgeOtpCooldownSecs > 0) return;
+
+  if (sendBtn) {
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending OTP…';
+  }
+
   try {
-    // 1. Delete dependent logs and documents
+    if (!supabaseClient?.auth) {
+      throw new Error('Supabase client unavailable');
+    }
+
+    const { error } = await supabaseClient.auth.signInWithOtp({
+      email: email,
+      options: { shouldCreateUser: false }
+    });
+
+    if (error) throw error;
+
+    if (statusEl) {
+      const safeEmail = typeof esc === 'function' ? esc(email) : email;
+      statusEl.innerHTML = `<span style="color:#16a34a; font-weight:700;">✓ Verification OTP sent to ${safeEmail}.</span> Please check your inbox or spam folder.`;
+    }
+    showToast(`Verification OTP sent to ${email}`);
+
+    purgeOtpCooldownSecs = 60;
+    if (purgeOtpCooldownTimer) clearInterval(purgeOtpCooldownTimer);
+    purgeOtpCooldownTimer = setInterval(() => {
+      purgeOtpCooldownSecs--;
+      if (timerEl) timerEl.textContent = `Resend in ${purgeOtpCooldownSecs}s`;
+      if (purgeOtpCooldownSecs <= 0) {
+        clearInterval(purgeOtpCooldownTimer);
+        if (timerEl) timerEl.textContent = '';
+        if (sendBtn) {
+          sendBtn.disabled = false;
+          sendBtn.textContent = '📧 Resend OTP';
+        }
+      }
+    }, 1000);
+
+    const otpInput = document.getElementById('purge-otp-input');
+    if (otpInput) otpInput.focus();
+
+  } catch (err) {
+    console.error('Failed to send OTP:', err);
+    const safeMsg = typeof esc === 'function' ? esc(err.message) : err.message;
+    if (statusEl) {
+      statusEl.innerHTML = `<span style="color:#dc2626; font-weight:700;">Failed to send OTP:</span> ${safeMsg}. You can switch to password verification below.`;
+    }
+    if (sendBtn) {
+      sendBtn.disabled = false;
+      sendBtn.textContent = '📧 Try Sending Again';
+    }
+  }
+}
+
+async function confirmAndExecutePurge() {
+  const isAdmin = typeof window.isCurrentUserAdmin !== 'undefined' ? window.isCurrentUserAdmin : false;
+  if (!isAdmin && window.currentUserRole !== 'admin') {
+    showToast('Access Denied: Only administrators can execute a database purge.', true);
+    return;
+  }
+
+  const confirmText = (document.getElementById('purge-confirm-text')?.value || '').trim();
+  if (confirmText !== 'DELETE ALL DATA') {
+    showToast('Please type DELETE ALL DATA to confirm.', true);
+    return;
+  }
+
+  const email = (window.currentUser?.email) || (currentUser?.email) || 'jairanjeet992@gmail.com';
+  const executeBtn = document.getElementById('purge-execute-btn');
+  if (executeBtn) {
+    executeBtn.disabled = true;
+    executeBtn.textContent = 'Verifying Credentials…';
+  }
+
+  // 1. Verify OTP or Password
+  try {
+    if (purgeAuthMethod === 'otp') {
+      const otp = (document.getElementById('purge-otp-input')?.value || '').trim();
+      if (!otp || otp.length < 6) {
+        showToast('Please enter the 6-digit OTP received in your email.', true);
+        if (executeBtn) { executeBtn.disabled = false; executeBtn.textContent = '🚨 Permanently Purge Database'; }
+        return;
+      }
+
+      const { data, error } = await supabaseClient.auth.verifyOtp({
+        email: email,
+        token: otp,
+        type: 'email'
+      });
+
+      if (error || !data?.user) {
+        showToast('Invalid or expired OTP verification code.', true);
+        if (executeBtn) { executeBtn.disabled = false; executeBtn.textContent = '🚨 Permanently Purge Database'; }
+        return;
+      }
+    } else {
+      const password = (document.getElementById('purge-password-input')?.value || '');
+      if (!password) {
+        showToast('Please enter your Admin password.', true);
+        if (executeBtn) { executeBtn.disabled = false; executeBtn.textContent = '🚨 Permanently Purge Database'; }
+        return;
+      }
+
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email: email,
+        password: password
+      });
+
+      if (error || !data?.user) {
+        showToast('Incorrect Admin password. Authorization denied.', true);
+        if (executeBtn) { executeBtn.disabled = false; executeBtn.textContent = '🚨 Permanently Purge Database'; }
+        return;
+      }
+    }
+  } catch (authErr) {
+    showToast('Security verification failed: ' + authErr.message, true);
+    if (executeBtn) { executeBtn.disabled = false; executeBtn.textContent = '🚨 Permanently Purge Database'; }
+    return;
+  }
+
+  // 2. Verified! Proceed to take an emergency snapshot before deleting
+  if (executeBtn) executeBtn.textContent = 'Exporting Safety Backup…';
+  try {
+    const emergencyBackup = {
+      timestamp: new Date().toISOString(),
+      purged_by: email,
+      cases: cases || [],
+      investigators: investigators || [],
+      expenses: window.investigatorExpenses || []
+    };
+    downloadFile(`dna_pre_purge_backup_${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(emergencyBackup, null, 2), 'application/json');
+  } catch (backupErr) {
+    console.warn('Could not auto-download emergency backup:', backupErr);
+  }
+
+  // 3. Execute Complete Data Purge
+  if (executeBtn) executeBtn.textContent = 'Purging Records…';
+  try {
+    // Delete dependent tables first
     await supabaseClient.from('activity_log').delete().neq('module', '__never_matches__');
     await supabaseClient.from('investigator_audit_log').delete().neq('action', '__never_matches__');
     await supabaseClient.from('investigator_documents').delete().neq('document_name', '__never_matches__');
     await supabaseClient.from('case_ownership_transfers').delete().not('created_at', 'is', null);
-    
-    // 2. Delete all cases
-    const { data: casesData, error: casesErr } = await supabaseClient.from('cases').delete().neq('doc_code', '__never_matches__').select('id');
+    await supabaseClient.from('investigator_expenses').delete().neq('title', '__never_matches__');
+    await supabaseClient.from('investigator_payouts').delete().neq('investigator_name', '__never_matches__');
+
+    // Delete cases
+    const { error: casesErr } = await supabaseClient.from('cases').delete().neq('doc_code', '__never_matches__');
     if (casesErr) throw casesErr;
-    if (!casesData || casesData.length === 0) {
-      console.warn("Delete all cases returned 0 rows. This might be due to RLS blocking or the table is already empty.");
-    }
-    
-    // 3. Delete all investigators
+
+    // Delete investigators
     const { error: invErr } = await supabaseClient.from('investigators').delete().neq('name', '__never_matches__');
     if (invErr) throw invErr;
-    
-  } catch (err) {
-    console.error(err);
-    showToast('Delete failed: ' + err.message, true);
-    return;
+
+    // Log the purge event
+    try {
+      await supabaseClient.from('activity_log').insert({
+        module: 'System',
+        action: 'DATABASE_PURGED',
+        details: `All cases, investigators, and logs purged by Admin (${email}) with verified OTP`
+      });
+    } catch (_) {}
+
+    closeModal('purge-database-modal');
+    showToast('✓ All data purged successfully. Starting fresh with clean database!');
+
+    // Refresh UI
+    await loadCasesFromDB();
+    await loadInvestigatorsFromDB();
+    window.investigatorExpenses = [];
+    localStorage.removeItem('DNA_INVESTIGATOR_EXPENSES');
+    if (typeof fetchActivityLog === 'function') fetchActivityLog();
+    renderAll();
+
+  } catch (purgeErr) {
+    console.error('Purge error:', purgeErr);
+    showToast('Failed to purge data: ' + purgeErr.message, true);
+  } finally {
+    if (executeBtn) {
+      executeBtn.disabled = false;
+      executeBtn.textContent = '🚨 Permanently Purge Database';
+    }
   }
-  
-  await loadCasesFromDB();
-  await loadInvestigatorsFromDB();
-  if (typeof fetchActivityLog === 'function') fetchActivityLog();
-  renderAll();
-  showToast('All data deleted successfully. Starting fresh!');
 }
+
+window.openPurgeDatabaseModal = openPurgeDatabaseModal;
+window.sendPurgeOtp = sendPurgeOtp;
+window.togglePurgeAuthMethod = togglePurgeAuthMethod;
+window.updatePurgeModalState = updatePurgeModalState;
+window.confirmAndExecutePurge = confirmAndExecutePurge;
+
+// Redirect legacy clearAllData to openPurgeDatabaseModal
+async function clearAllData() {
+  openPurgeDatabaseModal();
+}
+window.clearAllData = clearAllData;
 
 function downloadFile(name, content, type) {
   const blob = new Blob([content], {type});

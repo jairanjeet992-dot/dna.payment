@@ -4,8 +4,8 @@ const key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZi
 const supabase = createClient(url, key);
 
 async function run() {
-  const { data, error } = await supabase.rpc('execute_sql_query', {
-    query: 'ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS details text;'
+  const { data, error } = await supabase.rpc('exec_sql', {
+    sql_query: 'ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS details text;'
   });
   console.log(error || 'Success');
 }

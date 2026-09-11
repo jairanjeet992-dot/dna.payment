@@ -5,14 +5,38 @@ const { WebSocketServer } = require('ws');
 const { GoogleGenAI, Modality, Type } = require('@google/genai');
 
 
-// --- CRASH PROTECTION ---
+// --- CRASH PROTECTION & LIFECYCLE ---
 process.on('uncaughtException', (err) => {
-  console.error('[CRITICAL] Uncaught Exception prevents server crash:', err);
+  console.error('[CRITICAL] Uncaught Exception:', err);
+  if (err.code === 'EADDRINUSE') {
+    console.error('[CRITICAL] Port in use, exiting for supervisor restart.');
+    process.exit(1);
+  }
 });
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[CRITICAL] Unhandled Rejection prevents server crash:', reason);
+  console.error('[CRITICAL] Unhandled Rejection:', reason);
 });
-// ------------------------
+
+function handleShutdown(signal) {
+  console.log(`[SERVER] Received ${signal}. Shutting down gracefully...`);
+  try { if (typeof wss !== 'undefined') wss.close(); } catch (e) {}
+  try {
+    if (typeof server !== 'undefined') {
+      server.close(() => {
+        console.log('[SERVER] Server closed.');
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+  } catch (e) {
+    process.exit(0);
+  }
+  setTimeout(() => process.exit(0), 1500).unref();
+}
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+process.on('SIGINT', () => handleShutdown('SIGINT'));
+// ------------------------------------
 
 const app = express();
 const server = http.createServer(app);
@@ -67,12 +91,13 @@ async function requireAuth(req, res, next) {
 
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data?.user) {
-      return res.status(403).json({ success: false, error: 'Forbidden: Invalid or expired credentials.' });
+      return res.status(403).json({ success: false, error: 'Access denied: Invalid or expired session.' });
     }
     req.user = data.user;
     next();
   } catch (err) {
-    return res.status(500).json({ success: false, error: 'Authentication failed: ' + err.message });
+    console.error('[AUTH ERROR]', err);
+    return res.status(500).json({ success: false, error: 'Authentication verification failed.' });
   }
 }
 
@@ -313,7 +338,8 @@ app.get('/api/backup/download-latest', requireAuth, (req, res) => {
     const filePath = path.join(BACKUPS_DIR, files[0].name);
     res.download(filePath, files[0].name);
   } catch (err) {
-    res.status(500).send('Error downloading backup: ' + err.message);
+    console.error('[BACKUP DOWNLOAD ERROR]', err);
+    res.status(500).send('Unable to download backup at this time.');
   }
 });
 
@@ -329,7 +355,8 @@ app.get('/api/backup/download/:filename', requireAuth, (req, res) => {
     }
     res.download(filePath, safeName);
   } catch (err) {
-    res.status(500).send('Error downloading backup: ' + err.message);
+    console.error('[BACKUP DOWNLOAD ERROR]', err);
+    res.status(500).send('Unable to download requested backup file.');
   }
 });
 
@@ -389,6 +416,21 @@ app.post('/api/gemini/parse-case', rateLimiter, requireAuth, async (req, res) =>
     const { text, fileBase64, mimeType } = req.body;
     if (!text && !fileBase64) {
       return res.status(400).json({ success: false, error: 'Please provide text or upload a document.' });
+    }
+
+    // Server-side validation
+    if (text && typeof text === 'string' && text.length > 250000) {
+      return res.status(400).json({ success: false, error: 'Payload exceeds allowable text size limit.' });
+    }
+
+    if (fileBase64) {
+      if (typeof fileBase64 !== 'string' || fileBase64.length > 15 * 1024 * 1024) {
+        return res.status(400).json({ success: false, error: 'Uploaded document exceeds maximum allowed size (10MB).' });
+      }
+      const allowedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+      if (!mimeType || !allowedMimes.includes(mimeType.toLowerCase())) {
+        return res.status(400).json({ success: false, error: 'Unsupported file format. Please upload PDF, PNG, or JPEG.' });
+      }
     }
 
     const parts = [];
@@ -469,7 +511,7 @@ ${text ? 'Text content:\n' + text : ''}`;
     return res.json({ success: true, data: parsedJson });
   } catch (err) {
     console.error('[API /api/gemini/parse-case] Error:', err);
-    return res.status(500).json({ success: false, error: err.message || 'Failed to extract case details with Gemini' });
+    return res.status(500).json({ success: false, error: 'Unable to process document at this time. Please try again.' });
   }
 });
 
@@ -657,6 +699,15 @@ app.get('*', (req, res, next) => {
   }
 });
 
+server.on('error', (err) => {
+  console.error('[SERVER ERROR]', err);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[CRITICAL] Port ${port} is already in use. Exiting process.`);
+    process.exit(1);
+  }
+});
+
 server.listen(port, '0.0.0.0', () => {
   console.log(`Server is running on http://0.0.0.0:${port}`);
+  console.log(`Ready on port ${port}`);
 });

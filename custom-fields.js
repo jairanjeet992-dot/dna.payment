@@ -11,12 +11,14 @@ window.renderCustomFieldsSettings = function() {
         list.innerHTML = '<div style="padding:10px; color:var(--sub); text-align:center;">No custom fields added</div>';
         return;
     }
-    list.innerHTML = window.CUSTOM_FIELDS.map(cf => `
+    list.innerHTML = window.CUSTOM_FIELDS.map(cf => {
+        const safeName = typeof esc === 'function' ? esc(cf.name) : cf.name.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return `
         <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; border-bottom:1px solid var(--line);">
-            <span><b>${cf.name}</b> <small style="color:var(--sub)">(${cf.type})</small></span>
+            <span><b>${safeName}</b> <small style="color:var(--sub)">(${cf.type})</small></span>
             <button class="btn btn-sm" style="color:var(--red); background:none; border:none;" onclick="removeCustomField('${cf.id}')">✖</button>
         </div>
-    `).join('');
+    `}).join('');
 }
 
 // Add new field from settings UI
@@ -87,13 +89,15 @@ window.injectCustomFieldsIntoForm = function() {
     }
     
     container.style.display = '';
-    container.innerHTML = window.CUSTOM_FIELDS.map(cf => `
+    container.innerHTML = window.CUSTOM_FIELDS.map(cf => {
+        const safeName = typeof esc === 'function' ? esc(cf.name) : cf.name.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return `
         <div class="fg">
-            <label>${cf.name}</label>
+            <label>${safeName}</label>
             <input type="${cf.type === 'number' ? 'number' : cf.type === 'date' ? 'date' : 'text'}" 
                    id="f-cf-${cf.id}" data-cfid="${cf.id}" ${cf.type === 'number' ? 'step="any"' : ''} class="dynamic-cf-input">
         </div>
-    `).join('');
+    `}).join('');
 }
 
 window.populateCustomFieldsInForm = function(customData) {
