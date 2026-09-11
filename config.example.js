@@ -12,11 +12,11 @@
 
 window.APP_CONFIG = {
   supabase: {
-    url: 'https://aacvwozpfjuhcvihnaen.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhY3Z3b3pwZmp1aGN2aWhuYWVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3Nzc2MjUsImV4cCI6MjEwMjM1MzYyNX0.nPHpd2YeC-VgF-xKCKO7kLzr_5TncD84b8IOzoiKAIk'
+    url: 'https://YOUR_PROJECT_ID.supabase.co',
+    anonKey: 'YOUR_SUPABASE_ANON_KEY'
   },
   googleDrive: {
-    clientId: '1051883487866-db1eelsu3ue0f2ue4b29aqa0qt2ca4qv.apps.googleusercontent.com'
+    clientId: 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com'
   }
 };
 
