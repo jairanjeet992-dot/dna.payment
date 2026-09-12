@@ -82,6 +82,7 @@ if (window.supabaseClient) {
           const activeModal = document.querySelector('.modal.open');
           const isTyping = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT' || document.activeElement.tagName === 'TEXTAREA');
           if (activeModal || isTyping) {
+            window.__pendingRealtimeRender = true;
             return;
           }
           if (typeof window.renderAll === 'function') {

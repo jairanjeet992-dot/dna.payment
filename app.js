@@ -147,8 +147,8 @@ function getCurrentFY() {
 function getAvailableMonths() {
   const now = new Date();
   const present = new Set(cases.filter(c=>c.date).map(c => {
-    const d = new Date(c.date);
-    return (d.getMonth()+1)+'-'+d.getFullYear();
+    const { y, m } = parseDateComponents(c.date);
+    return m + '-' + y;
   }));
   present.add((now.getMonth()+1)+'-'+now.getFullYear());
   return MONTHS.filter(mo => present.has(mo.m+'-'+mo.y));
@@ -161,8 +161,8 @@ function getAvailableFYs() {
   const years = new Set([currentFYStart]);
   cases.forEach(c => {
     if (!c.date) return;
-    const d = new Date(c.date);
-    const fyStart = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear()-1;
+    const { y, m } = parseDateComponents(c.date);
+    const fyStart = m >= 4 ? y : y - 1;
     years.add(fyStart);
   });
   return Array.from(years).sort((a,b)=>b-a).map(y => ({
@@ -1770,6 +1770,8 @@ function resetFilters() {
 }
 
 let lastFilterState = null;
+function isFilterActive() { return lastFilterState && lastFilterState !== '|||||'; }
+
 function filterCases() {
   const search = (document.getElementById('search-case').value||'').toLowerCase();
   const company = (document.getElementById('filter-company').value || '').toLowerCase();
@@ -3221,8 +3223,8 @@ function renderExpenseLedgerTable() {
     if (mo) {
       list = list.filter(e => {
         if (e.month_code === mo.code) return true;
-        const d = new Date(e.date);
-        return (d.getMonth() + 1) === mo.m && d.getFullYear() === mo.y;
+        const { y, m } = parseDateComponents(e.date);
+    return m === mo.m && y === mo.y;
       });
     }
   }
@@ -3317,8 +3319,8 @@ function exportExpenseLedgerCSV() {
     if (mo) {
       list = list.filter(e => {
         if (e.month_code === mo.code) return true;
-        const d = new Date(e.date);
-        return (d.getMonth() + 1) === mo.m && d.getFullYear() === mo.y;
+        const { y, m } = parseDateComponents(e.date);
+    return m === mo.m && y === mo.y;
       });
     }
   }
@@ -3355,8 +3357,8 @@ function renderMonthly(idx) {
 
   const monthCases = getVisibleCases().filter(c => {
     if (!c.date) return false;
-    const d = new Date(c.date);
-    return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+    const { y, m } = parseDateComponents(c.date);
+    return m === mo.m && y === mo.y;
   });
 
   const monthExpenses = getExpensesForMonth(mo);
@@ -3590,8 +3592,8 @@ function renderYearly() {
 
   const yearCases = getVisibleCases().filter(c => {
     if (!c.date) return false;
-    const d = new Date(c.date);
-    return fyMonths.some(m => (d.getMonth()+1)===m.m && d.getFullYear()===m.y);
+    const { y: cy, m: cm } = parseDateComponents(c.date);
+    return fyMonths.some(m => cm===m.m && cy===m.y);
   });
 
   const totalPayable = yearCases.reduce((s,c)=>s+(c.total_payable||0),0);
@@ -3647,8 +3649,8 @@ INVESTIGATORS.forEach(name => {
   const monthlyTbody = document.querySelector('#yearly-monthly-table tbody');
   monthlyTbody.innerHTML = fyMonths.map(mo => {
     const rows = yearCases.filter(c => {
-      const d = new Date(c.date);
-      return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+      const { y, m } = parseDateComponents(c.date);
+    return m === mo.m && y === mo.y;
     });
     const payable = rows.reduce((s,c)=>s+(c.total_payable||0),0);
     const received = rows.reduce((s,c)=>s+(c.received||0),0);
@@ -3978,8 +3980,14 @@ function editCase(idx) {
   document.getElementById('f-hospital').value = c.hospital||'';
   document.getElementById('f-location').value = c.location||'';
   document.getElementById('f-sla').value = c.sla_hours||'';
-  document.getElementById('f-inv1').value = c.inv1||'';
-  document.getElementById('f-inv2').value = c.inv2||'';
+  // Ensure casing matches dropdown before assigning
+  const resolveCasing = (v) => {
+    if (!v || v === 'NA') return v || '';
+    const exact = getAllInvestigators().find(x => x.toLowerCase() === v.toLowerCase());
+    return exact || v;
+  };
+  document.getElementById('f-inv1').value = resolveCasing(c.inv1);
+  document.getElementById('f-inv2').value = resolveCasing(c.inv2);
   document.getElementById('f-fee1').value = c.fee1||'';
   document.getElementById('f-fee2').value = c.fee2||'';
   document.getElementById('f-ta1').value = c.ta1||'';
@@ -4892,7 +4900,13 @@ async function saveCase() {
   if (window.logActivity) window.logActivity('Cases', editingDocCode ? `updated case ${editingDocCode}` : `created case ${claim}`); showToast(editingDocCode ? 'Case updated.' : 'Case added.');
 }
 
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  if (window.__pendingRealtimeRender && typeof window.renderAll === 'function' && !document.querySelector('.modal.open')) {
+    window.__pendingRealtimeRender = false;
+    window.renderAll();
+  }
+}
 
 async function deleteCurrentCase() {
   if (!editingDocCode) return;
@@ -6065,7 +6079,9 @@ async function commitImportPreview() {
   });
   const resolveName = (n) => {
     if (!n || n==='NA') return n||'';
-    return nameResolution[n] !== undefined ? nameResolution[n] : n;
+    if (nameResolution[n] !== undefined && nameResolution[n] !== n) return nameResolution[n];
+    const exact = knownInvLower.get(n.toLowerCase());
+    return exact || n;
   };
 
   const companyResolution = {};
@@ -6113,15 +6129,8 @@ async function commitImportPreview() {
       
       const { code: monthCode } = parseDateComponents(r.date);
       
-      let doc_code;
-      if (localMonthCounters[monthCode]) {
-        localMonthCounters[monthCode]++;
-        doc_code = `${monthCode}-${String(localMonthCounters[monthCode]).padStart(4, '0')}`;
-      } else {
-        doc_code = await genDocCodeDB(r.date);
-        const match = doc_code.match(/-(\d+)$/);
-        localMonthCounters[monthCode] = match ? parseInt(match[1], 10) : 1;
-      }
+      // Bug 1 Fix: Always await genDocCodeDB to guarantee atomic sequences and prevent Race Conditions
+      let doc_code = await genDocCodeDB(r.date);
 
       toInsert.push({
         doc_code, company, date: r.date, case_type: r.case_type, claim_no: r.claim_no,
@@ -6152,8 +6161,10 @@ async function commitImportPreview() {
         for (const item of toInsert) {
           const { data: existing } = await supabaseClient.from('cases').select('id, doc_code').eq('company', item.company).eq('claim_no', item.claim_no).maybeSingle();
           if (existing) {
-            await supabaseClient.from('cases').update(item).eq('doc_code', existing.doc_code);
+            const { doc_code, ...updateFields } = item;
+            await supabaseClient.from('cases').update(updateFields).eq('doc_code', existing.doc_code);
           } else {
+            item.doc_code = await genDocCodeDB(item.date);
             await supabaseClient.from('cases').insert([item]);
           }
         }
@@ -6323,8 +6334,8 @@ async function generateReport() {
     const mo = MONTHS[activeMonth];
     reportRows = cases.filter(c => {
       if (!c.date) return false;
-      const d = new Date(c.date);
-      return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+      const { y, m } = parseDateComponents(c.date);
+    return m === mo.m && y === mo.y;
     });
     title = `Monthly Summary — ${mo.label}`;
     const payable = reportRows.reduce((s,c)=>s+(c.total_payable||0),0);
@@ -6404,8 +6415,8 @@ function buildBulkSlipSummary() {
   INVESTIGATORS.forEach(name => {
     const monthCases = cases.filter(c => {
       if (!c.date) return false;
-      const d = new Date(c.date);
-      return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y && (c.inv1===name || c.inv2===name);
+      const { y, m } = parseDateComponents(c.date);
+    return m === mo.m && y === mo.y && (c.inv1===name || c.inv2===name);
     });
     if (!monthCases.length) return;
     if (INVESTIGATOR_PHONES[name]) withNumber.push(name); else withoutNumber.push(name);
@@ -6424,8 +6435,8 @@ function startBulkSlipSend() {
   INVESTIGATORS.forEach(name => {
     const monthCases = cases.filter(c => {
       if (!c.date) return false;
-      const d = new Date(c.date);
-      return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y && (c.inv1===name || c.inv2===name);
+      const { y, m } = parseDateComponents(c.date);
+    return m === mo.m && y === mo.y && (c.inv1===name || c.inv2===name);
     });
     if (monthCases.length && INVESTIGATOR_PHONES[name]) {
       slipQueue.push({name, mo, monthCases});
@@ -6505,8 +6516,8 @@ async function markStatementPaid() {
   try {
     const casesToUpdate = cases.filter(c => {
       if (!c.date) return false;
-      const d = new Date(c.date);
-      const isMonth = (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+      const { y: cy, m: cm } = parseDateComponents(c.date);
+      const isMonth = cm===mo.m && cy===mo.y;
       if (!isMonth) return false;
       
       const asInv1 = (c.inv1 === name && (c.inv1_status || '').trim() !== 'Paid');
@@ -6516,8 +6527,8 @@ async function markStatementPaid() {
 
     const expensesToUpdate = (window.investigatorExpenses || []).filter(e => {
       if (e.investigator_name !== name || !e.date || e.status === 'Paid') return false;
-      const d = new Date(e.date);
-      return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+      const { y, m } = parseDateComponents(e.date);
+    return m === mo.m && y === mo.y;
     });
 
     if (casesToUpdate.length === 0 && expensesToUpdate.length === 0) {
@@ -6564,14 +6575,14 @@ async function markStatementPaid() {
       const tax = typeof getSlipTaxConfig === 'function' ? getSlipTaxConfig() : { rate: 0, label: '0%', base: 'fees_only' };
       const allMonthCases = cases.filter(c => {
         if (!c.date) return false;
-        const d = new Date(c.date);
-        return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y && (c.inv1===name || c.inv2===name);
+        const { y, m } = parseDateComponents(c.date);
+    return m === mo.m && y === mo.y && (c.inv1===name || c.inv2===name);
       });
       const stats = computeInvStats(name, allMonthCases);
       const allMonthExpenses = (window.investigatorExpenses || []).filter(e => {
         if (e.investigator_name !== name || !e.date) return false;
-        const d = new Date(e.date);
-        return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+        const { y, m } = parseDateComponents(e.date);
+    return m === mo.m && y === mo.y;
       });
       const expTotal = allMonthExpenses.reduce((s, e) => s + (Number(e.amount)||0), 0);
       const taxableBase = tax.base === 'fees_only' ? (stats.totalFees || 0) : (stats.totalPayable + expTotal);
@@ -6675,15 +6686,15 @@ function updateSlipTaxPreview() {
 
   const monthCases = cases.filter(c => {
     if (!c.date) return false;
-    const d = new Date(c.date);
-    return (d.getMonth() + 1) === mo.m && d.getFullYear() === mo.y && (c.inv1 === name || c.inv2 === name);
+    const { y, m } = parseDateComponents(c.date);
+    return m === mo.m && y === mo.y && (c.inv1 === name || c.inv2 === name);
   });
 
   const stats = computeInvStats(name, monthCases);
   const monthExpenses = (window.investigatorExpenses || []).filter(e => {
     if (e.investigator_name !== name || !e.date) return false;
-    const d = new Date(e.date);
-    return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+    const { y, m } = parseDateComponents(e.date);
+    return m === mo.m && y === mo.y;
   });
   const expTotal = monthExpenses.reduce((s, e) => s + (Number(e.amount)||0), 0);
   const expPaid = monthExpenses.filter(e => e.status === 'Paid').reduce((s, e) => s + (Number(e.amount)||0), 0);
@@ -6759,14 +6770,14 @@ function sendSlipWhatsApp() {
 
   const monthCases = cases.filter(c => {
     if (!c.date) return false;
-    const d = new Date(c.date);
-    return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y && (c.inv1===name || c.inv2===name);
+    const { y, m } = parseDateComponents(c.date);
+    return m === mo.m && y === mo.y && (c.inv1===name || c.inv2===name);
   });
   const stats = computeInvStats(name, monthCases);
   const monthExpenses = (window.investigatorExpenses || []).filter(e => {
     if (e.investigator_name !== name || !e.date) return false;
-    const d = new Date(e.date);
-    return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+    const { y, m } = parseDateComponents(e.date);
+    return m === mo.m && y === mo.y;
   });
   const expTotal = monthExpenses.reduce((s, e) => s + (Number(e.amount)||0), 0);
   const expPaid = monthExpenses.filter(e => e.status === 'Paid').reduce((s, e) => s + (Number(e.amount)||0), 0);
@@ -6824,8 +6835,8 @@ async function generateSlip(previewOnly = true) {
   }
   const monthCases = cases.filter(c => {
     if (!c.date) return false;
-    const d = new Date(c.date);
-    return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y && (c.inv1===name || c.inv2===name);
+    const { y, m } = parseDateComponents(c.date);
+    return m === mo.m && y === mo.y && (c.inv1===name || c.inv2===name);
   });
   if (monthCases.length === 0) {
     showToast('No cases found for selected investigator and month', true);
@@ -6834,8 +6845,8 @@ async function generateSlip(previewOnly = true) {
   const stats = computeInvStats(name, monthCases);
   const monthExpenses = (window.investigatorExpenses || []).filter(e => {
     if (e.investigator_name !== name || !e.date) return false;
-    const d = new Date(e.date);
-    return (d.getMonth()+1)===mo.m && d.getFullYear()===mo.y;
+    const { y, m } = parseDateComponents(e.date);
+    return m === mo.m && y === mo.y;
   });
   const expTotal = monthExpenses.reduce((s, e) => s + (Number(e.amount)||0), 0);
   const expPaid = monthExpenses.filter(e => e.status === 'Paid').reduce((s, e) => s + (Number(e.amount)||0), 0);
@@ -7511,7 +7522,7 @@ function exportExcel() {
     showToast('Excel export needs an internet connection (loads a library from CDN). Use CSV export instead if offline.', true);
     return;
   }
-  const sourceList = (filteredCases && filteredCases.length) ? filteredCases : cases;
+  const sourceList = (typeof isFilterActive === 'function' && isFilterActive()) ? (filteredCases || []) : cases;
   const rows = sourceList.map(c => {
     const r = {
         'Doc Code': c.doc_code, 'Company': c.company, 'Date': c.date, 'Case Type': c.case_type,
@@ -7534,7 +7545,7 @@ function exportExcel() {
 }
 
 async function exportPDF() {
-  const rows = filteredCases.length ? filteredCases : cases;
+  const rows = (typeof isFilterActive === 'function' && isFilterActive()) ? (filteredCases || []) : cases;
   const title = `All Cases Export (${rows.length} cases)`;
   const html = buildReportHTML(title, [`Total Cases: ${rows.length}`, `Generated: ${new Date().toLocaleDateString('en-IN')}`], rows);
   const filename = `DNA_Cases_Export_${new Date().toISOString().slice(0,10)}.pdf`;
@@ -7546,7 +7557,7 @@ function exportForSheets() {
   const headers = ['Doc Code','Company','Date','Case Type','Claim No','Policy No','Insured Name','Hospital','Location','Invoice No','Invoice Amount','INV1','INV2','Fee1','Fee2','TA1','TA2','Total Payable','Received','TDS Deducted','Profit','INV1 Status','INV2 Status','INV1 Hard Copy','INV2 Hard Copy','Company Dispatch','AWB No','Outcome','SLA (Hours)','Due Date','Risk Level','Completed At','Exception','Exception Reason','Remarks'];
   if (window.CUSTOM_FIELDS) window.CUSTOM_FIELDS.forEach(cf => headers.push(cf.name));
   
-  const sourceList = (filteredCases && filteredCases.length) ? filteredCases : cases;
+  const sourceList = (typeof isFilterActive === 'function' && isFilterActive()) ? (filteredCases || []) : cases;
   const csv = [
     headers,
     ...sourceList.map(c => {
@@ -7788,6 +7799,56 @@ async function renderServerBackupsTable() {
     }).join('');
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:16px; color:var(--red);">Failed to load backups list: ${err.message}</td></tr>`;
+  }
+}
+
+
+// Automatically scans database and fixes investigator names that match case-insensitively but have the wrong exact casing
+async function autoFixInvestigatorCasing() {
+  if (typeof getAllInvestigators !== 'function') return;
+  const known = getAllInvestigators();
+  if (!known || !known.length) return;
+  
+  const knownMap = new Map();
+  known.forEach(k => knownMap.set(k.toLowerCase(), k));
+  
+  const updates = [];
+  
+  for (const c of cases) {
+    let needsUpdate = false;
+    const payload = {};
+    
+    if (c.inv1 && c.inv1 !== 'NA') {
+      const correct = knownMap.get(c.inv1.toLowerCase());
+      if (correct && correct !== c.inv1) {
+        c.inv1 = correct; // mutate local state immediately
+        payload.inv1 = correct;
+        needsUpdate = true;
+      }
+    }
+    
+    if (c.inv2 && c.inv2 !== 'NA') {
+      const correct = knownMap.get(c.inv2.toLowerCase());
+      if (correct && correct !== c.inv2) {
+        c.inv2 = correct;
+        payload.inv2 = correct;
+        needsUpdate = true;
+      }
+    }
+    
+    if (needsUpdate && c.doc_code) {
+      updates.push({ doc_code: c.doc_code, payload });
+    }
+  }
+  
+  if (updates.length > 0) {
+    console.log(`[Auto-Fix] Repairing exact casing for ${updates.length} case(s)...`);
+    // Batch updates sequentially to avoid locking the client
+    for (const u of updates) {
+      await supabaseClient.from('cases').update(u.payload).eq('doc_code', u.doc_code);
+    }
+    console.log('[Auto-Fix] Investigator casing repair complete.');
+    if (typeof renderAll === 'function') renderAll();
   }
 }
 
@@ -9792,3 +9853,17 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+
+// Debounced realtime render on focus lost
+document.addEventListener('focusout', (e) => {
+  if (e.target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) {
+    setTimeout(() => {
+      const isTyping = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
+      const activeModal = document.querySelector('.modal.open');
+      if (!isTyping && !activeModal && window.__pendingRealtimeRender && typeof window.renderAll === 'function') {
+        window.__pendingRealtimeRender = false;
+        window.renderAll();
+      }
+    }, 100);
+  }
+});

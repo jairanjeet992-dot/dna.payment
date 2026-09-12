@@ -378,9 +378,38 @@
 
       // Validation errors ONLY if creating brand new case without essentials
       let error = null;
-      if (!isMerge && !isBatchDup) {
+      
+      // Standardize and Validate Company
+      let finalCompany = company ? company.trim().toUpperCase() : (matchedExisting ? matchedExisting.company : '');
+      if (finalCompany && window.COMPANIES) {
+        const exactCo = window.COMPANIES.find(c => c.toUpperCase() === finalCompany);
+        if (exactCo) {
+          finalCompany = exactCo;
+        } else {
+          const cleanCo = cleanKey(finalCompany);
+          const fuzzyCo = window.COMPANIES.find(c => cleanKey(c) === cleanCo);
+          if (fuzzyCo) finalCompany = fuzzyCo;
+          else error = `Invalid Company: "${company}". Please fix spelling or add to Settings.`;
+        }
+      }
+
+      // Standardize and Validate Case Type
+      let finalCaseType = case_type ? case_type.trim().toUpperCase() : (matchedExisting ? matchedExisting.case_type : '');
+      if (finalCaseType && window.CASE_TYPES) {
+        const exactCt = window.CASE_TYPES.find(c => c.toUpperCase() === finalCaseType);
+        if (exactCt) {
+          finalCaseType = exactCt;
+        } else {
+          const cleanCt = cleanKey(finalCaseType);
+          const fuzzyCt = window.CASE_TYPES.find(c => cleanKey(c) === cleanCt);
+          if (fuzzyCt) finalCaseType = fuzzyCt;
+          else if (!error) error = `Invalid Case Type: "${case_type}". Please fix spelling or add to Settings.`;
+        }
+      }
+
+      if (!isMerge && !isBatchDup && !error) {
         if (!claim_no) error = 'Missing Claim No';
-        else if (!company) error = 'Missing Company name';
+        else if (!finalCompany) error = 'Missing Company name';
         else if (!insured_name) error = 'Missing Insured / Patient name';
       }
 
@@ -392,9 +421,9 @@
         matchedDocCode: matchedExisting ? matchedExisting.doc_code : null,
         isBatchDup,
         claim_no: claim_no || (matchedExisting ? matchedExisting.claim_no : ''),
-        company: (company ? company.toUpperCase() : (matchedExisting ? matchedExisting.company : '')),
+        company: finalCompany,
         date: useDate,
-        case_type: (case_type ? case_type.toUpperCase() : (matchedExisting ? matchedExisting.case_type : '')),
+        case_type: finalCaseType,
         policy_no: policy_no || (matchedExisting ? matchedExisting.policy_no : ''),
         insured_name: insured_name || (matchedExisting ? matchedExisting.insured_name : ''),
         hospital: hospital || (matchedExisting ? matchedExisting.hospital : ''),
@@ -976,7 +1005,9 @@
 
     const resolveName = (n) => {
       if (!n || n === 'NA') return n || '';
-      return nameResolution[n] !== undefined ? nameResolution[n] : n;
+      if (nameResolution[n] !== undefined && nameResolution[n] !== n) return nameResolution[n];
+      const exact = knownInvLower.get(n.toLowerCase());
+      return exact || n;
     };
 
     let newRows = rows.filter(r => !r.error && !r.isMerge && !r.isBatchDup);
