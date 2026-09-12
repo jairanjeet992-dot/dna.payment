@@ -391,22 +391,13 @@ async function doLogin() {
   const pass = document.getElementById('login-pass').value;
   errEl.style.display = 'none';
 
-  // 1. Rate Limit Check
-  const rateLimit = getLoginRateLimitState();
-  if (rateLimit.locked) {
-    errEl.textContent = `Too many failed attempts. Access temporarily locked. Please wait ${rateLimit.remainingSecs}s.`;
-    errEl.style.display = 'block';
-    return;
-  }
-
-  // 2. Input Presence Validation
+  // 1. Client-Side Quick Validation
   if (!email || !pass) {
     errEl.textContent = 'Please enter both your email address and password.';
     errEl.style.display = 'block';
     return;
   }
 
-  // 3. Email Format Validation
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
     errEl.textContent = 'Invalid email or password.';
@@ -417,39 +408,70 @@ async function doLogin() {
   btn.disabled = true;
   btn.textContent = 'Signing in…';
 
-  // 4. Supabase Authentication
-  if (supabaseClient?.auth) {
-    try {
-      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
-      btn.disabled = false;
-      btn.textContent = 'Sign In';
+  // 2. Server-Side Protected Login (IP & User Rate Limited)
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pass })
+    });
 
-      if (error) {
-        const status = recordFailedLogin();
-        if (status.locked) {
-          errEl.textContent = `Too many failed attempts. Access temporarily locked for 60 seconds.`;
-        } else {
-          // Generic error message: NEVER disclose whether user exists or password was wrong
-          errEl.textContent = 'Invalid email or password.';
-        }
-        errEl.style.display = 'block';
-      } else {
-        // Successful login: reset rate limiter counters
-        resetLoginRateLimit();
-      }
-    } catch (supabaseErr) {
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
       btn.disabled = false;
       btn.textContent = 'Sign In';
-      recordFailedLogin();
-      // Generic network/service error
-      errEl.textContent = 'Authentication service temporarily unavailable. Please verify your connection.';
+      errEl.textContent = data.error || 'Invalid email or password.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    // 3. Establish Session on Client Supabase SDK
+    if (supabaseClient?.auth && data.session) {
+      resetLoginRateLimit();
+      const { error: sessionErr } = await supabaseClient.auth.setSession({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token
+      });
+
+      if (sessionErr) {
+        console.warn('[AUTH] setSession error, falling back to direct sign-in:', sessionErr);
+        await supabaseClient.auth.signInWithPassword({ email, password: pass });
+      }
+      // UI transition is handled automatically by onAuthStateChange
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+      errEl.textContent = 'Invalid email or password.';
       errEl.style.display = 'block';
     }
-  } else {
-    btn.disabled = false;
-    btn.textContent = 'Sign In';
-    errEl.textContent = 'Authentication service unavailable.';
-    errEl.style.display = 'block';
+  } catch (netErr) {
+    console.warn('[AUTH] Server login endpoint unavailable, attempting fallback:', netErr);
+    // Offline / fallback path
+    if (supabaseClient?.auth) {
+      try {
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+
+        if (error) {
+          errEl.textContent = 'Invalid email or password.';
+          errEl.style.display = 'block';
+        } else {
+          resetLoginRateLimit();
+        }
+      } catch (fallbackErr) {
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+        errEl.textContent = 'Authentication service temporarily unavailable. Please try again.';
+        errEl.style.display = 'block';
+      }
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+      errEl.textContent = 'Authentication service unavailable.';
+      errEl.style.display = 'block';
+    }
   }
 }
 
@@ -3016,9 +3038,9 @@ async function saveInvestigatorExpenseDB(exp) {
   const id = exp.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'exp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
   const record = {
     id,
-    investigator_name: exp.investigator_name,
+    investigator_name: (exp.investigator_name || '').trim(),
     category: exp.category,
-    amount: Number(exp.amount) || 0,
+    amount: Math.max(0, Number(exp.amount) || 0),
     date: exp.date,
     month_code: exp.month_code,
     status: exp.status || 'Pending',
@@ -4106,8 +4128,18 @@ async function finishInlineEdit(cell, cancelled) {
   // Save to DB
   try {
     const update = {};
-    const parsedVal = (type === 'number' ? parseFloat(newVal) : newVal);
-    if (type === 'number' && Number.isNaN(parsedVal)) throw new Error('Invalid number');
+    let parsedVal = (type === 'number' ? parseFloat(newVal) : newVal);
+    if (type === 'number') {
+      if (Number.isNaN(parsedVal)) throw new Error('Invalid number');
+      if (parsedVal < 0 && ['fee1', 'fee2', 'ta1', 'ta2', 'received', 'invoice_amount', 'tds_deducted'].includes(field)) {
+        throw new Error('Amount cannot be negative');
+      }
+    } else if (typeof parsedVal === 'string') {
+      parsedVal = parsedVal.trim();
+      if (['claim_no', 'company'].includes(field) && !parsedVal) {
+        throw new Error('This field cannot be blank');
+      }
+    }
     
     if (field.startsWith('custom_')) {
         const cfId = field.replace('custom_', '');
@@ -4821,9 +4853,9 @@ async function saveCase() {
     location: document.getElementById('f-location').value,
     inv1, inv2: document.getElementById('f-inv2').value,
     fee1, fee2, ta1, ta2, received,
-    tds_deducted: parseFloat(document.getElementById('f-tds')?.value) || 0,
-    invoice_no: document.getElementById('f-invoice').value,
-    invoice_amount: parseFloat(document.getElementById('f-invoice-amount').value) || null,
+    tds_deducted: Math.max(0, parseFloat(document.getElementById('f-tds')?.value) || 0),
+    invoice_no: (document.getElementById('f-invoice').value || '').trim(),
+    invoice_amount: document.getElementById('f-invoice-amount').value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-amount').value) || 0) : null,
     inv1_status: document.getElementById('f-inv1status').value,
     inv2_status: finalInv2Status,
     hardcopy1_status: document.getElementById('f-hardcopy1status').value,
@@ -7491,12 +7523,16 @@ async function _saveListsToDB() {
 async function updateOwnPassword() {
   const newPass = document.getElementById('set-own-pass').value;
   if (!newPass) { showToast('Enter a new password first.', true); return; }
-  if (newPass.length < 6) { showToast('Password must be at least 6 characters.', true); return; }
+  if (newPass.length < 8) { showToast('Password must be at least 8 characters long.', true); return; }
+  if (!/[A-Za-z]/.test(newPass) || !/[0-9]/.test(newPass)) {
+    showToast('Password must contain both letters and numbers for security.', true);
+    return;
+  }
   if (!supabaseClient?.auth) { showToast('Supabase client is not initialized.', true); return; }
   const { error } = await supabaseClient.auth.updateUser({ password: newPass });
   if (error) { showToast(error.message, true); return; }
   document.getElementById('set-own-pass').value = '';
-  showToast('Password updated.');
+  showToast('Password updated successfully.');
 }
 
 function inviteStaff() {

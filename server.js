@@ -360,6 +360,114 @@ app.get('/api/backup/download/:filename', requireAuth, (req, res) => {
   }
 });
 
+// ============================================================
+// SERVER-SIDE AUTH PROXY & BRUTE-FORCE RATE LIMITER
+// ============================================================
+const authRateLimitMap = new Map();
+const AUTH_MAX_ATTEMPTS = 5;
+const AUTH_LOCKOUT_WINDOW_MS = 15 * 60 * 1000; // 15-minute lock on 5 failures
+
+// Automated cleanup to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of authRateLimitMap.entries()) {
+    if (now > record.resetTime) {
+      authRateLimitMap.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const clientIp = rawIp.split(',')[0].trim();
+    const { email, password } = req.body || {};
+
+    const normalizedEmail = (email || '').toString().trim().toLowerCase();
+    const rawPassword = (password || '').toString();
+
+    const now = Date.now();
+    const ipKey = `ip:${clientIp}`;
+    const userKey = `user:${clientIp}:${normalizedEmail}`;
+
+    const ipRecord = authRateLimitMap.get(ipKey) || { count: 0, resetTime: now + AUTH_LOCKOUT_WINDOW_MS };
+    const userRecord = authRateLimitMap.get(userKey) || { count: 0, resetTime: now + AUTH_LOCKOUT_WINDOW_MS };
+
+    // Check if either IP or this IP+Email is locked
+    const isIpLocked = ipRecord.count >= (AUTH_MAX_ATTEMPTS * 3) && now < ipRecord.resetTime;
+    const isUserLocked = userRecord.count >= AUTH_MAX_ATTEMPTS && now < userRecord.resetTime;
+
+    if (isIpLocked || isUserLocked) {
+      const activeReset = isIpLocked ? ipRecord.resetTime : userRecord.resetTime;
+      const remainingSecs = Math.max(Math.ceil((activeReset - now) / 1000), 1);
+      const remainingMins = Math.ceil(remainingSecs / 60);
+      console.warn(`[SECURITY] Login rate limit enforced for ${normalizedEmail || 'unknown'} from IP ${clientIp}`);
+      return res.status(429).json({
+        success: false,
+        error: `Too many failed login attempts. Access temporarily locked for ${remainingMins} minute(s). Please try again later.`,
+        remainingSecs
+      });
+    }
+
+    // Strict input presence & format check
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!normalizedEmail || !rawPassword || !emailRegex.test(normalizedEmail)) {
+      userRecord.count++;
+      userRecord.resetTime = now + AUTH_LOCKOUT_WINDOW_MS;
+      authRateLimitMap.set(userKey, userRecord);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid email or password.'
+      });
+    }
+
+    // Authenticate securely via Supabase Auth
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: rawPassword
+    });
+
+    if (error || !data?.session) {
+      // Record failure on both IP and account key
+      userRecord.count++;
+      userRecord.resetTime = now + AUTH_LOCKOUT_WINDOW_MS;
+      authRateLimitMap.set(userKey, userRecord);
+
+      ipRecord.count++;
+      ipRecord.resetTime = now + AUTH_LOCKOUT_WINDOW_MS;
+      authRateLimitMap.set(ipKey, ipRecord);
+
+      const remaining = Math.max(0, AUTH_MAX_ATTEMPTS - userRecord.count);
+      console.warn(`[SECURITY] Failed login for ${normalizedEmail} from ${clientIp}. Remaining attempts: ${remaining}`);
+
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid email or password.'
+      });
+    }
+
+    // Successful login: clear lockout counters
+    authRateLimitMap.delete(userKey);
+    if (ipRecord.count > 0) {
+      ipRecord.count = Math.max(0, ipRecord.count - 1);
+      authRateLimitMap.set(ipKey, ipRecord);
+    }
+
+    console.log(`[AUTH] Successful login for ${normalizedEmail} from IP ${clientIp}`);
+    return res.json({
+      success: true,
+      session: data.session,
+      user: data.user
+    });
+  } catch (err) {
+    console.error('[AUTH ERROR] Exception in /api/auth/login:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Authentication service temporarily unavailable. Please try again in a few moments.'
+    });
+  }
+});
+
 let aiClient = null;
 function getAi() {
   if (!aiClient) {
