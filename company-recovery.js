@@ -28,15 +28,15 @@ window.getCaseBillingProfile = function(c) {
 
   // Billing amount logic:
   // Withdrawn = 0 (cancelled by company)
-  // Otherwise if invoice_amount is specified, use it. If not, use payableAmt as baseline or 0.
-  const billedAmt = isWithdrawn ? 0 : (invoiceAmt > 0 ? invoiceAmt : (payableAmt > 0 ? payableAmt : 0));
+  // Otherwise if invoice_amount is specified, use it. If not, use 0.
+  const billedAmt = isWithdrawn ? 0 : (invoiceAmt > 0 ? invoiceAmt : 0);
   
   // Balance due logic (deducts both Bank Received and Client TDS Deducted):
   let balanceDue = 0;
   if (isWithdrawn) {
     balanceDue = 0;
   } else if (isRejected) {
-    balanceDue = billedAmt > 0 ? billedAmt : (payableAmt > 0 ? payableAmt : 0);
+    balanceDue = billedAmt > 0 ? billedAmt : 0;
   } else {
     balanceDue = Math.max(0, billedAmt - settledAmt);
   }
@@ -844,7 +844,7 @@ window.saveCRRemittance = async function() {
       let newTds = p.tdsAmt || 0;
 
       if (mode === 'full') {
-        newReceived = p.billedAmt > 0 ? p.billedAmt : (p.payableAmt || 0);
+        newReceived = p.billedAmt > 0 ? p.billedAmt : 0;
       } else if (mode === 'custom') {
         newReceived = customAmt;
         const tdsInp = document.getElementById('cr-remit-tds-amount');

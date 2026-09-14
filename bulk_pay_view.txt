@@ -1,0 +1,71 @@
+function renderBulkPaymentList() {
+  const name = document.getElementById('bp-investigator').value;
+  const caseType = document.getElementById('bp-casetype').value;
+  const statusFilter = document.getElementById('bp-status').value;
+  const listEl = document.getElementById('bp-list');
+  const summaryEl = document.getElementById('bp-summary');
+
+  if (!name) { listEl.innerHTML = ''; summaryEl.innerHTML = ''; document.getElementById('bp-quickfill').style.display='none'; return; }
+
+  let rows = cases.filter(c => c.inv1===name || c.inv2===name);
+  if (caseType) rows = rows.filter(c => c.case_type === caseType);
+  rows = rows.filter(c => {
+    if (statusFilter === 'all') return true;
+    if (c.inv1 === name && c.inv2 === name) {
+        return (c.inv1_status || '').trim() !== 'Paid' || (c.inv2_status || '').trim() !== 'Paid';
+    }
+    const role = c.inv1===name ? 1 : 2;
+    const st = role===1 ? c.inv1_status : c.inv2_status;
+    return st !== 'Paid';
+  });
+  rows.sort((a,b) => (a.case_type||'').localeCompare(b.case_type||'') || (a.date||'').localeCompare(b.date||''));
+
+  if (!rows.length) {
+    listEl.innerHTML = '<div class="empty-state">No matching cases for this investigator.</div>';
+    updateBulkPayCount();
+    summaryEl.innerHTML = '';
+    document.getElementById('bp-quickfill').style.display = 'none';
+    return;
+  }
+  document.getElementById('bp-quickfill').style.display = 'block';
+  document.getElementById('bp-quick-fee').value = '';
+  document.getElementById('bp-quick-ta').value = '';
+  document.getElementById('bp-quick-paid').checked = false;
+
+  // Group by case type for a clean grouped view
+  const groups = {};
+  rows.forEach(c => { const k = c.case_type||'(No Type)'; (groups[k] = groups[k]||[]).push(c); });
+
+  const invRow = investigatorRows.find(r => r.name === name);
+  const isSalary = invRow && invRow.payment_type === 'Salary';
+  const typeChangedAt = invRow && invRow.payment_type_changed_at ? new Date(invRow.payment_type_changed_at) : null;
+
+  summaryEl.innerHTML = `<div class="notice" style="background:var(--light-blue,#D6E4F0);border-left-color:var(--navy);color:var(--navy);">
+    <b>${rows.length}</b> case(s) for <b>${name}</b>. ${isSalary ? '<br><span style="color:var(--red)">NOTE: This investigator is currently on Salary. Individual case fees are disabled for cases assigned after their salary start date.</span>' : ''}
+  </div>`;
+
+  let html = '';
+  Object.keys(groups).forEach(caseType => {
+    html += `<div style="font-weight:700;color:var(--navy);font-size:11px;text-transform:uppercase;margin:14px 0 6px;padding-bottom:4px;border-bottom:2px solid var(--gold);">${caseType} (${groups[caseType].length})</div>`;
+    html += `<table style="width:100%;margin-bottom:6px;"><thead><tr>
+      <th>Company</th><th>Date</th><th>Claim No</th><th>Insured</th><th>Role</th><th>Fee (₹)</th><th>TA (₹)</th><th>Mark Paid</th>
+    </tr></thead><tbody>`;
+    groups[caseType].forEach(c => {
+      const caseDate = c.date ? new Date(c.date) : (c.created_at ? new Date(c.created_at) : new Date());
+      const isActuallySalary = isSalary && (!typeChangedAt || caseDate >= typeChangedAt);
+
+      const role = c.inv1===name ? 1 : 2;
+      const otherInv = role===1 ? c.inv2 : c.inv1;
+      const otherIsBlank = !otherInv || otherInv==='NA';
+      const otherIsSameName = otherInv === name;
+      let badgeLabel, badgeClass;
+      if (otherIsBlank) { badgeLabel = 'Half (0.5)'; badgeClass = 'pending'; }
+      else if (otherIsSameName) { badgeLabel = 'Full (1) — solo, both slots'; badgeClass = 'paid'; }
+      else { badgeLabel = 'Half (0.5) — shared w/ '+otherInv; badgeClass = 'na'; }
+      let existingFee, existingTa, existingStatus;
+      if (otherIsSameName) {
+         existingFee = (c.fee1 || 0) + (c.fee2 || 0);
+         existingFee = existingFee === 0 ? '' : existingFee;
+         existingTa = (c.ta1 || 0) + (c.ta2 || 0);
+         existingTa = existingTa === 0 ? '' : existingTa;
+         existingStatus = ((c.inv1_status || '').trim() === 'Paid' && (c.inv2_status || '').trim() === 'Paid') ? 'Paid' : 'Pending';

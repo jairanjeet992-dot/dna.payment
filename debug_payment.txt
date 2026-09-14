@@ -1,0 +1,136 @@
+791-  const caseDate = dateStr ? new Date(dateStr) : new Date();
+792-
+793-  if (typeof investigatorRows !== 'undefined' && Array.isArray(investigatorRows)) {
+794-    if (inv1Name) {
+795-      const inv1 = investigatorRows.find(r => r.name === inv1Name);
+796:      if (inv1 && inv1.payment_type === 'Salary') {
+797:        const typeChangedAt = inv1.payment_type_changed_at ? new Date(inv1.payment_type_changed_at) : null;
+798-        if (!typeChangedAt || caseDate >= typeChangedAt) {
+799-          effectiveFee1 = 0; effectiveTa1 = 0;
+800-        }
+801-      }
+802-    }
+803-    if (inv2Name) {
+804-      const inv2 = investigatorRows.find(r => r.name === inv2Name);
+805:      if (inv2 && inv2.payment_type === 'Salary') {
+806:        const typeChangedAt = inv2.payment_type_changed_at ? new Date(inv2.payment_type_changed_at) : null;
+807-        if (!typeChangedAt || caseDate >= typeChangedAt) {
+808-          effectiveFee2 = 0; effectiveTa2 = 0;
+809-        }
+810-      }
+811-    }
+--
+1003-
+1004-function getAllInvestigators() { return INVESTIGATORS; } // kept as a function — ~15 call sites use it as such
+1005-
+1006-async function insertInvestigatorDB(invData) {
+1007-  if (typeof invData === 'string') {
+1008:    invData = { name: invData, phone: null, payment_type: 'Per Case', salary_amount: 0 }; // backward compat
+1009-  }
+1010-  const payload = {
+1011-    name: invData.name, 
+1012-    phone: invData.phone || null, 
+1013-    email: invData.email || null, 
+1014-    city: invData.city || null, 
+1015-    state: invData.state || null, 
+1016-    designation: invData.designation || null, 
+1017-    availability: invData.availability || 'available',
+1018:    payment_type: invData.payment_type || 'Per Case',
+1019-    is_base: false
+1020-  };
+1021-  
+1022:  if (payload.payment_type === 'Salary') {
+1023-    payload.salary_amount = invData.salary_amount || 0;
+1024-    payload.payment_rate = null;
+1025-    payload.payment_rate_type = null;
+1026-  } else {
+1027-    payload.salary_amount = 0;
+--
+1038-    email: invData.email || null,
+1039-    city: invData.city || null,
+1040-    state: invData.state || null,
+1041-    designation: invData.designation || null,
+1042-    availability: invData.availability || 'available',
+1043:    payment_type: invData.payment_type || 'Per Case'
+1044-  };
+1045-
+1046:  if (payload.payment_type === 'Salary') {
+1047-    payload.salary_amount = invData.salary_amount || 0;
+1048-    payload.payment_rate = null;
+1049-    payload.payment_rate_type = null;
+1050-  } else {
+1051-    payload.salary_amount = 0;
+--
+2669-}
+2670-
+2671-function computeInvStats(name, caseList) {
+2672-  const myCases = caseList.filter(c => c.inv1===name || c.inv2===name);
+2673-  const invRow = investigatorRows.find(r => r.name === name);
+2674:  const isSalary = invRow && invRow.payment_type === 'Salary';
+2675:  const typeChangedAt = invRow && invRow.payment_type_changed_at ? new Date(invRow.payment_type_changed_at) : null;
+2676-
+2677-  let totalCases=0, paidCases=0, totalPayable=0, paidAmt=0;
+2678-  let totalFees=0, totalTA=0, paidFees=0, paidTA=0;
+2679-
+2680-  myCases.forEach(c => {
+--
+2814-  // Group by case type for a clean grouped view
+2815-  const groups = {};
+2816-  rows.forEach(c => { const k = c.case_type||'(No Type)'; (groups[k] = groups[k]||[]).push(c); });
+2817-
+2818-  const invRow = investigatorRows.find(r => r.name === name);
+2819:  const isSalary = invRow && invRow.payment_type === 'Salary';
+2820:  const typeChangedAt = invRow && invRow.payment_type_changed_at ? new Date(invRow.payment_type_changed_at) : null;
+2821-
+2822-  summaryEl.innerHTML = `<div class="notice" style="background:var(--light-blue,#D6E4F0);border-left-color:var(--navy);color:var(--navy);">
+2823-    <b>${rows.length}</b> case(s) for <b>${name}</b>. ${isSalary ? '<br><span style="color:var(--red)">NOTE: This investigator is currently on Salary. Individual case fees are disabled for cases assigned after their salary start date.</span>' : ''}
+2824-  </div>`;
+2825-
+--
+3514-    const ym = getYM(c.date) || getYM(c.created_at);
+3515-    return ym && ym.m === mo.m && ym.y === mo.y;
+3516-  });
+3517-
+3518-  const monthExpenses = getExpensesForMonth(mo);
+3519:  const salaryInvestigators = investigatorRows.filter(r => r.payment_type === 'Salary');
+3520-  const tbody = document.getElementById('salary-tbody');
+3521-  if (tbody) tbody.innerHTML = '';
+3522-  
+3523-  let totalExpense = 0;
+3524-  let totalSalariedCases = 0;
+3525-  let totalSalaryVouchers = 0;
+3526-
+3527-  salaryInvestigators.forEach(r => {
+3528-    const rName = (r.name || '').trim().toLowerCase();
+3529:    const typeChangedAt = r.payment_type_changed_at ? new Date(r.payment_type_changed_at) : null;
+3530-    
+3531-    // If the investigator became salaried in a future month compared to 'mo', skip them for this historical month
+3532-    if (typeChangedAt && !isNaN(typeChangedAt.getTime())) {
+3533-      const changeY = typeChangedAt.getFullYear();
+3534-      const changeM = typeChangedAt.getMonth() + 1;
+--
+5069-    if (emailEl) emailEl.value = existing.email || '';
+5070-    if (cityEl) cityEl.value = existing.city || '';
+5071-    if (stateEl) stateEl.value = existing.state || '';
+5072-    if (desigEl) desigEl.value = existing.designation || '';
+5073-    if (availEl) availEl.value = existing.availability || 'available';
+5074:    if (payTypeEl) payTypeEl.value = existing.payment_type || 'Per Case';
+5075-    if (salaryEl) salaryEl.value = existing.salary_amount || 0;
+5076:    if (salaryWrapEl) salaryWrapEl.style.display = (existing.payment_type === 'Salary') ? 'block' : 'none';
+5077-    if (submitBtn) submitBtn.textContent = 'Save Changes';
+5078-  } else {
+5079-    if (nameEl) nameEl.value = '';
+5080-    if (suggEl) suggEl.innerHTML = '';
+5081-    if (phoneEl) phoneEl.value = '';
+--
+5179-    email: document.getElementById('new-inv-email')?.value?.trim() || null,
+5180-    city: document.getElementById('new-inv-city')?.value?.trim() || null,
+5181-    state: document.getElementById('new-inv-state')?.value?.trim() || null,
+5182-    designation: document.getElementById('new-inv-designation')?.value?.trim() || null,
+5183-    availability: document.getElementById('new-inv-availability')?.value || 'available',
+5184:    payment_type: document.getElementById('new-inv-payment-type')?.value || 'Per Case',
+5185-    salary_amount: parseFloat(document.getElementById('new-inv-salary')?.value) || 0
+5186-  };
+5187-
+5188-  if (submitBtn) {
+5189-    submitBtn.disabled = true;

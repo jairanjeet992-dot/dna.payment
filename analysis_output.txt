@@ -1,0 +1,101 @@
+
+--- Found potential issues in: Unawaited Supabase Calls (Rough Check) (2 matches) ---
+Lines around match: 
+ONFIG = getSupabaseConfig();
+const supabaseClient = (SUPABASE_CONFIG && window.supabase)
+  ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey)
+  : null;
+
+if (supabaseClient) {
+
+Lines around match: 
+e exposing an admin key in the browser). Create <b>${email}</b>'s account from the <a href="https://supabase.com/dashboard/project/${projectId}/auth/users" target="_blank" style="color:var(--gold);">S
+
+
+--- Found potential issues in: parseFloat without fallback (NaN risk) (39 matches) ---
+Lines around match: 
+] || []).push(c);
+  });
+  const used = new Set();
+  rows.slice(1).forEach(r => {
+    const rawAmt = parseFloat(String(r[amtCol] || '').replace(/[^0-9.-]/g, ''));
+    if (isNaN(rawAmt)) return;
+    con
+
+Lines around match: 
+selected case(s)?`)) return;
+  const update = {};
+  update[field] = numericFields.includes(field) ? parseFloat(newVal) : newVal;
+  if (Number.isNaN(update[field])) { showToast('Invalid number value.',
+
+Lines around match: 
+Els.forEach(tr => {
+    if (tr.dataset.salary === 'true' || tr.querySelector('.bp-paid').checked || parseFloat(tr.querySelector('.bp-fee').value) > 0 || parseFloat(tr.querySelector('.bp-ta').value) > 
+
+Lines around match: 
+ue' || tr.querySelector('.bp-paid').checked || parseFloat(tr.querySelector('.bp-fee').value) > 0 || parseFloat(tr.querySelector('.bp-ta').value) > 0) count++;
+  });
+  const el = document.getElementByI
+
+Lines around match: 
+
+    const isActuallySalary = tr.dataset.salary === 'true';
+    const fee = isActuallySalary ? 0 : (parseFloat(tr.querySelector('.bp-fee').value) || 0);
+    const ta = parseFloat(tr.querySelector('.bp
+
+
+--- Found potential issues in: Silent Catch Blocks (12 matches) ---
+Lines around match: 
+ localStorage.removeItem('DNA_AUTH_LOCKOUT');
+    localStorage.removeItem('DNA_AUTH_FAILURES');
+  } catch (e) {}
+}
+
+async function doLogin() {
+  const errEl = document.getElementById('login-error');
+ 
+
+Lines around match: 
+ocalStorage !== 'undefined') {
+      localStorage.removeItem(CASES_COLUMN_ORDER_STORAGE);
+    }
+  } catch (err) {}
+  applyCasesColumnOrderToDOM();
+  renderCasesTable();
+  if (typeof showToast === 'fun
+
+Lines around match: 
+in('');
+    } else {
+      container.style.display = 'none';
+      listEl.innerHTML = '';
+    }
+  } catch (err) {
+    console.error('Failed to load transfer history:', err);
+  }
+}
+
+async function logO
+
+Lines around match: 
+ed during case edit',
+      transferred_by: currentUser?.id
+    });
+    if (error) throw error;
+  } catch (err) {
+    console.error('Failed to log transfer:', err);
+  }
+}
+
+function updateHardcopy2Visi
+
+Lines around match: 
+ransfer(editingDocCode, prevStr, nextStr, transferReason);
+         transferLogged = true;
+       } catch (e) {
+         console.error('Failed to log transfer:', e);
+       }
+    }
+  }
+  // Local chec
+
