@@ -6958,7 +6958,7 @@ function invAmountOnCase(c, name) {
     
     const hc1 = c.hardcopy1_status||'Not Received';
     const hc2 = c.hardcopy2_status||'Not Received';
-    hardcopies.push(hc1.toLowerCase() === 'received' && hc2.toLowerCase() === 'received' ? 'Received' : 'Not Received');
+    hardcopies.push(hc1.toLowerCase() === 'received' || hc2.toLowerCase() === 'received' ? 'Received' : 'Not Received');
   } else {
     if (c.inv1===name) { 
         fee+=c.fee1||0; ta+=c.ta1||0; 
