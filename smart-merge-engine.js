@@ -137,6 +137,7 @@
     ta1: ['ta1', 'other expense', 'other expense 1', 'other expense 1 (inv1 ta)', 'ta 1', 'ta/expense 1', 'inv1 ta', 'ta_1'],
     ta2: ['ta2', 'other expense 2', 'other expense 2 (inv2 ta)', 'ta 2', 'ta/expense 2', 'inv2 ta', 'ta_2'],
     received: ['received', 'payment received', 'amount received', 'received amount', 'amount paid', 'recv amt', 'recv amount', 'company payment'],
+    tds_deducted: ['tds', 'tds deducted', 'tds amount', 'tax', 'tax deducted'],
     invoice_no: ['invoice_no', 'invoice no', 'invoice no.', 'inv no', 'inv no.', 'invoice #', 'bill no', 'bill no.', 'invoice number'],
     invoice_amount: ['invoice_amount', 'invoice amount', 'invoice amt', 'inv amt', 'inv amount', 'billed', 'bill amount', 'billed amount', 'invoice value', 'bill amt'],
     outcome: ['outcome', 'investigation outcome', 'investigation_outcome', 'case outcome', 'status outcome', 'finding', 'findings', 'decision', 'result', 'status_outcome', 'status'],
@@ -224,7 +225,7 @@
 
       let company = '', date = '', case_type = '', claim_no = '', policy_no = '';
       let insured_name = '', hospital = '', location = '', inv1 = '', inv2 = '';
-      let fee1 = 0, fee2 = 0, ta1 = 0, ta2 = 0, received = 0, invoice_amount = 0;
+      let fee1 = 0, fee2 = 0, ta1 = 0, ta2 = 0, received = 0, invoice_amount = 0, tds_deducted = 0;
       let invoice_no = '', outcome = '', fraud_reason = '', inv1_status = '', inv2_status = '';
       let remarks = '';
       let rawSlaHours = '', rawClosedDate = '', rawException = '';
@@ -246,6 +247,7 @@
         ta1 = parseAmount(get('ta1'));
         ta2 = parseAmount(get('ta2'));
         received = parseAmount(get('received'));
+        tds_deducted = parseAmount(get('tds_deducted'));
         invoice_no = get('invoice_no');
         invoice_amount = parseAmount(get('invoice_amount'));
         outcome = get('outcome');
@@ -273,6 +275,7 @@
         ta1 = parseAmount(r[12]);
         ta2 = parseAmount(r[13]);
         received = parseAmount(r[15]);
+        tds_deducted = 0; // standard template has no TDS
         invoice_no = r[16] || '';
         inv1_status = r[18] || '';
         inv2_status = r[19] || '';
@@ -436,6 +439,7 @@
         ta2: ta2 || (matchedExisting ? (matchedExisting.ta2 || 0) : 0),
         total_payable: (fee1 + fee2 + ta1 + ta2) || (matchedExisting ? (matchedExisting.total_payable || 0) : 0),
         received: received || (matchedExisting ? (matchedExisting.received || 0) : 0),
+        tds_deducted: tds_deducted || (matchedExisting ? (matchedExisting.tds_deducted || 0) : 0),
         invoice_no: invoice_no || (matchedExisting ? matchedExisting.invoice_no : ''),
         invoice_amount: invoice_amount || (matchedExisting ? matchedExisting.invoice_amount : null),
         outcome: cleanOutcome,
@@ -922,6 +926,11 @@
     setField('invoice_no', mr.invoice_no);
     setField('invoice_amount', mr.invoice_amount, true);
     setField('received', mr.received, true);
+    setField('tds_deducted', mr.tds_deducted, true);
+    setField('fee1', mr.fee1, true);
+    setField('fee2', mr.fee2, true);
+    setField('ta1', mr.ta1, true);
+    setField('ta2', mr.ta2, true);
     setField('policy_no', mr.policy_no);
     setField('hospital', mr.hospital);
     setField('location', mr.location);
@@ -976,8 +985,9 @@
     const t2 = payload.ta2 !== undefined ? payload.ta2 : (ex.ta2 || 0);
     const payable = f1 + f2 + t1 + t2;
     const recv = payload.received !== undefined ? payload.received : (ex.received || 0);
+    const tds = payload.tds_deducted !== undefined ? payload.tds_deducted : (ex.tds_deducted || 0);
     payload.total_payable = payable;
-    payload.profit = recv - payable;
+    payload.profit = (recv + tds) - payable;
 
     return payload;
   }
@@ -1133,6 +1143,7 @@
             ta2: r.ta2,
             total_payable: r.total_payable,
             received: r.received,
+            tds_deducted: r.tds_deducted,
             invoice_no: r.invoice_no,
             invoice_amount: r.invoice_amount || null,
             outcome: r.outcome || 'Pending',

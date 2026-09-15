@@ -2066,14 +2066,18 @@ async function submitException() {
   // Apply Business Rules
   if (type === 'Rejected') {
     fields.received = 0;
+    fields.tds_deducted = 0;
     fields.invoice_no = 'REJECTED';
+    fields.profit = 0 - (c.total_payable || 0);
   } else if (type === 'Withdrawn') {
     fields.received = 0;
+    fields.tds_deducted = 0;
     fields.fee1 = 0;
     fields.fee2 = 0;
     fields.ta1 = 0;
     fields.ta2 = 0;
     fields.total_payable = 0;
+    fields.profit = 0;
     fields.invoice_no = 'WITHDRAWN';
     fields.inv1_status = 'N/A';
     fields.inv2_status = 'N/A';
@@ -2098,24 +2102,6 @@ async function submitException() {
   }
 }
 
-// ============================================================
-// BULK DELETE / SELECTION
-// ============================================================
-function toggleCaseSelect(docCode, checked) {
-  if (checked) selectedDocCodes.add(docCode); else selectedDocCodes.delete(docCode);
-  updateBulkDeleteButton();
-}
-
-function toggleSelectAll(el) {
-  const startIdx = (currentPage-1) * pageSize;
-  const pageRows = filteredCases.slice(startIdx, startIdx + pageSize);
-  if (el.checked) {
-    pageRows.forEach(c => selectedDocCodes.add(c.doc_code));
-  } else {
-    pageRows.forEach(c => selectedDocCodes.delete(c.doc_code));
-  }
-  renderCasesTable();
-}
 
 function updateBulkDeleteButton() {
   const btn = document.getElementById('bulk-delete-btn');
@@ -2445,26 +2431,62 @@ async function applyBulkEdit() {
     newVal = document.getElementById('bulkedit-value').value;
   }
   // numeric fields need a value
-  const numericFields = ['fee1','fee2','ta1','ta2','received'];
+  const numericFields = ['fee1','fee2','ta1','ta2','received','tds_deducted'];
   if (numericFields.includes(field) && (newVal === '' || newVal === null)) {
     showToast('Enter a value for the amount field.', true); return;
   }
   if (newVal === '') { showToast('Enter a value to apply.', true); return; }
   const docCodes = Array.from(selectedDocCodes);
   if (!confirm(`Apply "${field}" = "${newVal}" to ${docCodes.length} selected case(s)?`)) return;
-  const update = {};
-  update[field] = numericFields.includes(field) ? parseFloat(newVal) : newVal;
-  if (Number.isNaN(update[field])) { showToast('Invalid number value.', true); return; }
+  
+  const typedVal = numericFields.includes(field) ? parseFloat(newVal) : newVal;
+  if (numericFields.includes(field) && Number.isNaN(typedVal)) { showToast('Invalid number value.', true); return; }
+  
   const applyBtn = document.querySelector('#bulkedit-modal .modal-foot .btn-navy');
   if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = 'Applying…'; }
   try {
-    const { data: updateData, error: updateErr } = await supabaseClient.from('cases').update(update).in('doc_code', docCodes).select('id');
-    if (updateErr) throw updateErr;
-    if (!updateData || updateData.length === 0) throw new Error("Bulk edit blocked by database permissions (RLS). Please ensure you have the 'admin' role.");
+    const isFinancial = numericFields.includes(field);
+    const updates = docCodes.map(docCode => {
+      const fields = { [field]: typedVal };
+      if (isFinancial) {
+        const c = (window.cases || []).find(x => x.doc_code === docCode) || cases.find(x => x.doc_code === docCode);
+        if (c) {
+          const calcData = { ...c, [field]: typedVal };
+          const calc = typeof calculateCasePayableAndProfit === 'function' ? calculateCasePayableAndProfit({
+            ...calcData,
+            fee1: Number(calcData.fee1) || 0,
+            fee2: Number(calcData.fee2) || 0,
+            ta1: Number(calcData.ta1) || 0,
+            ta2: Number(calcData.ta2) || 0,
+            received: Number(calcData.received) || 0,
+            tds_deducted: Number(calcData.tds_deducted) || 0
+          }) : { payable: 0, profit: 0 };
+          
+          if (calc) {
+              fields.total_payable = calc.payable;
+              fields.profit = calc.profit;
+          }
+        }
+      }
+      return { doc_code: docCode, fields };
+    });
+
+    if (typeof executeAtomicBatchUpdate === 'function') {
+       await executeAtomicBatchUpdate(updates, {
+         actionTitle: `Bulk Edit: Set ${field} to ${typedVal}`,
+         updatedFields: [field, 'total_payable', 'profit']
+       });
+    } else {
+       // Fallback 
+       for (const u of updates) {
+           await supabaseClient.from('cases').update(u.fields).eq('doc_code', u.doc_code);
+       }
+    }
+    
     bulkEditConfig = { field };
     closeModal('bulkedit-modal');
-    await loadCasesFromDB();
-    renderAll();
+    if (typeof loadCasesFromDB === 'function') await loadCasesFromDB();
+    if (typeof renderAll === 'function') renderAll();
     showToast(`Updated ${docCodes.length} case(s).`);
   } catch (err) {
     showToast('Bulk edit failed: ' + err.message, true);
@@ -2472,6 +2494,7 @@ async function applyBulkEdit() {
     if (applyBtn) { applyBtn.disabled = false; applyBtn.textContent = 'Apply to All Selected'; }
   }
 }
+
 
 async function bulkDeleteSelected() {
   const n = selectedDocCodes.size;
@@ -4877,7 +4900,7 @@ async function saveCase() {
 
   const calc = calculateCasePayableAndProfit({
     fee1, fee2, ta1, ta2, received,
-    tds_deducted: parseFloat(document.getElementById('f-tds')?.value) || 0,
+    tds_deducted: Math.max(0, parseFloat(document.getElementById('f-tds')?.value) || 0),
     inv1, inv2: document.getElementById('f-inv2').value,
     date
   });
@@ -8698,29 +8721,38 @@ function autoSelectDocs(tab) {
   const rawText = document.getElementById(pasteId).value;
   if (!rawText.trim()) return;
 
-  // Split by commas, tabs, newlines or spaces, clean up whitespace, uppercase
   const searchTerms = rawText.split(/[\n,\t\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
   if (searchTerms.length === 0) return;
 
   let rows = document.querySelectorAll(`#${tableId} tbody tr`);
   let matchCount = 0;
+  let mismatchedDocs = [];
 
-  // If table is empty or missing terms, try rendering across all cases
   const allCases = window.cases || cases || [];
   const tbody = document.getElementById(tableId).querySelector('tbody');
 
   if (tab === 'receive') {
-    // Find matching cases that might not be in the current filtered table
+    const selectedInv = document.getElementById('bulkdoc-receive-inv').value;
     const matchedCases = allCases.filter(c => {
       if (!c || c.exception_type === 'Withdrawn') return false;
       const docCode = (c.doc_code || '').toUpperCase();
       const claimNo = (c.claim_no || '').toUpperCase();
       const polNo = (c.policy_no || '').toUpperCase();
-      return searchTerms.some(t => t === docCode || t === claimNo || t === polNo);
+      const matchesSearch = searchTerms.some(t => t === docCode || t === claimNo || t === polNo);
+      
+      if (matchesSearch) {
+        if (selectedInv !== 'ALL') {
+          if (c.inv1 !== selectedInv && c.inv2 !== selectedInv) {
+            mismatchedDocs.push(c.doc_code || c.claim_no);
+            return false;
+          }
+        }
+        return true;
+      }
+      return false;
     });
 
     if (matchedCases.length > 0) {
-      // Re-populate table with these matched cases if needed
       const existingDocCodes = new Set(Array.from(rows).map(r => r.getAttribute('data-doccode')));
       matchedCases.forEach(c => {
         if (!existingDocCodes.has(c.doc_code)) {
@@ -8742,13 +8774,24 @@ function autoSelectDocs(tab) {
       rows = document.querySelectorAll(`#${tableId} tbody tr`);
     }
   } else {
-    // Dispatch tab
+    const selectedCo = document.getElementById('bulkdoc-dispatch-co').value;
     const matchedCases = allCases.filter(c => {
       if (!c || c.exception_type === 'Withdrawn') return false;
       const docCode = (c.doc_code || '').toUpperCase();
       const claimNo = (c.claim_no || '').toUpperCase();
       const polNo = (c.policy_no || '').toUpperCase();
-      return searchTerms.some(t => t === docCode || t === claimNo || t === polNo);
+      const matchesSearch = searchTerms.some(t => t === docCode || t === claimNo || t === polNo);
+      
+      if (matchesSearch) {
+        if (selectedCo !== 'ALL') {
+          if (c.company !== selectedCo) {
+            mismatchedDocs.push(c.doc_code || c.claim_no);
+            return false;
+          }
+        }
+        return true;
+      }
+      return false;
     });
 
     if (matchedCases.length > 0) {
@@ -8770,7 +8813,6 @@ function autoSelectDocs(tab) {
     }
   }
 
-  // Uncheck header checkbox
   const headerCb = document.querySelector(`#${tableId} thead input[type="checkbox"]`);
   if (headerCb) headerCb.checked = false;
 
@@ -8791,7 +8833,12 @@ function autoSelectDocs(tab) {
     }
   });
 
-  showToast(`✓ ${matchCount} case(s) matched and selected!`);
+  if (mismatchedDocs.length > 0) {
+      mismatchedDocs = [...new Set(mismatchedDocs)];
+      showToast(`⚠️ Skipped ${mismatchedDocs.length} case(s) not belonging to selected name.`, true);
+  } else {
+      showToast(`✓ ${matchCount} case(s) matched and selected!`);
+  }
   updateBulkDocSelectionCount();
 }
 
@@ -8840,10 +8887,13 @@ function renderBulkDocReceive() {
       <td><span style="color:var(--red);font-weight:600;">Not Received</span></td>
     </tr>`;
   }).join('');
-  updateBulkDocSelectionCount();
-}
-
-function renderBulkDocDispatch() {
+    updateBulkDocSelectionCount();
+  if (document.getElementById('bulkdoc-receive-paste') && document.getElementById('bulkdoc-receive-paste').value.trim() && !window.isAutoSelecting) {
+    window.isAutoSelecting = true;
+    autoSelectDocs('receive');
+    window.isAutoSelecting = false;
+  }
+}function renderBulkDocDispatch() {
   const comp = document.getElementById('bulkdoc-dispatch-co').value;
   const tbody = document.getElementById('bulkdoc-dispatch-table').querySelector('tbody');
   tbody.innerHTML = '';
@@ -8854,7 +8904,7 @@ function renderBulkDocDispatch() {
   const pendingCases = allCases.filter(c => {
     if (!c || c.exception_type === 'Withdrawn') return false;
     if (comp && comp !== 'ALL' && c.company !== comp) return false;
-    return (c.company_hardcopy_status !== 'Dispatched' && c.company_hardcopy_status !== 'Delivered');
+    const s = (c.company_hardcopy_status || '').toLowerCase(); return (s !== 'dispatched' && s !== 'delivered');
   });
   
   if (pendingCases.length === 0) {
@@ -8872,10 +8922,13 @@ function renderBulkDocDispatch() {
       <td>${c.inv1||'—'}</td>
     </tr>`;
   }).join('');
-  updateBulkDocSelectionCount();
-}
-
-async function safeUpdateCaseInDB(docCode, toUpdate) {
+    updateBulkDocSelectionCount();
+  if (document.getElementById('bulkdoc-dispatch-paste') && document.getElementById('bulkdoc-dispatch-paste').value.trim() && !window.isAutoSelecting) {
+    window.isAutoSelecting = true;
+    autoSelectDocs('dispatch');
+    window.isAutoSelecting = false;
+  }
+}async function safeUpdateCaseInDB(docCode, toUpdate) {
   // First attempt with full update payload
   let res = await supabaseClient.from('cases').update(toUpdate).eq('doc_code', docCode);
   if (res.error) {
@@ -8949,56 +9002,44 @@ async function processBulkDocs() {
     return;
   }
 
-  if (typeof recordBatchSnapshot === 'function' && updates.length) {
-    recordBatchSnapshot({
-      action: currentDocTab === 'receive' ? `Hardcopy Inward: received docs for ${updates.length} cases` : `Hardcopy Dispatch: dispatched ${updates.length} cases`,
-      type: 'update',
-      docCodes: updates.map(u => u.docCode)
-    });
-  }
-  
-  // Apply optimistic updates locally immediately for instantaneous UI feedback
-  const targetList = window.cases || cases || [];
-  updates.forEach(u => {
-    const found = targetList.find(c => c && c.doc_code === u.docCode);
-    if (found) {
-      Object.assign(found, u.toUpdate);
-    }
-  });
-  window.cases = targetList;
-  cases = targetList;
-  renderAll();
-
-  // Process in parallel chunks to save to database
   try {
-    let successCount = 0;
-    let failedCount = 0;
-    const chunkSize = 10;
-    
-    for (let i = 0; i < updates.length; i += chunkSize) {
-      const chunk = updates.slice(i, i + chunkSize);
-      const promises = chunk.map(u => 
-        safeUpdateCaseInDB(u.docCode, u.toUpdate)
-          .then(() => { successCount++; })
-          .catch(err => {
-            console.error('Failed to update DB for', u.docCode, err);
-            failedCount++;
-          })
-      );
-      await Promise.all(promises);
+    if (typeof executeAtomicBatchUpdate === 'function') {
+      const formattedUpdates = updates.map(u => ({
+        doc_code: u.docCode,
+        fields: u.toUpdate
+      }));
+      const actionTitle = currentDocTab === 'receive' ? `Hardcopy Inward: received docs for ${updates.length} cases` : `Hardcopy Dispatch: dispatched ${updates.length} cases`;
+      
+      const res = await executeAtomicBatchUpdate(formattedUpdates, {
+        actionTitle: actionTitle
+      });
+      
+      if (res.success) {
+        showToast(`✓ Successfully updated & saved ${res.count} cases to database!`);
+      } else {
+        showToast(`⚠️ Some updates may have failed. Please refresh and check.`, true);
+      }
+      
+      if (typeof loadCasesFromDB === 'function') await loadCasesFromDB();
+      if (typeof renderAll === 'function') renderAll();
+      closeModal('bulkdoc-modal');
+    } else {
+      // Fallback if atomic engine missing
+      if (typeof recordBatchSnapshot === 'function' && updates.length) {
+        recordBatchSnapshot({
+          action: currentDocTab === 'receive' ? `Hardcopy Inward: received docs for ${updates.length} cases` : `Hardcopy Dispatch: dispatched ${updates.length} cases`,
+          type: 'update',
+          docCodes: updates.map(u => u.docCode)
+        });
+      }
+      for (const u of updates) {
+         await safeUpdateCaseInDB(u.docCode, u.toUpdate);
+      }
+      if (typeof loadCasesFromDB === 'function') await loadCasesFromDB();
+      if (typeof renderAll === 'function') renderAll();
+      closeModal('bulkdoc-modal');
+      showToast(`✓ Successfully updated cases`);
     }
-    
-    if (successCount > 0) {
-      showToast(`✓ Successfully updated & saved ${successCount} cases to database!`);
-    }
-    if (failedCount > 0) {
-      showToast(`⚠️ ${failedCount} cases failed to update on database`, true);
-    }
-    
-    // Refresh authoritative data from DB and re-render
-    await loadCasesFromDB();
-    renderAll();
-    closeModal('bulkdoc-modal');
   } catch (err) {
     console.error('Bulk Doc Error', err);
     showToast('An error occurred during update: ' + err.message, true);
