@@ -284,7 +284,8 @@ app.get('/api/backup/status', (req, res) => {
       scheduler: 'Active (Daily Interval)'
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[API /api/backup/status Error]', err);
+    res.status(500).json({ success: false, error: 'Failed to retrieve backup status. Please try again later.' });
   }
 });
 
@@ -312,7 +313,8 @@ app.get('/api/backup/list', requireAuth, (req, res) => {
 
     res.json({ success: true, backups: files });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[API /api/backup/list Error]', err);
+    res.status(500).json({ success: false, error: 'Failed to retrieve backup list. Please try again later.' });
   }
 });
 
@@ -321,7 +323,7 @@ app.post('/api/backup/trigger', requireAuth, async (req, res) => {
   if (result.success) {
     res.json(result);
   } else {
-    res.status(500).json(result);
+    res.status(500).json({ success: false, error: 'Database backup failed to complete. Please try again later.' });
   }
 });
 
@@ -409,9 +411,16 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Strict input presence & format check
+    // Strict server-side input validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!normalizedEmail || !rawPassword || !emailRegex.test(normalizedEmail)) {
+    if (
+      !normalizedEmail || 
+      !rawPassword || 
+      normalizedEmail.length > 254 || 
+      rawPassword.length < 6 || 
+      rawPassword.length > 256 || 
+      !emailRegex.test(normalizedEmail)
+    ) {
       userRecord.count++;
       userRecord.resetTime = now + AUTH_LOCKOUT_WINDOW_MS;
       authRateLimitMap.set(userKey, userRecord);

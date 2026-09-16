@@ -202,21 +202,56 @@ window.sanitizeHtml2Canvas = function(doc) {
   }
 };
 function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen().catch(err => {
-      alert(`Error attempting to enable fullscreen mode. Please open the app in a new tab if you are viewing this in a preview iframe: ${err.message}`);
-    });
+  const doc = document;
+  const docEl = doc.documentElement;
+
+  const isFs = doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement;
+
+  if (!isFs) {
+    const requestFs = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.webkitRequestFullScreen || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
+    if (typeof requestFs === 'function') {
+      try {
+        const promise = requestFs.call(docEl);
+        if (promise && typeof promise.catch === 'function') {
+          promise.catch(err => {
+            console.warn('Fullscreen request rejected:', err);
+            if (typeof showToast === 'function') {
+              showToast('Fullscreen not permitted in preview iframe. Open in a new tab.', true);
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('Fullscreen call failed:', err);
+        if (typeof showToast === 'function') {
+          showToast('Fullscreen not supported in this browser/frame.', true);
+        }
+      }
+    } else {
+      if (typeof showToast === 'function') {
+        showToast('Fullscreen is not supported on this device/browser.', true);
+      }
+    }
   } else {
-    if (document.exitFullscreen) {
-      document.exitFullscreen();
+    const exitFs = doc.exitFullscreen || doc.webkitExitFullscreen || doc.mozCancelFullScreen || doc.msExitFullscreen;
+    if (typeof exitFs === 'function') {
+      try {
+        const promise = exitFs.call(doc);
+        if (promise && typeof promise.catch === 'function') {
+          promise.catch(err => console.warn('Exit fullscreen failed:', err));
+        }
+      } catch (err) {
+        console.warn('Exit fullscreen error:', err);
+      }
     }
   }
 }
 
-document.addEventListener('fullscreenchange', () => {
+function updateFullscreenUI() {
+  const doc = document;
+  const isFs = !!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement);
   const btn = document.getElementById('fs-toggle-btn');
   if (btn) {
-    if (document.fullscreenElement) {
+    if (isFs) {
       btn.textContent = '⛌';
       btn.title = 'Exit Fullscreen';
       document.body.classList.add('is-fullscreen');
@@ -226,6 +261,10 @@ document.addEventListener('fullscreenchange', () => {
       document.body.classList.remove('is-fullscreen');
     }
   }
+}
+
+['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach(evt => {
+  document.addEventListener(evt, updateFullscreenUI);
 });
 
 // ============================================================
@@ -1078,6 +1117,7 @@ async function removeInvestigatorDB(name) {
 // ============================================================
 let renderAllTimeout = null;
 function renderAll() {
+  if (typeof renderFinanceLedger === 'function') renderFinanceLedger();
   if (renderAllTimeout) clearTimeout(renderAllTimeout);
   renderAllTimeout = setTimeout(() => {
     renderDashboard();
@@ -2106,11 +2146,13 @@ async function submitException() {
 function updateBulkDeleteButton() {
   const btn = document.getElementById('bulk-delete-btn');
   const countEl = document.getElementById('bulk-delete-count');
-  if (selectedDocCodes.size > 0) {
-    btn.style.display = 'inline-block';
-    countEl.textContent = selectedDocCodes.size;
-  } else {
-    btn.style.display = 'none';
+  if (btn && countEl) {
+    if (selectedDocCodes.size > 0) {
+      btn.style.display = 'inline-block';
+      countEl.textContent = selectedDocCodes.size;
+    } else {
+      btn.style.display = 'none';
+    }
   }
   const ebtn = document.getElementById('bulk-edit-btn');
   const ecount = document.getElementById('bulk-edit-count');
@@ -2123,6 +2165,44 @@ function updateBulkDeleteButton() {
     }
   }
 }
+
+function toggleCaseSelect(docCode, isChecked) {
+  if (isChecked) {
+    selectedDocCodes.add(docCode);
+  } else {
+    selectedDocCodes.delete(docCode);
+  }
+  updateBulkDeleteButton();
+  const pageRows = (typeof filteredCases !== 'undefined' && filteredCases.length > 0)
+    ? filteredCases.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+    : [];
+  const selectAllEl = document.getElementById('select-all-cases');
+  if (selectAllEl && pageRows.length > 0) {
+    selectAllEl.checked = pageRows.every(c => selectedDocCodes.has(c.doc_code));
+  }
+}
+window.toggleCaseSelect = toggleCaseSelect;
+
+function toggleSelectAll(masterCheckbox) {
+  const isChecked = masterCheckbox.checked;
+  const pageRows = (typeof filteredCases !== 'undefined' && filteredCases.length > 0)
+    ? filteredCases.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+    : [];
+
+  pageRows.forEach(c => {
+    if (isChecked) {
+      selectedDocCodes.add(c.doc_code);
+    } else {
+      selectedDocCodes.delete(c.doc_code);
+    }
+  });
+
+  const checkboxes = document.querySelectorAll('#cases-tbody input[type="checkbox"]');
+  checkboxes.forEach(cb => { cb.checked = isChecked; });
+
+  updateBulkDeleteButton();
+}
+window.toggleSelectAll = toggleSelectAll;
 
 // ============================================================
 // SMART RECONCILIATION ENGINE
@@ -7173,6 +7253,7 @@ function openPDFPreview(html, filename, options = {}) {
   const content = document.getElementById('pdf-preview-content');
   const filenameEl = document.getElementById('pdf-preview-filename');
   const downloadBtn = document.getElementById('pdf-download-btn');
+  const printBtn = document.getElementById('pdf-print-btn');
 
   filenameEl.textContent = filename;
 
@@ -7191,6 +7272,13 @@ function openPDFPreview(html, filename, options = {}) {
   
   // Disable body scroll
   document.body.style.overflow = 'hidden';
+
+  // Setup print button
+  if (printBtn) {
+    printBtn.onclick = () => {
+      printHTML(html);
+    };
+  }
 
   // Setup download button
   downloadBtn.onclick = async () => {
@@ -7775,8 +7863,14 @@ async function refreshBackupStatus() {
     const data = await res.json();
     if (data.success && data.latest) {
       const dt = new Date(data.latest.timestamp);
-      const formattedDate = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-      const formattedTime = dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      let formattedDate = '', formattedTime = '';
+      try {
+        formattedDate = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        formattedTime = dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      } catch (e) {
+        formattedDate = dt.toISOString().slice(0, 10);
+        formattedTime = dt.toISOString().slice(11, 19);
+      }
       const caseCount = data.latest.stats ? (data.latest.stats.totalCases ?? 0) : 0;
       const sizeKb = (data.latest.size / 1024).toFixed(1);
       detailsEl.innerHTML = `
@@ -7787,8 +7881,8 @@ async function refreshBackupStatus() {
       detailsEl.innerHTML = `No server snapshots yet. Click <strong>"Take Snapshot Now"</strong> to create the first one.`;
     }
   } catch (err) {
-    console.error('Failed to fetch backup status:', err);
-    detailsEl.textContent = 'Status check failed: Server unreachable.';
+    // Graceful degrade
+    detailsEl.textContent = 'Status check failed: Server unreachable or initializing.';
   }
 }
 
@@ -8704,6 +8798,8 @@ function switchDocTab(tab) {
   
   document.getElementById('doc-view-receive').style.display = (tab === 'receive') ? 'block' : 'none';
   document.getElementById('doc-view-dispatch').style.display = (tab === 'dispatch') ? 'block' : 'none';
+  const manifestBtn = document.getElementById('bulkdoc-print-manifest-btn');
+  if (manifestBtn) manifestBtn.style.display = (tab === 'dispatch') ? 'inline-flex' : 'none';
   updateBulkDocSelectionCount();
 }
 
@@ -9944,3 +10040,172 @@ document.addEventListener('focusout', (e) => {
     }, 100);
   }
 });
+
+
+// ============================================================
+
+function money(val) {
+  if (val == null || val === '') return '0';
+  const num = Number(val);
+  if (isNaN(num)) return '0';
+  return num.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
+
+// FINANCE & TDS LEDGER
+// ============================================================
+
+function getFinancialYear(dateString) {
+  if (!dateString) return 'Unknown';
+  const d = new Date(dateString);
+  if (isNaN(d.getTime())) return 'Unknown';
+  const month = d.getMonth(); // 0-indexed (0 = Jan, 3 = Apr)
+  const year = d.getFullYear();
+  if (month >= 3) {
+    return `FY ${year}-${(year + 1).toString().slice(2)}`;
+  } else {
+    return `FY ${year - 1}-${year.toString().slice(2)}`;
+  }
+}
+
+window.renderFinanceLedger = function() {
+  const tbody = document.getElementById('finance-tds-tbody');
+  const fySelect = document.getElementById('finance-fy-filter');
+  if (!tbody) return;
+
+  const allCases = window.cases || cases || [];
+  
+  // Build a set of all FYs to populate dropdown
+  const fYears = new Set();
+  
+  // Grouping logic
+  const ledger = {}; // Key: "Company_FY", Value: { comp, fy, billed, rec, tds, loss }
+  
+  let totalInv = 0;
+  let totalRec = 0;
+  let totalTds = 0;
+  
+  allCases.forEach(c => {
+    if (c.exception_type === 'Withdrawn' || c.exception_type === 'Rejected') return; // Skip non-billable
+    
+    const fy = getFinancialYear(c.date);
+    if (fy !== 'Unknown') fYears.add(fy);
+    
+    const selectedFy = fySelect ? fySelect.value : 'ALL';
+    if (selectedFy !== 'ALL' && selectedFy !== fy) return;
+    
+    const rawComp = (c.company || 'Unknown').trim();
+    const compKey = rawComp.toUpperCase();
+    const comp = rawComp;
+    const key = compKey + '_' + fy;
+    
+    if (!ledger[key]) {
+      ledger[key] = { comp, fy, billed: 0, rec: 0, tds: 0, loss: 0 };
+    }
+    
+    const invAmt = Number(c.invoice_amount) || 0;
+    const recAmt = Number(c.received) || 0;
+    const tdsAmt = Number(c.tds_deducted) || 0;
+    
+    ledger[key].billed += invAmt;
+    ledger[key].rec += recAmt;
+    ledger[key].tds += tdsAmt;
+    
+    // Loss/Pending: Billed - (Received + TDS)
+    ledger[key].loss += (invAmt - (recAmt + tdsAmt));
+    
+    totalInv += invAmt;
+    totalRec += recAmt;
+    totalTds += tdsAmt;
+  });
+  
+  // Populate Dropdown if it's currently only "ALL"
+  if (fySelect && fySelect.options.length <= 1 && fYears.size > 0) {
+    const sortedFys = Array.from(fYears).sort().reverse();
+    sortedFys.forEach(fy => {
+      const opt = document.createElement('option');
+      opt.value = fy;
+      opt.textContent = fy;
+      fySelect.appendChild(opt);
+    });
+  }
+  
+  // Render KPIs
+  if (document.getElementById('fin-kpi-inv')) document.getElementById('fin-kpi-inv').textContent = 'Rs ' + money(totalInv);
+  if (document.getElementById('fin-kpi-rec')) document.getElementById('fin-kpi-rec').textContent = 'Rs ' + money(totalRec);
+  if (document.getElementById('fin-kpi-tds')) document.getElementById('fin-kpi-tds').textContent = 'Rs ' + money(totalTds);
+  
+  // Render Table
+  const rows = Object.values(ledger).sort((a,b) => {
+    if (a.comp < b.comp) return -1;
+    if (a.comp > b.comp) return 1;
+    return b.fy > a.fy ? 1 : -1;
+  });
+  
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--sub);">No financial records found.</td></tr>';
+    return;
+  }
+  
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td style="font-weight:700; color:var(--navy);">${escAttr(r.comp)}</td>
+      <td><span class="badge" style="background:#eef2ff; color:#4f46e5;">${r.fy}</span></td>
+      <td style="text-align:right; font-family:var(--mono);">${money(r.billed)}</td>
+      <td style="text-align:right; font-family:var(--mono); color:var(--green); font-weight:600;">${money(r.rec)}</td>
+      <td style="text-align:right; font-family:var(--mono); color:var(--gold); font-weight:700;">${money(r.tds)}</td>
+      <td style="text-align:right; font-family:var(--mono); color:${r.loss > 0 ? 'var(--red)' : 'var(--sub)'};">${money(r.loss)}</td>
+    </tr>
+  `).join('');
+};
+
+window.exportTDSExcel = function() {
+  if (typeof XLSX === 'undefined') {
+    showToast('Excel library not loaded. Please wait.', true);
+    return;
+  }
+  
+  const tbody = document.getElementById('finance-tds-tbody');
+  if (!tbody || tbody.querySelectorAll('tr').length === 0 || tbody.textContent.includes('No financial records')) {
+    showToast('No data to export', true);
+    return;
+  }
+  
+  const rows = [];
+  tbody.querySelectorAll('tr').forEach(tr => {
+    const tds = tr.querySelectorAll('td');
+    if (tds.length === 6) {
+      rows.push({
+        'Company Name': tds[0].textContent.trim(),
+        'Financial Year': tds[1].textContent.trim(),
+        'Total Billed': Number(tds[2].textContent.replace(/,/g, '')),
+        'Total Received': Number(tds[3].textContent.replace(/,/g, '')),
+        'TDS Deducted': Number(tds[4].textContent.replace(/,/g, '')),
+        'Pending/Loss': Number(tds[5].textContent.replace(/,/g, ''))
+      });
+    }
+  });
+  
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'TDS Ledger');
+  XLSX.writeFile(wb, `TDS_Ledger_${new Date().toISOString().slice(0,10)}.xlsx`);
+  showToast('TDS Ledger Exported Successfully');
+};
+
+// Global exports for plugin compatibility, RBAC wrappers, and inline handlers
+if (typeof window !== 'undefined') {
+  if (typeof startInlineEdit === 'function') window.startInlineEdit = startInlineEdit;
+  if (typeof openAddCase === 'function') window.openAddCase = openAddCase;
+  if (typeof deleteCurrentCase === 'function') window.deleteCurrentCase = deleteCurrentCase;
+  if (typeof bulkDeleteSelected === 'function') window.bulkDeleteSelected = bulkDeleteSelected;
+  if (typeof restoreBackup === 'function') window.restoreBackup = restoreBackup;
+  if (typeof saveSettings === 'function') window.saveSettings = saveSettings;
+  if (typeof filterCases === 'function') window.filterCases = filterCases;
+  if (typeof resetFilters === 'function') window.resetFilters = resetFilters;
+  if (typeof switchDocTab === 'function') window.switchDocTab = switchDocTab;
+  if (typeof slaBadge === 'function') window.slaBadge = slaBadge;
+  if (typeof applyBulkEdit === 'function') window.applyBulkEdit = applyBulkEdit;
+  if (typeof showImportPreview === 'function') window.showImportPreview = showImportPreview;
+  if (typeof computeScorecard === 'function') window.computeScorecard = computeScorecard;
+  if (typeof openBulkPayment === 'function') window.openBulkPayment = openBulkPayment;
+}

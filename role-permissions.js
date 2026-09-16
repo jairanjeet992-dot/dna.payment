@@ -73,5 +73,5 @@ async function restoreBackupLive(e){
 }
 async function boot(){await loadAssetSet();await loadInvestigator360();window.__dnaRestoreBackupLive=restoreBackupLive;window.restoreBackup=restoreBackupLive;document.querySelectorAll('#dup-claim-modal button').forEach(b=>{if(/save anyway/i.test(b.textContent||''))b.textContent='Review Existing Case'});document.body.classList.add('dna-ready');const c=getClient();if(c){c.auth.onAuthStateChange((_e,s)=>{loadCurrentUserRole(s?.user||null);if(s?.user)setTimeout(ensureInvestigator360,50)});const {data}=await c.auth.getSession();await loadCurrentUserRole(data?.session?.user||null)}else{window.rolePermissionsReady=true;applyRole()}await ensureInvestigator360()}
 
-window.loadCurrentUserRole=loadCurrentUserRole;window.refreshRoleUI=applyRole;window.ensureInvestigator360=ensureInvestigator360;if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+window.loadCurrentUserRole=loadCurrentUserRole;window.refreshRoleUI=applyRole;window.ensureInvestigator360=ensureInvestigator360;window.injectStaffEdit=injectStaffEdit;if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();

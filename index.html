@@ -434,6 +434,7 @@ tbody tr:hover{background:var(--line);}
     <div class="tab" data-view="cases" onclick="showView('cases',this)">Cases</div>
     <div class="tab" data-view="investigators" onclick="showView('investigators',this)">Investigators</div>
     <div class="tab" data-view="monthly" onclick="showView('monthly',this)">Monthly</div>
+    <div class="tab" data-view="finance" onclick="showView('finance',this)">Finance & TDS</div>
     <div class="tab" data-view="salary" onclick="showView('salary',this)">Salary</div>
     <div class="tab" data-view="yearly" onclick="showView('yearly',this)">Yearly</div>
     <div class="tab" data-view="documents" onclick="showView('documents',this)">Documents</div>
@@ -531,6 +532,13 @@ tbody tr:hover{background:var(--line);}
             <option value="received">🟢 Received (Paid)</option>
           </select>
           <select class="fin" id="filter-inv" onchange="filterCases()"><option value="">All Investigators</option></select>
+          <select class="fin" id="filter-sla-status" onchange="filterCases()" style="font-weight:600; min-width:140px;">
+            <option value="">SLA: All Cases</option>
+            <option value="BREACHED">🚨 Breached / Overdue</option>
+            <option value="CRITICAL">⚠️ Critical (&lt;12h)</option>
+            <option value="APPROACHING">⏳ Approaching (&lt;24h)</option>
+            <option value="ON_TRACK">🟢 On Track</option>
+          </select>
           <button class="btn btn-ghost btn-sm" onclick="resetFilters()">Reset</button>
           <button class="btn btn-ghost btn-sm" onclick="resetCasesColumnOrder()" title="Reset table columns to default order" style="font-size:11px;">↔ Reset Columns</button>
         </div>
@@ -625,6 +633,47 @@ tbody tr:hover{background:var(--line);}
     </div>
   </div>
 
+  <div id="view-finance" class="view">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+      <h2 style="margin:0; font-family:Arial; font-weight:800; color:var(--navy);">TDS Receivable Ledger</h2>
+      <select id="finance-fy-filter" class="fin" style="padding:6px 12px; border-radius:6px;" onchange="renderFinanceLedger()">
+        <option value="ALL">All Financial Years</option>
+      </select>
+    </div>
+    
+    <div class="kpi-row" id="finance-kpi-row">
+      <div class="kpi"><div class="kpi-label">Total Invoiced (Selected FY)</div><div class="kpi-value" id="fin-kpi-inv">Rs 0</div></div>
+      <div class="kpi"><div class="kpi-label">Total Received</div><div class="kpi-value green" id="fin-kpi-rec">Rs 0</div></div>
+      <div class="kpi"><div class="kpi-label">TDS Deducted (Receivable)</div><div class="kpi-value gold" id="fin-kpi-tds">Rs 0</div></div>
+    </div>
+    
+    <div class="panel" style="margin-top:16px;">
+      <div class="panel-head">
+        <span class="panel-title">TDS Ledger by Company</span>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm btn-navy" onclick="open26ASModal('', document.getElementById('finance-fy-filter')?.value || '')">🔍 Reconcile Form 26AS / AIS</button>
+          <button class="btn btn-sm btn-ghost" onclick="exportTDSExcel()">📥 Export Excel</button>
+        </div>
+      </div>
+      <div class="tbl-scroll">
+        <table class="data-table" style="width:100%;">
+          <thead>
+            <tr>
+              <th>Company Name</th>
+              <th>Financial Year</th>
+              <th style="text-align:right;">Total Billed (Inv Amt)</th>
+              <th style="text-align:right;">Total Received</th>
+              <th style="text-align:right;">TDS Deducted</th>
+              <th style="text-align:right;">Pending/Loss</th>
+            </tr>
+          </thead>
+          <tbody id="finance-tds-tbody">
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  
   <div id="view-salary" class="view">
     <div style="margin-bottom:6px; font-size:11px; font-weight:bold; color:var(--sub); text-transform:uppercase; letter-spacing:1px;">Salaried Staff Management</div>
     <div class="kpi-row" id="salary-kpi"></div>
@@ -679,8 +728,10 @@ tbody tr:hover{background:var(--line);}
   <div id="view-documents" class="view">
     <div class="panel" style="padding:18px;">
       <div class="panel-title" style="margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
-        <span>📁 Hard Copy Document Lookup</span>
-        <button class="btn btn-gold btn-sm" id="btn-open-bulkdoc" onclick="openBulkDocManager()">📦 Bulk Docs & Dispatch Manager</button>
+        <span>📁 Hard Copy Document & Dispatch Control</span>
+        <div>
+          <button class="btn btn-gold btn-sm" id="btn-open-bulkdoc" onclick="openBulkDocManager()">📦 Bulk Docs &amp; Dispatch Manager</button>
+        </div>
       </div>
       <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;line-height:1.5;">Every case gets a unique document code (e.g. <span class="mono" style="color:var(--navy);font-weight:700">INV-APR26-001</span>). Write this code on the physical file/folder from the investigator. Type the code below to instantly pull up that case — no need to dig through paper.</p>
       <div class="doc-lookup"><input type="text" id="doc-search" placeholder="Search by doc code, claim no, insured name, or policy no" oninput="lookupDoc()"></div>
@@ -2052,7 +2103,8 @@ tbody tr:hover{background:var(--line);}
         <span style="display:inline-block; width:8px; height:8px; background:var(--gold); border-radius:50%;"></span>
         <span id="bulkdoc-count-text">0 Cases Selected</span>
       </div>
-      <div style="display: flex; gap: 8px;">
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button class="btn btn-navy" id="bulkdoc-print-manifest-btn" onclick="printManifestFromBulkModal()" style="font-weight:700;">🖨️ Print Courier Manifest</button>
         <button class="btn btn-ghost" onclick="closeModal('bulkdoc-modal')">Cancel</button>
         <button class="btn btn-gold" id="bulkdoc-process-btn" onclick="processBulkDocs()">Apply Changes</button>
       </div>
@@ -2312,6 +2364,7 @@ tbody tr:hover{background:var(--line);}
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
           <button class="btn btn-gold btn-sm" id="pdf-download-btn" style="background: var(--cmd-gold); color: #000; box-shadow: 0 0 15px var(--cmd-gold-dim); font-weight: 600; padding: 8px 16px;">💾 Download PDF</button>
+          <button class="btn btn-ghost btn-sm" id="pdf-print-btn" style="color: var(--cmd-cyan, #00E5FF); border: 1px solid var(--cmd-glass-border, rgba(0,229,255,0.25)); font-weight: 600; padding: 8px 14px; background: rgba(0,229,255,0.05); border-radius: 6px;">🖨️ Print</button>
           <button class="btn btn-ghost btn-sm" onclick="closePDFPreview()" style="font-size: 20px; color: var(--cmd-text-sub); background: transparent; border: none; padding: 4px 8px; cursor: pointer;">✕</button>
         </div>
       </div>
@@ -2508,15 +2561,58 @@ tbody tr:hover{background:var(--line);}
     </div>
   </div>
 
+
+
+  <!-- 🔍 FORM 26AS / AIS RECONCILIATION MODAL -->
+  <div class="overlay" id="recon-26as-modal">
+    <div class="modal" style="max-width:480px; width:95%;">
+      <div class="modal-head" style="border-bottom:1px solid var(--line); padding:14px 18px; display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:22px;">⚖️</span>
+          <div>
+            <h3 style="margin:0; font-size:15px; color:var(--navy);">Verify Form 26AS / AIS TDS</h3>
+            <div style="font-size:11px; color:var(--sub); margin-top:2px;">Compare Income Tax Portal TDS credit against your agency ledger</div>
+          </div>
+        </div>
+        <button class="modal-x" onclick="closeModal('recon-26as-modal')">✕</button>
+      </div>
+      <div class="modal-body" style="padding:18px;">
+        <div style="margin-bottom:12px;">
+          <label style="display:block; font-size:11px; font-weight:700; color:var(--sub); margin-bottom:4px; text-transform:uppercase;">Company / Client Deductor</label>
+          <input type="text" id="recon-26as-company" class="fin" placeholder="e.g. SBI General Insurance">
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="display:block; font-size:11px; font-weight:700; color:var(--sub); margin-bottom:4px; text-transform:uppercase;">Financial Year (FY)</label>
+          <input type="text" id="recon-26as-fy" class="fin" placeholder="e.g. 2025-2026">
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="display:block; font-size:11px; font-weight:700; color:var(--navy); margin-bottom:4px; text-transform:uppercase;">TDS Deposited as per 26AS / AIS Portal (₹)</label>
+          <input type="number" id="recon-26as-amount" class="fin" placeholder="Enter exact TDS shown on 26AS" style="font-family:var(--mono); font-size:14px; font-weight:700;">
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="display:block; font-size:11px; font-weight:700; color:var(--sub); margin-bottom:4px; text-transform:uppercase;">ITR / Form 16A Certificate / Ack No. (Optional)</label>
+          <input type="text" id="recon-26as-ack" class="fin" placeholder="e.g. ACK-9928174">
+        </div>
+        <div style="font-size:11px; color:var(--sub); line-height:1.4; background:#f8fafc; padding:8px 10px; border-radius:4px; border:1px solid #e2e8f0;">
+          💡 <b>How it works:</b> Agar portal ka TDS amount aur agency software ka amount match karega toh <span style="color:#16a34a; font-weight:700;">🟢 26AS Matched</span> badge aayega. Agar kam jama hua hai toh red short deposit warning aayegi.
+        </div>
+      </div>
+      <div class="modal-foot" style="justify-content:space-between;">
+        <button class="btn btn-ghost" onclick="closeModal('recon-26as-modal')">Cancel</button>
+        <button class="btn btn-navy" onclick="save26ASEntry()" style="font-weight:700;">💾 Save &amp; Match TDS</button>
+      </div>
+    </div>
+  </div>
+
 <script src="https://accounts.google.com/gsi/client" async defer onload="if(typeof window.initGoogleDriveOnLoad === 'function') window.initGoogleDriveOnLoad()"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js?v=2"></script>
 <script src="ux-enhancements.js"></script>
-<script src="app.js?v=49"></script>
+<script src="app.js?v=60"></script>
 <script src="company-recovery.js?v=9"></script>
 <script src="batch-rollback.js?v=2"></script>
 <script src="realtime-sync.js?v=4"></script>
-<script src="role-permissions.js?v=3"></script>
+<script src="role-permissions.js?v=4"></script>
 <script src="import-pdf-enhancements.js?v=4"></script>
 <script src="dna-bugfixes.js?v=4"></script>
 <script src="frontend/investigator-360/investigator-360.js"></script>
@@ -2524,6 +2620,7 @@ tbody tr:hover{background:var(--line);}
 <script src="plugins-manager.js?v=2"></script>
 <script src="custom-fields.js?v=2"></script>
 <script src="smart-merge-engine.js?v=32"></script>
+<script src="dna-ops-suite.js?v=5"></script>
 
 </body>
 </html>
