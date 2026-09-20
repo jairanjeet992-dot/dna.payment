@@ -831,7 +831,8 @@ function calculateCasePayableAndProfit(caseObj) {
 
   if (typeof investigatorRows !== 'undefined' && Array.isArray(investigatorRows)) {
     if (inv1Name) {
-      const inv1 = investigatorRows.find(r => r.name === inv1Name);
+      const norm1 = inv1Name.toLowerCase();
+      const inv1 = investigatorRows.find(r => (r.name || '').trim().toLowerCase() === norm1);
       if (inv1 && inv1.payment_type === 'Salary') {
         const typeChangedAt = inv1.payment_type_changed_at ? new Date(inv1.payment_type_changed_at) : null;
         if (!typeChangedAt || caseDate >= typeChangedAt) {
@@ -840,7 +841,8 @@ function calculateCasePayableAndProfit(caseObj) {
       }
     }
     if (inv2Name) {
-      const inv2 = investigatorRows.find(r => r.name === inv2Name);
+      const norm2 = inv2Name.toLowerCase();
+      const inv2 = investigatorRows.find(r => (r.name || '').trim().toLowerCase() === norm2);
       if (inv2 && inv2.payment_type === 'Salary') {
         const typeChangedAt = inv2.payment_type_changed_at ? new Date(inv2.payment_type_changed_at) : null;
         if (!typeChangedAt || caseDate >= typeChangedAt) {
@@ -2772,8 +2774,9 @@ async function editInvestigatorPhone(name) {
 }
 
 function computeInvStats(name, caseList) {
-  const myCases = caseList.filter(c => c.inv1===name || c.inv2===name);
-  const invRow = investigatorRows.find(r => r.name === name);
+  const normName = (name || '').trim().toLowerCase();
+  const myCases = caseList.filter(c => (c.inv1 || '').trim().toLowerCase() === normName || (c.inv2 || '').trim().toLowerCase() === normName);
+  const invRow = investigatorRows.find(r => (r.name || '').trim().toLowerCase() === normName);
   const isSalary = invRow && invRow.payment_type === 'Salary';
   const typeChangedAt = invRow && invRow.payment_type_changed_at ? new Date(invRow.payment_type_changed_at) : null;
 
@@ -2918,7 +2921,8 @@ function renderBulkPaymentList() {
   const groups = {};
   rows.forEach(c => { const k = c.case_type||'(No Type)'; (groups[k] = groups[k]||[]).push(c); });
 
-  const invRow = investigatorRows.find(r => r.name === name);
+  const normName = (name || '').trim().toLowerCase();
+  const invRow = investigatorRows.find(r => (r.name || '').trim().toLowerCase() === normName);
   const isSalary = invRow && invRow.payment_type === 'Salary';
   const typeChangedAt = invRow && invRow.payment_type_changed_at ? new Date(invRow.payment_type_changed_at) : null;
 
@@ -6643,27 +6647,29 @@ async function markStatementPaid() {
   if (!confirm(`Are you sure you want to mark all cases and vouchers for ${name} in ${monthCode} as PAID?`)) {
     return;
   }
+  const payoutRef = (prompt(`Enter Bank UTR / Reference No. for this settlement (Optional — leave blank if none):`, '') || '').trim();
 
   const mo = MONTHS.find(m => m.code === monthCode);
   const btn = document.querySelector('button[onclick="markStatementPaid()"]');
   if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
 
   try {
+    const normName = (name || '').trim().toLowerCase();
     const casesToUpdate = cases.filter(c => {
       if (!c.date) return false;
       const { y: cy, m: cm } = parseDateComponents(c.date);
       const isMonth = cm===mo.m && cy===mo.y;
       if (!isMonth) return false;
       
-      const asInv1 = (c.inv1 === name && (c.inv1_status || '').trim() !== 'Paid');
-      const asInv2 = (c.inv2 === name && (c.inv2_status || '').trim() !== 'Paid');
+      const asInv1 = ((c.inv1 || '').trim().toLowerCase() === normName && (c.inv1_status || '').trim() !== 'Paid');
+      const asInv2 = ((c.inv2 || '').trim().toLowerCase() === normName && (c.inv2_status || '').trim() !== 'Paid');
       return asInv1 || asInv2;
     });
 
     const expensesToUpdate = (window.investigatorExpenses || []).filter(e => {
-      if (e.investigator_name !== name || !e.date || e.status === 'Paid') return false;
+      if ((e.investigator_name || '').trim().toLowerCase() !== normName || !e.date || e.status === 'Paid') return false;
       const { y, m } = parseDateComponents(e.date);
-    return m === mo.m && y === mo.y;
+      return m === mo.m && y === mo.y;
     });
 
     if (casesToUpdate.length === 0 && expensesToUpdate.length === 0) {
@@ -6677,8 +6683,8 @@ async function markStatementPaid() {
       const inv1Ids = [];
       const inv2Ids = [];
       for (const c of casesToUpdate) {
-        if (c.inv1 === name) { c.inv1_status = 'Paid'; inv1Ids.push(c.id); }
-        if (c.inv2 === name) { c.inv2_status = 'Paid'; inv2Ids.push(c.id); }
+        if ((c.inv1 || '').trim().toLowerCase() === normName) { c.inv1_status = 'Paid'; inv1Ids.push(c.id); }
+        if ((c.inv2 || '').trim().toLowerCase() === normName) { c.inv2_status = 'Paid'; inv2Ids.push(c.id); }
       }
       if (supabaseClient) {
         if (inv1Ids.length > 0) {
@@ -6711,13 +6717,13 @@ async function markStatementPaid() {
       const allMonthCases = cases.filter(c => {
         if (!c.date) return false;
         const { y, m } = parseDateComponents(c.date);
-    return m === mo.m && y === mo.y && (c.inv1===name || c.inv2===name);
+        return m === mo.m && y === mo.y && (((c.inv1 || '').trim().toLowerCase() === normName) || ((c.inv2 || '').trim().toLowerCase() === normName));
       });
       const stats = computeInvStats(name, allMonthCases);
       const allMonthExpenses = (window.investigatorExpenses || []).filter(e => {
-        if (e.investigator_name !== name || !e.date) return false;
+        if ((e.investigator_name || '').trim().toLowerCase() !== normName || !e.date) return false;
         const { y, m } = parseDateComponents(e.date);
-    return m === mo.m && y === mo.y;
+        return m === mo.m && y === mo.y;
       });
       const expTotal = allMonthExpenses.reduce((s, e) => s + (Number(e.amount)||0), 0);
       const taxableBase = tax.base === 'fees_only' ? (stats.totalFees || 0) : (stats.totalPayable + expTotal);
@@ -6741,6 +6747,8 @@ async function markStatementPaid() {
         tds_amount: tdsAmount,
         net_disbursable: netDisbursable,
         status: 'Paid',
+        payment_mode: payoutRef ? 'Bank Transfer' : 'Direct',
+        reference_no: payoutRef || null,
         created_at: new Date().toISOString()
       };
 

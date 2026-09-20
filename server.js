@@ -39,11 +39,22 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 // ------------------------------------
 
 const app = express();
+app.disable('x-powered-by');
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/live' });
 const port = 3000;
 const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
+
+// HTTP Security Headers (Protection against Clickjacking, MIME-sniffing, XSS)
+app.use((req, res, next) => {
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
 
 // Body parsing middleware for JSON and raw data (supporting base64 PDFs and images up to 25MB)
 app.use(express.json({ limit: '25mb' }));
@@ -112,8 +123,7 @@ async function executeDatabaseBackup(triggerType = 'scheduled') {
 
   try {
     // 1. Fetch all core tables in parallel
-    const [casesRes, invRes, settingsRes, expensesRes, activityRes, payoutsRes] = await Promise.all([
-      supabase.from('cases').select('*').order('id', { ascending: true }),
+    const [invRes, settingsRes, expensesRes, activityRes, payoutsRes] = await Promise.all([
       supabase.from('investigators').select('*').order('id', { ascending: true }),
       supabase.from('agency_settings').select('*').order('id', { ascending: true }),
       supabase.from('investigator_expenses').select('*').order('id', { ascending: true }),
@@ -121,7 +131,22 @@ async function executeDatabaseBackup(triggerType = 'scheduled') {
       supabase.from('investigator_payouts').select('*').order('id', { ascending: true })
     ]);
 
-    const cases = casesRes.data || [];
+    // Fetch all cases in ranges to bypass Supabase PostgREST default 1,000 row cap
+    let cases = [];
+    let start = 0;
+    const CHUNK_SIZE = 1000;
+    while (true) {
+      const { data, error } = await supabase.from('cases')
+        .select('*')
+        .order('id', { ascending: true })
+        .range(start, start + CHUNK_SIZE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      cases.push(...data);
+      if (data.length < CHUNK_SIZE) break;
+      start += CHUNK_SIZE;
+    }
+
     const investigators = invRes.data || [];
     const settingsList = settingsRes.data || [];
     const expenses = expensesRes.data || [];
@@ -250,7 +275,7 @@ function startBackupScheduler() {
 startBackupScheduler();
 
 // Backup API Routes
-app.get('/api/backup/status', (req, res) => {
+app.get('/api/backup/status', requireAuth, (req, res) => {
   try {
     const files = fs.readdirSync(BACKUPS_DIR)
       .filter(f => f.startsWith('dna_backup_') && f.endsWith('.json'))
@@ -763,22 +788,34 @@ app.use((req, res, next) => {
     p.endsWith('.sql') ||
     p.endsWith('.env') ||
     p.endsWith('.md') ||
+    p.endsWith('.txt') ||
+    p.endsWith('.log') ||
+    p.endsWith('.bak') ||
+    p.endsWith('.py') ||
+    p.endsWith('.sh') ||
+    p.endsWith('.sqlite') ||
+    p.endsWith('.db') ||
+    p.endsWith('.yml') ||
+    p.endsWith('.yaml') ||
     p.startsWith('/.env') ||
     p.startsWith('/.git') ||
+    p.startsWith('/node_modules') ||
     p === '/server.js' ||
     p.startsWith('/db_scripts') ||
     p.startsWith('/backups') ||
     p.startsWith('/patch_') ||
     p.startsWith('/fix_') ||
-    p.startsWith('/test_') ||
+    p.startsWith('/test') ||
     p.startsWith('/revert_') ||
+    p.startsWith('/smart_') ||
+    p.startsWith('/hc') ||
     p === '/package.json' ||
     p === '/package-lock.json' ||
     p === '/bun.lock' ||
     p === '/metadata.json' ||
     p === '/eslint.config.js'
   ) {
-    return res.status(403).send('Forbidden: Direct access to source scripts and backups is restricted.');
+    return res.status(403).send('Forbidden: Direct access to source scripts, backups, and diagnostic logs is restricted.');
   }
   next();
 });
