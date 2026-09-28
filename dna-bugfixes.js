@@ -49,7 +49,15 @@ ready(()=>{
     const exception_at = existingCase ? existingCase.exception_at : null;
     const exception_by = existingCase ? existingCase.exception_by : null;
     const risk_level = existingCase ? existingCase.risk_level : null;
-    const completed_at = existingCase ? existingCase.completed_at : null;
+    const isResolvedOutcome = ['genuine', 'repudiated', 'fraud', 'settled', 'closed'].includes((outcome || '').toLowerCase().trim());
+    let completed_at = null;
+    if (isResolvedOutcome) {
+      completed_at = (existingCase && existingCase.completed_at) ? existingCase.completed_at : new Date().toISOString();
+    } else if (existingCase && existingCase.completed_at && (outcome || '').toLowerCase().trim() === 'pending') {
+      completed_at = null;
+    } else {
+      completed_at = existingCase ? existingCase.completed_at : null;
+    }
     const tds_deducted = Math.max(0, parseFloat($('f-tds')?.value) || 0);
     const company_hardcopy_status = $('f-companyhardcopy') ? $('f-companyhardcopy').value : 'Pending';
     const company_hardcopy_awb = $('f-companyawb') ? $('f-companyawb').value : '';
@@ -69,7 +77,17 @@ ready(()=>{
     const samePerson=Boolean(inv1&&inv1!=='NA'&&rawInv2&&inv1.trim().toLowerCase()===rawInv2.trim().toLowerCase());
     const finalInv2Status=samePerson?($('f-inv1status')?.value||''):($('f-inv2status')?.value||'');
     const finalHc2Status=samePerson?($('f-hardcopy1status')?.value||''):($('f-hardcopy2status')?.value||'');
-    const fields={company,date,case_type:$('f-casetype')?.value||'',claim_no:claim,policy_no:$('f-policy')?.value||'',insured_name:insured,hospital:$('f-hospital')?.value||'',location:$('f-location')?.value||'',inv1,inv2:rawInv2,fee1:parseFloat($('f-fee1')?.value)||0,fee2:parseFloat($('f-fee2')?.value)||0,ta1:parseFloat($('f-ta1')?.value)||0,ta2:parseFloat($('f-ta2')?.value)||0,received:parseFloat($('f-received')?.value)||0,tds_deducted,invoice_no:$('f-invoice')?.value||'',invoice_amount:parseFloat($('f-invoice-amount')?.value)||null,inv1_status:$('f-inv1status')?.value||'',inv2_status:finalInv2Status,hardcopy1_status:$('f-hardcopy1status')?.value||'',hardcopy2_status:finalHc2Status,company_hardcopy_status,company_hardcopy_awb,outcome,sla_hours,due_date,exception_type,exception_reason,exception_at,exception_by,risk_level,completed_at,remarks:$('f-remarks')?.value||'',custom_data};
+    const fee1=parseFloat($('f-fee1')?.value)||0;
+    const fee2=parseFloat($('f-fee2')?.value)||0;
+    const ta1=parseFloat($('f-ta1')?.value)||0;
+    const ta2=parseFloat($('f-ta2')?.value)||0;
+    const received=parseFloat($('f-received')?.value)||0;
+    const calc = typeof calculateCasePayableAndProfit === 'function' ? calculateCasePayableAndProfit({
+      fee1, fee2, ta1, ta2, received, tds_deducted,
+      inv1, inv2: rawInv2, date
+    }) : { payable: fee1 + fee2 + ta1 + ta2, profit: (received + tds_deducted) - (fee1 + fee2 + ta1 + ta2) };
+
+    const fields={company,date,case_type:$('f-casetype')?.value||'',claim_no:claim,policy_no:$('f-policy')?.value||'',insured_name:insured,hospital:$('f-hospital')?.value||'',location:$('f-location')?.value||'',inv1,inv2:rawInv2,fee1,fee2,ta1,ta2,received,tds_deducted,invoice_no:$('f-invoice')?.value||'',invoice_amount:parseFloat($('f-invoice-amount')?.value)||null,inv1_status:$('f-inv1status')?.value||'',inv2_status:finalInv2Status,hardcopy1_status:$('f-hardcopy1status')?.value||'',hardcopy2_status:finalHc2Status,company_hardcopy_status,company_hardcopy_awb,outcome,sla_hours,due_date,exception_type,exception_reason,exception_at,exception_by,risk_level,completed_at,total_payable:calc.payable,profit:calc.profit,remarks:$('f-remarks')?.value||'',custom_data};
     const btn=document.querySelector('#case-modal .modal-foot .btn-navy');if(btn){btn.disabled=true;btn.textContent='Saving…'}
     try{if(editing)await updateCaseDB(editing,fields);else{const doc=await genDocCodeDB(date);if(!doc)throw new Error('Document code generation returned empty.');await insertCaseDB({doc_code:doc,...fields});}await loadCasesFromDB();closeModal?.('case-modal');window.__dnaEditingDocCode=null;renderAll?.();checkOverdueAlerts?.();toast(editing?'Case updated.':'Case added.')}catch(err){toast(err?.code==='23505'?'Duplicate Claim No for this company already exists.':'Save failed: '+(err?.message||err),true)}finally{if(btn){btn.disabled=false;btn.textContent='Save Case'}}
   };
@@ -97,10 +115,34 @@ ready(()=>{
     }
     try{
       const CHUNK_SIZE = 25;
+      const isFinancial = ['fee1','fee2','ta1','ta2','received','tds_deducted'].includes(field);
       for (let i = 0; i < docCodes.length; i += CHUNK_SIZE) {
         const chunk = docCodes.slice(i, i + CHUNK_SIZE);
-        const {error}=await supabaseClient.from('cases').update({[field]:value}).in('doc_code',chunk);
-        if(error)throw error;
+        if (isFinancial) {
+          for (const dCode of chunk) {
+            const ex = (window.cases || []).find(x => x.doc_code === dCode) || {};
+            const simulated = { ...ex, [field]: value };
+            const calc = typeof calculateCasePayableAndProfit === 'function'
+              ? calculateCasePayableAndProfit(simulated)
+              : null;
+            const patch = { [field]: value };
+            if (calc) {
+              patch.total_payable = calc.payable;
+              patch.profit = calc.profit;
+            }
+            const { error } = await supabaseClient.from('cases').update(patch).eq('doc_code', dCode);
+            if (error) throw error;
+          }
+        } else if (field === 'outcome') {
+          const isResolved = ['genuine', 'repudiated', 'fraud', 'settled', 'closed'].includes(String(value).toLowerCase().trim());
+          const patch = { outcome: value };
+          if (isResolved) patch.completed_at = new Date().toISOString();
+          const { error } = await supabaseClient.from('cases').update(patch).in('doc_code', chunk);
+          if (error) throw error;
+        } else {
+          const {error}=await supabaseClient.from('cases').update({[field]:value}).in('doc_code',chunk);
+          if(error)throw error;
+        }
         if (btn) btn.textContent = `Applying (${Math.min(i + CHUNK_SIZE, docCodes.length)}/${docCodes.length})…`;
       }
       closeModal('bulkedit-modal');

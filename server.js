@@ -40,10 +40,24 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 
 const app = express();
 app.disable('x-powered-by');
+const compression = require('compression');
+
+// Smart Gzip/Brotli compression middleware (skips <1KB and streaming endpoints)
+app.use(compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression'] || req.path.startsWith('/live') || req.path.startsWith('/api/gemini/parse-case')) {
+      return false;
+    }
+    return compression.filter(req, res);
+  }
+}));
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/live' });
 const port = 3000;
 const fs = require('fs');
+const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 
 // HTTP Security Headers (Protection against Clickjacking, MIME-sniffing, XSS)
@@ -502,6 +516,522 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// ============================================================
+// INVESTIGATOR PORTAL & TA APPROVAL ENGINE (SECURE & ROLE-LOCKED)
+// ============================================================
+const INV_PORTAL_SECRET = process.env.ADMIN_SECRET_KEY || 'dna-inv-portal-jwt-secret-secure-2026';
+const invAuthRateLimitMap = new Map();
+const INV_AUTH_MAX_ATTEMPTS = 5;
+const INV_AUTH_LOCKOUT_MS = 15 * 60 * 1000;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of invAuthRateLimitMap.entries()) {
+    if (now > v.resetTime) invAuthRateLimitMap.delete(k);
+  }
+}, 5 * 60 * 1000);
+
+function generateInvToken(inv) {
+  const payload = Buffer.from(JSON.stringify({
+    name: inv.name,
+    phone: inv.phone,
+    exp: Date.now() + 30 * 24 * 60 * 60 * 1000
+  })).toString('base64url');
+  const sig = crypto.createHmac('sha256', INV_PORTAL_SECRET).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function verifyInvToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [payload, sig] = parts;
+  const expected = crypto.createHmac('sha256', INV_PORTAL_SECRET).update(payload).digest('base64url');
+  if (sig !== expected) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (data.exp && Date.now() > data.exp) return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+function requireInvestigatorAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7) : (req.query.token || req.headers['x-investigator-token']);
+  const invData = verifyInvToken(token);
+  if (!invData) {
+    return res.status(401).json({ success: false, error: 'Unauthorized or session expired. Please sign in again.' });
+  }
+  req.investigator = invData;
+  next();
+}
+
+// 1. Investigator Login with 10-Digit Mobile & 4-Digit Security PIN
+app.post('/api/investigator/login', async (req, res) => {
+  try {
+    const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const clientIp = rawIp.split(',')[0].trim();
+    const { phone, pin } = req.body || {};
+
+    const cleanPhone = String(phone || '').replace(/\D/g, '').slice(-10);
+    const cleanPin = String(pin || '').trim();
+    const now = Date.now();
+    const rateKey = `inv:${clientIp}:${cleanPhone}`;
+
+    const record = invAuthRateLimitMap.get(rateKey) || { count: 0, resetTime: now + INV_AUTH_LOCKOUT_MS };
+    if (record.count >= INV_AUTH_MAX_ATTEMPTS && now < record.resetTime) {
+      const waitMins = Math.ceil((record.resetTime - now) / 60000);
+      return res.status(429).json({
+        success: false,
+        error: `Too many failed attempts. Account locked for ${waitMins} minute(s).`
+      });
+    }
+
+    // Input Validation
+    if (!/^\d{10}$/.test(cleanPhone) || !/^\d{4}$/.test(cleanPin)) {
+      record.count++;
+      invAuthRateLimitMap.set(rateKey, record);
+      return res.status(400).json({ success: false, error: 'Invalid mobile number or 4-digit PIN.' });
+    }
+
+    // Query investigator from Supabase
+    const { data: investigators, error: invErr } = await supabase
+      .from('investigators')
+      .select('*')
+      .eq('removed', false);
+
+    if (invErr || !investigators || investigators.length === 0) {
+      record.count++;
+      invAuthRateLimitMap.set(rateKey, record);
+      return res.status(401).json({ success: false, error: 'Invalid mobile number or 4-digit PIN.' });
+    }
+
+    // Match by last 10 digits of phone
+    const matchedInv = investigators.find(i => {
+      const p = String(i.phone || '').replace(/\D/g, '').slice(-10);
+      return p === cleanPhone;
+    });
+
+    if (!matchedInv) {
+      record.count++;
+      invAuthRateLimitMap.set(rateKey, record);
+      return res.status(401).json({ success: false, error: 'Invalid mobile number or 4-digit PIN.' });
+    }
+
+    // Fetch PIN from agency_settings
+    const { data: settingsData } = await supabase
+      .from('agency_settings')
+      .select('field_permissions')
+      .eq('id', 1)
+      .single();
+
+    const storedPins = (settingsData?.field_permissions?.investigator_pins) || {};
+    const customPin = storedPins[matchedInv.name];
+    // Default PIN: Last 4 digits of phone number
+    const defaultPin = cleanPhone.slice(-4);
+    const validPin = customPin || defaultPin;
+
+    if (cleanPin !== validPin) {
+      record.count++;
+      invAuthRateLimitMap.set(rateKey, record);
+      return res.status(401).json({ success: false, error: 'Invalid mobile number or 4-digit PIN.' });
+    }
+
+    // Login successful
+    invAuthRateLimitMap.delete(rateKey);
+    const token = generateInvToken(matchedInv);
+
+    return res.json({
+      success: true,
+      token,
+      investigator: {
+        id: matchedInv.id,
+        name: matchedInv.name,
+        phone: matchedInv.phone,
+        payment_type: matchedInv.payment_type || 'Per Case'
+      }
+    });
+  } catch (err) {
+    console.error('[INV AUTH ERROR]', err);
+    return res.status(500).json({ success: false, error: 'Authentication service error. Please try again.' });
+  }
+});
+
+// 2. Fetch Assigned Cases for the Authenticated Investigator (Confidential fields locked)
+app.get('/api/investigator/my-cases', requireInvestigatorAuth, async (req, res) => {
+  try {
+    const rawInvName = (req.investigator.name || '').trim();
+    if (!rawInvName) {
+      return res.status(400).json({ success: false, error: 'Investigator profile name missing.' });
+    }
+
+    // Query with ilike pattern and generous limit so no historical or paid cases are cut off
+    const { data: allCases, error } = await supabase
+      .from('cases')
+      .select('*')
+      .or(`inv1.ilike.%${rawInvName}%,inv2.ilike.%${rawInvName}%`)
+      .order('date', { ascending: false })
+      .limit(5000);
+
+    if (error) throw error;
+
+    // Filter and sanitize: STRICTLY NO AGENCY FINANCIALS (received, profit, invoice, tds)
+    const sanitized = (allCases || []).filter(c => {
+      const i1 = (c.inv1 || '').trim().toLowerCase();
+      const i2 = (c.inv2 || '').trim().toLowerCase();
+      const target = rawInvName.toLowerCase();
+      return i1 === target || i2 === target || i1.includes(target) || i2.includes(target);
+    }).map(c => {
+      const i1 = (c.inv1 || '').trim().toLowerCase();
+      const target = rawInvName.toLowerCase();
+      const isInv1 = i1 === target || i1.includes(target);
+      
+      const assignedFee = isInv1 ? (Number(c.fee1) || 0) : (Number(c.fee2) || 0);
+      const currentTa = isInv1 ? (Number(c.ta1) || 0) : (Number(c.ta2) || 0);
+      const rawStatus = isInv1 ? (c.inv1_status || '') : (c.inv2_status || '');
+      const isPaid = (rawStatus || '').trim().toLowerCase() === 'paid';
+      const paymentStatus = isPaid ? 'Paid' : (rawStatus.trim() || 'Pending');
+
+      return {
+        doc_code: c.doc_code,
+        date: c.date,
+        company: c.company,
+        case_type: c.case_type,
+        claim_no: c.claim_no,
+        policy_no: c.policy_no,
+        insured_name: c.insured_name,
+        hospital: c.hospital,
+        location: c.location,
+        outcome: c.outcome || 'Pending',
+        investigation_status: c.investigation_status || '',
+        remarks: c.remarks || '',
+        assigned_fee: assignedFee,
+        current_ta: currentTa,
+        is_paid: isPaid,
+        payment_status: paymentStatus,
+        role: isInv1 ? 'Primary (Inv 1)' : 'Secondary (Inv 2)',
+        ta_request: c.custom_data?.ta_request || null
+      };
+    });
+
+    return res.json({ success: true, cases: sanitized, count: sanitized.length });
+  } catch (err) {
+    console.error('[MY CASES ERROR]', err);
+    return res.status(500).json({ success: false, error: 'Could not load your cases.' });
+  }
+});
+
+// 3. Submit Case Outcome & Outstation TA Claim (with Duplicate Batch-Visit Check)
+app.post('/api/investigator/submit-case-update', requireInvestigatorAuth, async (req, res) => {
+  try {
+    const invName = req.investigator.name;
+    const {
+      doc_code,
+      outcome,
+      investigation_status,
+      remarks,
+      is_outstation,
+      distance_km,
+      requested_ta,
+      reason
+    } = req.body || {};
+
+    if (!doc_code) {
+      return res.status(400).json({ success: false, error: 'Doc code is required.' });
+    }
+
+    // Verify case belongs to investigator
+    const { data: c, error: cErr } = await supabase
+      .from('cases')
+      .select('*')
+      .eq('doc_code', doc_code)
+      .single();
+
+    if (cErr || !c) {
+      return res.status(404).json({ success: false, error: 'Case not found.' });
+    }
+
+    const isInv1 = (c.inv1 || '').trim().toLowerCase() === invName.toLowerCase();
+    const isInv2 = (c.inv2 || '').trim().toLowerCase() === invName.toLowerCase();
+    if (!isInv1 && !isInv2) {
+      return res.status(403).json({ success: false, error: 'You are not assigned to this case.' });
+    }
+
+    const updates = {};
+    if (outcome) updates.outcome = String(outcome).trim();
+    if (investigation_status !== undefined) updates.investigation_status = String(investigation_status || '').trim();
+    if (remarks !== undefined) updates.remarks = String(remarks || '').trim();
+
+    const customData = c.custom_data || {};
+
+    if (is_outstation) {
+      const dist = Math.max(0, parseFloat(distance_km) || 0);
+      const reqTa = Math.max(0, parseFloat(requested_ta) || 0);
+
+      if (reqTa <= 0) {
+        return res.status(400).json({ success: false, error: 'Please enter a valid requested TA amount (> 0).' });
+      }
+      if (reqTa > 15000) {
+        return res.status(400).json({ success: false, error: 'Requested TA exceeds maximum allowed threshold.' });
+      }
+
+      // Multi-Case Batch Visit Check: Did this investigator visit the same hospital on the same date?
+      let isBatchHospital = false;
+      const { data: sameDateCases } = await supabase
+        .from('cases')
+        .select('doc_code, hospital, date, inv1, inv2, custom_data')
+        .eq('date', c.date)
+        .neq('doc_code', c.doc_code);
+
+      if (sameDateCases && sameDateCases.length > 0) {
+        const hName = String(c.hospital || '').toLowerCase().trim();
+        if (hName.length > 2) {
+          isBatchHospital = sameDateCases.some(sc => {
+            const hasInv = (sc.inv1 === invName || sc.inv2 === invName);
+            const matchesHosp = String(sc.hospital || '').toLowerCase().trim().includes(hName) ||
+                                hName.includes(String(sc.hospital || '').toLowerCase().trim());
+            return hasInv && matchesHosp;
+          });
+        }
+      }
+
+      customData.ta_request = {
+        status: 'pending',
+        inv_name: invName,
+        doc_code: c.doc_code,
+        claim_no: c.claim_no || '',
+        insured_name: c.insured_name || '',
+        hospital: c.hospital || '',
+        date: c.date,
+        distance_km: dist,
+        requested_amount: reqTa,
+        reason: String(reason || '').trim().slice(0, 300),
+        is_batch_hospital: isBatchHospital,
+        requested_at: new Date().toISOString()
+      };
+    } else {
+      // Local visit (₹0 TA)
+      if (!customData.ta_request || customData.ta_request.status === 'pending') {
+        customData.ta_request = {
+          status: 'local_zero',
+          inv_name: invName,
+          requested_amount: 0,
+          updated_at: new Date().toISOString()
+        };
+      }
+    }
+
+    updates.custom_data = customData;
+
+    const { error: upErr } = await supabase
+      .from('cases')
+      .update(updates)
+      .eq('doc_code', doc_code);
+
+    if (upErr) throw upErr;
+
+    return res.json({
+      success: true,
+      message: is_outstation ? 'Update submitted. TA request sent to Admin for approval.' : 'Case updated successfully.'
+    });
+  } catch (err) {
+    console.error('[SUBMIT CASE ERROR]', err);
+    return res.status(500).json({ success: false, error: 'Failed to update case.' });
+  }
+});
+
+// 4. Change Investigator 4-Digit Security PIN
+app.post('/api/investigator/change-pin', requireInvestigatorAuth, async (req, res) => {
+  try {
+    const invName = req.investigator.name;
+    const { old_pin, new_pin } = req.body || {};
+
+    if (!/^\d{4}$/.test(String(new_pin || ''))) {
+      return res.status(400).json({ success: false, error: 'New PIN must be exactly 4 numeric digits.' });
+    }
+
+    const { data: settingsData } = await supabase
+      .from('agency_settings')
+      .select('field_permissions')
+      .eq('id', 1)
+      .single();
+
+    const fp = settingsData?.field_permissions || {};
+    const pins = fp.investigator_pins || {};
+    const cleanPhone = String(req.investigator.phone || '').replace(/\D/g, '').slice(-10);
+    const validCurrentPin = pins[invName] || cleanPhone.slice(-4);
+
+    if (String(old_pin || '').trim() !== validCurrentPin) {
+      return res.status(401).json({ success: false, error: 'Current PIN is incorrect.' });
+    }
+
+    pins[invName] = String(new_pin).trim();
+    fp.investigator_pins = pins;
+
+    const { error: setErr } = await supabase
+      .from('agency_settings')
+      .update({ field_permissions: fp })
+      .eq('id', 1);
+
+    if (setErr) throw setErr;
+
+    return res.json({ success: true, message: 'PIN updated successfully.' });
+  } catch (err) {
+    console.error('[CHANGE PIN ERROR]', err);
+    return res.status(500).json({ success: false, error: 'Failed to update PIN.' });
+  }
+});
+
+// 5. Admin TA Approval Queue API: List All Pending Requests
+app.get('/api/admin/ta-approval/list', requireAuth, async (req, res) => {
+  try {
+    const { data: allCases, error } = await supabase
+      .from('cases')
+      .select('id, doc_code, date, claim_no, insured_name, hospital, location, inv1, inv2, fee1, fee2, ta1, ta2, custom_data')
+      .order('date', { ascending: false });
+
+    if (error) throw error;
+
+    const requests = [];
+    (allCases || []).forEach(c => {
+      const tr = c.custom_data?.ta_request;
+      if (tr && (tr.status === 'pending' || tr.status === 'approved' || tr.status === 'rejected')) {
+        requests.push({
+          doc_code: c.doc_code,
+          date: c.date,
+          claim_no: c.claim_no,
+          insured_name: c.insured_name,
+          hospital: c.hospital,
+          location: c.location,
+          inv_name: tr.inv_name || c.inv1,
+          requested_amount: tr.requested_amount || 0,
+          distance_km: tr.distance_km || 0,
+          reason: tr.reason || '',
+          status: tr.status,
+          is_batch_hospital: !!tr.is_batch_hospital,
+          requested_at: tr.requested_at,
+          approved_amount: tr.approved_amount || 0,
+          current_case_ta: (c.inv1 === tr.inv_name ? c.ta1 : c.ta2) || 0
+        });
+      }
+    });
+
+    return res.json({ success: true, requests });
+  } catch (err) {
+    console.error('[ADMIN TA LIST ERROR]', err);
+    return res.status(500).json({ success: false, error: 'Failed to fetch TA requests.' });
+  }
+});
+
+// 6. Admin TA Approval Action: Approve / Modify / Reject
+app.post('/api/admin/ta-approval/action', requireAuth, async (req, res) => {
+  try {
+    const { doc_code, action, approved_amount, admin_remarks } = req.body || {};
+    if (!doc_code || !action) {
+      return res.status(400).json({ success: false, error: 'Doc code and action are required.' });
+    }
+
+    const { data: c, error: cErr } = await supabase
+      .from('cases')
+      .select('*')
+      .eq('doc_code', doc_code)
+      .single();
+
+    if (cErr || !c) return res.status(404).json({ success: false, error: 'Case not found.' });
+
+    const customData = c.custom_data || {};
+    const tr = customData.ta_request || {};
+    const applicant = tr.inv_name || c.inv1;
+    const isInv1 = (c.inv1 || '').trim().toLowerCase() === applicant.toLowerCase();
+
+    const updates = {};
+
+    if (action === 'approve' || action === 'modify') {
+      const finalAmt = Math.max(0, parseFloat(approved_amount !== undefined ? approved_amount : tr.requested_amount) || 0);
+      if (isInv1) updates.ta1 = finalAmt;
+      else updates.ta2 = finalAmt;
+
+      tr.status = 'approved';
+      tr.approved_amount = finalAmt;
+      tr.approved_at = new Date().toISOString();
+      tr.admin_remarks = admin_remarks || '';
+      customData.ta_request = tr;
+      updates.custom_data = customData;
+
+      // Recalculate total_payable
+      const f1 = Number(c.fee1) || 0, f2 = Number(c.fee2) || 0;
+      const t1 = isInv1 ? finalAmt : (Number(c.ta1) || 0);
+      const t2 = !isInv1 ? finalAmt : (Number(c.ta2) || 0);
+      updates.total_payable = f1 + f2 + t1 + t2;
+      const rec = Number(c.received) || 0, tds = Number(c.tds_deducted) || 0;
+      updates.profit = (rec + tds) - updates.total_payable;
+    } else if (action === 'reject') {
+      if (isInv1) updates.ta1 = 0;
+      else updates.ta2 = 0;
+
+      tr.status = 'rejected';
+      tr.reject_reason = admin_remarks || 'Not approved by admin';
+      tr.rejected_at = new Date().toISOString();
+      customData.ta_request = tr;
+      updates.custom_data = customData;
+
+      const f1 = Number(c.fee1) || 0, f2 = Number(c.fee2) || 0;
+      const t1 = isInv1 ? 0 : (Number(c.ta1) || 0);
+      const t2 = !isInv1 ? 0 : (Number(c.ta2) || 0);
+      updates.total_payable = f1 + f2 + t1 + t2;
+      const rec = Number(c.received) || 0, tds = Number(c.tds_deducted) || 0;
+      updates.profit = (rec + tds) - updates.total_payable;
+    }
+
+    const { error: upErr } = await supabase
+      .from('cases')
+      .update(updates)
+      .eq('doc_code', doc_code);
+
+    if (upErr) throw upErr;
+
+    return res.json({ success: true, message: `TA request ${action}d successfully.`, updates });
+  } catch (err) {
+    console.error('[ADMIN TA ACTION ERROR]', err);
+    return res.status(500).json({ success: false, error: 'Failed to process TA action.' });
+  }
+});
+
+// 7. Admin Reset / Set Investigator Security PIN
+app.post('/api/admin/reset-inv-pin', requireAuth, async (req, res) => {
+  try {
+    const { investigator_name, new_pin } = req.body || {};
+    if (!investigator_name || !/^\d{4}$/.test(String(new_pin || ''))) {
+      return res.status(400).json({ success: false, error: 'Investigator name and 4-digit PIN required.' });
+    }
+
+    const { data: settingsData } = await supabase
+      .from('agency_settings')
+      .select('field_permissions')
+      .eq('id', 1)
+      .single();
+
+    const fp = settingsData?.field_permissions || {};
+    const pins = fp.investigator_pins || {};
+    pins[investigator_name] = String(new_pin).trim();
+    fp.investigator_pins = pins;
+
+    const { error: setErr } = await supabase
+      .from('agency_settings')
+      .update({ field_permissions: fp })
+      .eq('id', 1);
+
+    if (setErr) throw setErr;
+
+    return res.json({ success: true, message: `PIN for ${investigator_name} reset to ${new_pin}.` });
+  } catch (err) {
+    console.error('[ADMIN RESET PIN ERROR]', err);
+    return res.status(500).json({ success: false, error: 'Failed to reset PIN.' });
+  }
+});
+
 let aiClient = null;
 function getAi() {
   if (!aiClient) {
@@ -841,8 +1371,17 @@ window.APP_CONFIG = {
 `);
 });
 
-// Serve static files from the root directory
-app.use(express.static(__dirname));
+// Serve static files from the root directory with 1-hour browser cache for assets
+app.use(express.static(__dirname, {
+  maxAge: '1h',
+  etag: true,
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('index.html')) {
+      // index.html should never be heavily cached so updates are instant
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  }
+}));
 
 // Default fallback to index.html for single-page routing
 app.get('*', (req, res, next) => {

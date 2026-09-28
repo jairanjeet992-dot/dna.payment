@@ -51,7 +51,7 @@
 })();
 </script>
 <meta name="theme-color" content="#0F2942">
-<link rel="stylesheet" id="dna-command-center-css" href="dna-command-center.css?v=6">
+<link rel="stylesheet" id="dna-command-center-css" href="dna-command-center.css?v=9">
 <link rel="stylesheet" href="frontend/investigator-360/investigator-360.css">
 <style>
 :root{
@@ -135,7 +135,29 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--paper);color:var(-
 .kpi.green{border-left-color:var(--green);}
 .kpi.red{border-left-color:var(--red);}
 .kpi-label{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--sub);}
-.kpi-value{font-size:22px;font-weight:700;color:var(--navy);margin-top:6px;font-family:var(--mono);}
+.kpi-value{
+  font-size:clamp(18px, 1.35vw, 24px);
+  font-weight:800;
+  color:var(--navy);
+  margin-top:6px;
+  font-family:var(--mono);
+  white-space:nowrap;
+  display:flex;
+  align-items:baseline;
+  flex-wrap:nowrap;
+  line-height:1.15;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.kpi-curr{
+  font-size:0.72em;
+  font-weight:700;
+  margin-right:3px;
+  opacity:0.85;
+  display:inline-block;
+  line-height:1;
+  vertical-align:baseline;
+}
 .kpi-value.green{color:var(--green);} .kpi-value.red{color:var(--red);} .kpi-value.gold{color:var(--gold);}
 
 /* ============================================================
@@ -160,10 +182,33 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--paper);color:var(-
   border-radius: 50%; margin-right: 8px; vertical-align: middle;
   animation: pulse-red 2s infinite;
 }
-#view-dashboard .kpi-row{gap:20px; perspective: 1000px;}
+#view-dashboard .kpi-row{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  perspective: 1000px;
+}
+#view-dashboard #kpi-row{
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (min-width: 1680px) {
+  #view-dashboard #kpi-row {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1024px) {
+  #view-dashboard #kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  #view-dashboard #kpi-row {
+    grid-template-columns: 1fr;
+  }
+}
 #view-dashboard .kpi{
   position:relative;background:var(--glass-surface);backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  border:1px solid var(--glass-border); border-radius:14px; padding:24px 20px;
+  border:1px solid var(--glass-border); border-radius:14px; padding:20px 18px 18px;
   box-shadow:var(--glass-shadow-rest);
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   transform-style:preserve-3d;
@@ -176,6 +221,11 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--paper);color:var(-
 #view-dashboard .kpi::before{
   content:"";position:absolute;top:0;left:0;right:0;height:4px;background:var(--ledger-edge);border-radius:14px 14px 0 0;
 }
+.kpi.blue{border-left-color:var(--steel);}
+.kpi-value.blue{color:var(--steel);}
+body.dark-mode .kpi-value.blue{color:var(--navy);}
+.kpi-sub{font-size:10px;font-weight:600;color:var(--sub);margin-top:4px;letter-spacing:0.3px;}
+
 #view-dashboard .panel{
   background:var(--glass-surface); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   border:1px solid var(--glass-border); border-radius:14px;
@@ -386,25 +436,216 @@ tbody tr:hover{background:var(--line);}
 }
 
   .hover-row:hover { background: rgba(199, 154, 59, 0.05) !important; }
+
+  /* Investigator Portal Mobile Styles */
+  .inv-case-card {
+    background: var(--card);
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .inv-case-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  }
+  .inv-case-header {
+    background: var(--paper);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .inv-doc-code {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--navy);
+  }
+  .inv-case-body {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .inv-fee-locked-banner {
+    background: rgba(15,41,66,0.04);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  body.dark-mode .inv-fee-locked-banner {
+    background: rgba(255,255,255,0.04);
+  }
+  .inv-filter-btn.active {
+    background: var(--navy) !important;
+    color: #fff !important;
+    border-color: var(--navy) !important;
+  }
+  .login-tab-btn {
+    flex: 1; padding: 10px; border: none; background: transparent; font-weight: 700; font-size: 11px;
+    color: var(--sub); cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s;
+  }
+  .login-tab-btn.active {
+    color: var(--navy); border-bottom-color: var(--gold); background: #fff;
+  }
+  body.dark-mode .login-tab-btn.active {
+    color: var(--gold); background: var(--card);
+  }
 </style>
 </head>
 <body>
 
 <div id="login-screen">
-  <div class="login-card">
+  <div class="login-card" style="overflow:hidden;">
     <div class="login-crest">
       <div class="mark" id="login-mark">DNA</div>
       <h1>DNA Professional</h1>
       <p>Investigation Agency</p>
     </div>
+
+    <!-- Dual Role Login Switcher -->
+    <div style="display:flex;background:var(--paper);border-bottom:1px solid var(--line);">
+      <button type="button" id="tab-login-admin" class="login-tab-btn active" onclick="switchLoginTab('admin')">👔 Agency Admin</button>
+      <button type="button" id="tab-login-inv" class="login-tab-btn" onclick="switchLoginTab('inv')">🕵️ Field Investigator Portal</button>
+    </div>
+
     <div class="login-body">
-      <form onsubmit="doLogin(); return false;" style="margin:0; display:flex; flex-direction:column; gap:16px;">
+      <!-- Admin Login Form -->
+      <form id="login-admin-form" onsubmit="doLogin(); return false;" style="margin:0; display:flex; flex-direction:column; gap:16px;">
         <div class="login-error" id="login-error"></div>
-        <div class="login-field"><label>Email</label><input type="email" id="login-email" placeholder="you@agency.com" autocomplete="username"></div>
+        <div class="login-field"><label>Admin Email</label><input type="email" id="login-email" placeholder="you@agency.com" autocomplete="username"></div>
         <div class="login-field"><label>Password</label><input type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password"></div>
-        <button type="submit" class="login-btn" id="login-btn">Sign In</button>
-        <div class="login-hint" id="login-hint">Don't have an account yet? Ask your admin to create one for you.</div>
+        <button type="submit" class="login-btn" id="login-btn">Sign In to Command Center</button>
+        <div class="login-hint" id="login-hint">Agency directors and operational staff sign in here.</div>
       </form>
+
+      <!-- Investigator Mobile Portal Form -->
+      <form id="login-inv-form" onsubmit="doInvestigatorLogin(); return false;" style="margin:0; display:none; flex-direction:column; gap:16px;">
+        <div class="login-error" id="inv-login-error"></div>
+        <div class="login-field">
+          <label>Registered Mobile Number</label>
+          <input type="tel" id="inv-login-phone" placeholder="10-digit mobile number" maxlength="10" autocomplete="tel">
+        </div>
+        <div class="login-field">
+          <label>4-Digit Security PIN</label>
+          <input type="password" id="inv-login-pin" placeholder="••••" maxlength="4" autocomplete="current-password" style="letter-spacing:4px;font-size:16px;text-align:center;">
+        </div>
+        <button type="submit" class="login-btn" id="inv-login-btn">Sign In to Field Portal</button>
+        <div class="login-hint" style="line-height:1.5;">
+          <strong>Default PIN:</strong> Last 4 digits of your registered mobile number.<br>
+          <span style="color:var(--sub);font-size:10.5px;">Fees are pre-locked. Submit case findings &amp; outstation TA requests here.</span>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- DEDICATED FIELD INVESTIGATOR MOBILE PORTAL (Clean, Locked, Role-Enforced) -->
+<div id="investigator-portal-app" style="display:none;background:var(--bg);min-height:100vh;">
+  <header style="background:var(--navy);color:#fff;padding:12px 18px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:100;box-shadow:0 2px 10px rgba(0,0,0,0.15);">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div style="width:34px;height:34px;border-radius:6px;background:var(--gold);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center;font-size:13px;letter-spacing:1px;">DNA</div>
+      <div>
+        <div style="font-size:13px;font-weight:700;letter-spacing:0.3px;" id="inv-portal-name">Investigator Portal</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.7);" id="inv-portal-phone">📱 Mobile</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="btn btn-ghost btn-sm" style="color:#fff;border-color:rgba(255,255,255,0.3);padding:5px 8px;" onclick="openChangePinModal()">🔑 Change PIN</button>
+      <button class="btn btn-danger btn-sm" style="padding:5px 10px;" onclick="doInvestigatorLogout()">🚪 Sign Out</button>
+    </div>
+  </header>
+
+  <main style="max-width:880px;margin:0 auto;padding:16px;">
+    <!-- Metric summary cards -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px;">
+      <div class="kpi" style="padding:12px;">
+        <div class="kpi-label">Total Assigned</div>
+        <div class="kpi-value" id="inv-metric-total" style="font-size:18px;">0</div>
+      </div>
+      <div class="kpi gold" style="padding:12px;">
+        <div class="kpi-label">⏳ Unpaid Cases</div>
+        <div class="kpi-value gold" id="inv-metric-unpaid" style="font-size:18px;">0</div>
+      </div>
+      <div class="kpi green" style="padding:12px;">
+        <div class="kpi-label">✅ Paid Cases</div>
+        <div class="kpi-value green" id="inv-metric-paid" style="font-size:18px;">0</div>
+      </div>
+      <div class="kpi blue" style="padding:12px;">
+        <div class="kpi-label">💰 Total Fees + TA</div>
+        <div class="kpi-value blue" id="inv-metric-total-earned" style="font-size:18px;">₹0</div>
+      </div>
+      <div class="kpi green" style="padding:12px;">
+        <div class="kpi-label">💳 Disbursed (Paid)</div>
+        <div class="kpi-value green" id="inv-metric-disbursed" style="font-size:18px;">₹0</div>
+      </div>
+    </div>
+
+    <!-- Smart Month-Wise Selector Bar -->
+    <div style="background:var(--card);padding:10px 14px;border-radius:8px;border:1px solid var(--line);margin-bottom:12px;display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;">
+        <span style="font-size:11.5px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;">
+          📅 <span>Billing Month:</span>
+        </span>
+        <select id="inv-portal-month-select" class="fin" style="font-weight:700;font-size:12px;min-width:180px;height:32px;padding:4px 10px;background:var(--paper);border-color:var(--line);border-radius:6px;" onchange="onInvMonthSelect(this.value)">
+          <option value="all">📅 All Months</option>
+        </select>
+        <div id="inv-month-pills" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+      </div>
+      <div id="inv-month-summary-badge" style="font-size:11.5px;font-weight:600;color:var(--navy);background:rgba(184,134,46,0.12);border:1px solid rgba(184,134,46,0.25);padding:4px 12px;border-radius:20px;display:none;"></div>
+    </div>
+
+    <!-- Filter & Search Bar -->
+    <div style="background:var(--card);padding:12px;border-radius:8px;border:1px solid var(--line);margin-bottom:16px;display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-ghost btn-sm inv-filter-btn active" id="btn-flt-all" onclick="setInvPortalFilter('all',this)">All Cases (<span id="flt-count-all">0</span>)</button>
+        <button class="btn btn-ghost btn-sm inv-filter-btn" id="btn-flt-unpaid" onclick="setInvPortalFilter('unpaid',this)">⏳ Unpaid / Active (<span id="flt-count-unpaid">0</span>)</button>
+        <button class="btn btn-ghost btn-sm inv-filter-btn" id="btn-flt-paid" onclick="setInvPortalFilter('paid',this)">✅ Paid &amp; Settled (<span id="flt-count-paid">0</span>)</button>
+        <button class="btn btn-ghost btn-sm inv-filter-btn" id="btn-flt-ta" onclick="setInvPortalFilter('ta',this)">🚗 TA Claims (<span id="flt-count-ta">0</span>)</button>
+        <button class="btn btn-ghost btn-sm inv-filter-btn" id="btn-flt-pending" onclick="setInvPortalFilter('pending',this)">❓ Pending Finding (<span id="flt-count-pending">0</span>)</button>
+      </div>
+      <div style="flex:1;min-width:180px;">
+        <input type="text" id="inv-portal-search" class="fin" placeholder="🔍 Search claim, hospital, patient, doc code…" style="width:100%;" oninput="renderInvestigatorCasesList()">
+      </div>
+    </div>
+
+    <!-- Cases List -->
+    <div id="inv-portal-cases-list" style="display:flex;flex-direction:column;gap:14px;"></div>
+  </main>
+
+  <!-- Change PIN Modal -->
+  <div class="overlay" id="inv-change-pin-modal">
+    <div class="modal" style="max-width:380px;">
+      <div class="modal-head">
+        <h3>Change Security PIN</h3>
+        <button class="modal-x" onclick="closeChangePinModal()">×</button>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:12px;">
+        <div class="login-error" id="inv-pin-error" style="display:none;"></div>
+        <div class="fg">
+          <label>Current 4-Digit PIN</label>
+          <input type="password" id="inv-old-pin" maxlength="4" placeholder="••••" class="fin" style="letter-spacing:4px;text-align:center;">
+        </div>
+        <div class="fg">
+          <label>New 4-Digit PIN</label>
+          <input type="password" id="inv-new-pin" maxlength="4" placeholder="••••" class="fin" style="letter-spacing:4px;text-align:center;">
+        </div>
+        <div class="fg">
+          <label>Confirm New PIN</label>
+          <input type="password" id="inv-confirm-pin" maxlength="4" placeholder="••••" class="fin" style="letter-spacing:4px;text-align:center;">
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" onclick="closeChangePinModal()">Cancel</button>
+        <button class="btn btn-navy" onclick="submitChangePin()">Save PIN</button>
+      </div>
     </div>
   </div>
 </div>
@@ -442,7 +683,7 @@ tbody tr:hover{background:var(--line);}
     <div class="tab" data-view="reports" onclick="showView('reports',this)">Reports</div>
     <div class="tab" data-view="intelligence" onclick="showView('intelligence',this)">Intelligence <span class="badge" style="background:var(--red);color:white;font-size:9px;margin-left:4px;">BETA</span></div>
     <div class="tab" data-view="settings" onclick="showView('settings',this)">Settings</div>
-    
+    <div class="tab" data-view="ta-approvals" id="tab-ta-approvals" onclick="showView('ta-approvals',this)">TA Approvals <span class="badge" id="ta-pending-badge" style="display:none;background:var(--red);color:white;font-size:9px;margin-left:4px;">0</span></div>
   </div>
 
   <div id="view-dashboard" class="view active">
@@ -642,9 +883,9 @@ tbody tr:hover{background:var(--line);}
     </div>
     
     <div class="kpi-row" id="finance-kpi-row">
-      <div class="kpi"><div class="kpi-label">Total Invoiced (Selected FY)</div><div class="kpi-value" id="fin-kpi-inv">Rs 0</div></div>
-      <div class="kpi"><div class="kpi-label">Total Received</div><div class="kpi-value green" id="fin-kpi-rec">Rs 0</div></div>
-      <div class="kpi"><div class="kpi-label">TDS Deducted (Receivable)</div><div class="kpi-value gold" id="fin-kpi-tds">Rs 0</div></div>
+      <div class="kpi"><div class="kpi-label">Total Invoiced (Selected FY)</div><div class="kpi-value" id="fin-kpi-inv"><span class="kpi-curr">₹</span>0</div></div>
+      <div class="kpi"><div class="kpi-label">Total Received</div><div class="kpi-value green" id="fin-kpi-rec"><span class="kpi-curr">₹</span>0</div></div>
+      <div class="kpi"><div class="kpi-label">TDS Deducted (Receivable)</div><div class="kpi-value gold" id="fin-kpi-tds"><span class="kpi-curr">₹</span>0</div></div>
     </div>
     
     <div class="panel" style="margin-top:16px;">
@@ -1017,13 +1258,17 @@ tbody tr:hover{background:var(--line);}
             <div class="admin-only" style="font-size:11.5px;color:var(--sub);margin-bottom:12px;">Assign roles directly by their email address.</div>
             <div class="admin-only" style="display:flex; gap:8px; margin-bottom:12px; align-items:end; flex-wrap:wrap;">
                <div class="fg" style="flex:2; min-width:140px; margin-bottom:0;"><label>User Email</label><input type="email" id="assign-role-email" placeholder="staff@agency.com"></div>
-               <div class="fg" style="flex:1; min-width:110px; margin-bottom:0;"><label>Role</label><select id="assign-role-select">
+               <div class="fg" style="flex:1; min-width:110px; margin-bottom:0;"><label>Role</label><select id="assign-role-select" onchange="toggleAssignRoleCompanyField()">
                   <option value="staff">Staff (Basic)</option>
                   <option value="junior">Junior</option>
                   <option value="senior">Senior</option>
                   <option value="accounts">Accounts</option>
                   <option value="company">Company</option>
                </select></div>
+               <div class="fg" id="assign-role-company-fg" style="flex:1; min-width:130px; margin-bottom:0; display:none;">
+                  <label>Company</label>
+                  <select id="assign-role-company-select" style="font-size:11.5px;"></select>
+               </div>
                <button class="btn btn-navy btn-sm" onclick="assignRoleByEmail()">Assign</button>
             </div>
             <div class="admin-only" id="assigned-roles-list" style="border:1px solid var(--line); border-radius:6px; max-height:160px; overflow-y:auto; font-size:11.5px; background:var(--card);">
@@ -1219,6 +1464,8 @@ tbody tr:hover{background:var(--line);}
       </div>
     </div>
   </div>
+
+  <div id="view-ta-approvals" class="view"></div>
 
 </div>
 
@@ -2380,18 +2627,34 @@ tbody tr:hover{background:var(--line);}
 
   <!-- EXPENSE / VOUCHER ADD & EDIT MODAL -->
   <div class="overlay" id="expense-modal">
-    <div class="modal" style="max-width:520px;">
+    <div class="modal" style="max-width:540px;">
       <div class="modal-head">
         <h3 id="exp-modal-title">💵 Add Expense / Voucher</h3>
         <button class="modal-x" onclick="closeModal('expense-modal')">✕</button>
       </div>
       <div class="modal-body" style="padding:18px;">
         <input type="hidden" id="exp-id" value="">
+        <input type="hidden" id="exp-scope" value="INVESTIGATOR">
+
+        <!-- Scope Switcher: Field Staff vs Office / Overhead -->
+        <div style="display:flex;gap:6px;margin-bottom:14px;background:var(--paper);padding:4px;border-radius:8px;border:1px solid var(--line);">
+          <button type="button" id="exp-tab-inv" class="btn btn-sm btn-navy" style="flex:1;font-weight:700;padding:6px 10px;font-size:11.5px;" onclick="switchExpenseScope('INVESTIGATOR')">👤 Field Investigator Voucher</button>
+          <button type="button" id="exp-tab-office" class="btn btn-sm btn-ghost" style="flex:1;font-weight:700;padding:6px 10px;font-size:11.5px;" onclick="switchExpenseScope('OFFICE')">🏢 Office & Staff Expense</button>
+        </div>
+
         <div class="form-grid">
-          <div class="fg span-2">
+          <!-- Field Investigator Selection -->
+          <div class="fg span-2" id="exp-inv-group">
             <label>Investigator <span class="req">*</span></label>
-            <select id="exp-inv" class="fin" required></select>
+            <select id="exp-inv" class="fin"></select>
           </div>
+
+          <!-- Office Staff / Vendor Beneficiary Input -->
+          <div class="fg span-2" id="exp-office-group" style="display:none;">
+            <label>Staff / Payee / Vendor Name <span class="req">*</span></label>
+            <input type="text" id="exp-office-vendor" class="fin" placeholder="e.g. Ramesh (Office Staff / Boy), Landlord, Airtel Wifi, Daily Chai">
+          </div>
+
           <div class="fg">
             <label>Category <span class="req">*</span></label>
             <select id="exp-category" class="fin" required>
@@ -2406,7 +2669,7 @@ tbody tr:hover{background:var(--line);}
           </div>
           <div class="fg">
             <label>Amount (₹) <span class="req">*</span></label>
-            <input type="number" id="exp-amount" class="fin" placeholder="e.g. 150" min="1" step="1" required>
+            <input type="number" id="exp-amount" class="fin" placeholder="e.g. 1500" min="1" step="1" required>
           </div>
           <div class="fg">
             <label>Expense Date <span class="req">*</span></label>
@@ -2416,11 +2679,11 @@ tbody tr:hover{background:var(--line);}
             <label>Payment Status</label>
             <select id="exp-status" class="fin">
               <option value="Pending" selected>Pending (Pay with Monthly Settlement)</option>
-              <option value="Paid">Paid (Already Transferred)</option>
+              <option value="Paid">Paid (Already Transferred / Cleared)</option>
             </select>
           </div>
           <div class="fg span-2">
-            <label>Remarks / Reference (e.g. DTDC Tracking No, 35 Cases hardcopy packet)</label>
+            <label id="exp-remarks-label">Remarks / Reference (e.g. DTDC Tracking No, 35 Cases hardcopy packet)</label>
             <input type="text" id="exp-remarks" class="fin" placeholder="e.g. Hardcopy bundle 35 cases courier DTDC #8899">
           </div>
         </div>
@@ -2434,9 +2697,9 @@ tbody tr:hover{background:var(--line);}
 
   <!-- EXPENSE LEDGER MODAL -->
   <div class="overlay" id="expense-ledger-modal">
-    <div class="modal" style="max-width:960px;">
+    <div class="modal" style="max-width:1040px;">
       <div class="modal-head">
-        <h3>📋 Investigator Expense & Voucher Ledger</h3>
+        <h3>📋 Agency Expense & Voucher Ledger</h3>
         <button class="modal-x" onclick="closeModal('expense-ledger-modal')">✕</button>
       </div>
       <div class="modal-body" style="padding:16px;max-height:78vh;overflow-y:auto;">
@@ -2444,38 +2707,41 @@ tbody tr:hover{background:var(--line);}
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
             <div>
               <label style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;display:block;margin-bottom:2px;">Filter Month</label>
-              <select id="ledger-filter-month" class="fin" style="width:160px;" onchange="renderExpenseLedgerTable()"></select>
+              <select id="ledger-filter-month" class="fin" style="width:145px;" onchange="renderExpenseLedgerTable()"></select>
             </div>
             <div>
-              <label style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;display:block;margin-bottom:2px;">Investigator</label>
-              <select id="ledger-filter-inv" class="fin" style="width:180px;" onchange="renderExpenseLedgerTable()"></select>
+              <label style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;display:block;margin-bottom:2px;">Scope / Type</label>
+              <select id="ledger-filter-scope" class="fin" style="width:160px;" onchange="renderExpenseLedgerTable()">
+                <option value="ALL">All Expenses</option>
+                <option value="INVESTIGATOR">👤 Field Staff Vouchers</option>
+                <option value="OFFICE">🏢 Office & Staff Overheads</option>
+                <option value="SALARY">💼 Staff Salaries Only</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;display:block;margin-bottom:2px;">Person / Payee</label>
+              <select id="ledger-filter-inv" class="fin" style="width:170px;" onchange="renderExpenseLedgerTable()"></select>
             </div>
             <div>
               <label style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;display:block;margin-bottom:2px;">Category</label>
-              <select id="ledger-filter-cat" class="fin" style="width:160px;" onchange="renderExpenseLedgerTable()">
+              <select id="ledger-filter-cat" class="fin" style="width:150px;" onchange="renderExpenseLedgerTable()">
                 <option value="">All Categories</option>
-                <option value="Courier / Hardcopy">Courier / Hardcopy</option>
-                <option value="Bonus / Incentive">Bonus / Incentive</option>
-                <option value="Travel / Fuel">Travel / Fuel</option>
-                <option value="Printing / Stationery">Printing / Stationery</option>
-                <option value="Special Allowance">Special Allowance</option>
-                <option value="Advance / Deduction">Advance / Deduction</option>
-                <option value="Other Misc">Other Misc</option>
               </select>
             </div>
           </div>
-          <button class="btn btn-gold btn-sm admin-only" onclick="openAddExpenseModal()">+ Add New Voucher</button>
+          <button class="btn btn-gold btn-sm admin-only" onclick="openAddExpenseModal()">+ Add New Expense</button>
         </div>
 
         <!-- KPI summary banner inside ledger -->
-        <div id="ledger-kpi-summary" style="display:flex;gap:12px;margin-bottom:14px;"></div>
+        <div id="ledger-kpi-summary" style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;"></div>
 
         <div class="tbl-scroll">
           <table style="width:100%;font-size:12px;">
             <thead>
               <tr style="background:var(--navy);color:#fff;">
                 <th style="padding:8px 10px;text-align:left;">Date</th>
-                <th style="padding:8px 10px;text-align:left;">Investigator</th>
+                <th style="padding:8px 10px;text-align:left;">Type</th>
+                <th style="padding:8px 10px;text-align:left;">Payee / Investigator</th>
                 <th style="padding:8px 10px;text-align:left;">Category</th>
                 <th style="padding:8px 10px;text-align:left;">Remarks / Ref</th>
                 <th style="padding:8px 10px;text-align:right;">Amount (₹)</th>
@@ -2490,6 +2756,46 @@ tbody tr:hover{background:var(--line);}
       <div class="modal-foot" style="display:flex;justify-content:space-between;">
         <button class="btn btn-ghost" onclick="closeModal('expense-ledger-modal')">Close</button>
         <button class="btn btn-gold btn-sm" onclick="exportExpenseLedgerCSV()">⬇ Export CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTLEMENT & PAYOUT CONFIRMATION MODAL -->
+  <div class="overlay" id="settlement-confirm-modal">
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-head">
+        <h3 id="settle-modal-title">💳 Confirm Monthly Settlement</h3>
+        <button class="modal-x" onclick="closeModal('settlement-confirm-modal')">✕</button>
+      </div>
+      <div class="modal-body" style="padding:18px;">
+        <input type="hidden" id="settle-inv-name" value="">
+        <input type="hidden" id="settle-month-code" value="">
+        
+        <div id="settle-summary-box" style="background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;"></div>
+
+        <div class="form-grid">
+          <div class="fg span-2">
+            <label>Payment Mode <span class="req">*</span></label>
+            <select id="settle-pay-mode" class="fin">
+              <option value="Bank Transfer (NEFT/RTGS/IMPS)" selected>🏦 Bank Transfer (NEFT/RTGS/IMPS)</option>
+              <option value="UPI">📱 UPI Transfer</option>
+              <option value="Cash">💵 Cash</option>
+              <option value="Cheque">📜 Cheque</option>
+            </select>
+          </div>
+          <div class="fg span-2">
+            <label>Bank UTR / Transaction Reference No. <span style="font-size:10px;color:var(--sub);font-weight:normal;">(Optional but recommended)</span></label>
+            <input type="text" id="settle-payout-ref" class="fin" placeholder="e.g. UTR202609261234 or UPI Ref">
+          </div>
+          <div class="fg span-2">
+            <label>Disbursement Date</label>
+            <input type="date" id="settle-payout-date" class="fin">
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot" style="display:flex;justify-content:space-between;">
+        <button class="btn btn-ghost" onclick="closeModal('settlement-confirm-modal')">Cancel</button>
+        <button class="btn btn-navy" id="settle-confirm-btn" onclick="executeSettlementPaid()">✅ Confirm &amp; Mark as Paid</button>
       </div>
     </div>
   </div>
@@ -2607,20 +2913,21 @@ tbody tr:hover{background:var(--line);}
 <script src="https://accounts.google.com/gsi/client" async defer onload="if(typeof window.initGoogleDriveOnLoad === 'function') window.initGoogleDriveOnLoad()"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js?v=2"></script>
-<script src="ux-enhancements.js"></script>
-<script src="app.js?v=63"></script>
+<script src="ux-enhancements.js?v=2"></script>
+<script src="app.js?v=73"></script>
+<script src="investigator-portal.js?v=5"></script>
 <script src="company-recovery.js?v=9"></script>
 <script src="batch-rollback.js?v=2"></script>
 <script src="realtime-sync.js?v=4"></script>
-<script src="role-permissions.js?v=4"></script>
+<script src="role-permissions.js?v=5"></script>
 <script src="import-pdf-enhancements.js?v=4"></script>
-<script src="dna-bugfixes.js?v=5"></script>
+<script src="dna-bugfixes.js?v=6"></script>
 <script src="frontend/investigator-360/investigator-360.js"></script>
 <script src="investigator-case-breakdown.js"></script>
 <script src="plugins-manager.js?v=2"></script>
 <script src="custom-fields.js?v=2"></script>
 <script src="smart-merge-engine.js?v=32"></script>
-<script src="dna-ops-suite.js?v=5"></script>
+<script src="dna-ops-suite.js?v=6"></script>
 
 </body>
 </html>

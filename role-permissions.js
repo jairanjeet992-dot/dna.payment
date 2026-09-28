@@ -10,7 +10,7 @@ async function loadAssetSet(){const jobs=[];for(const href of jobs){const tag=/\
 async function loadInvestigator360(){if(typeof window.ensureInvestigator360==='function')window.__dnaEnsure360FromModule=window.ensureInvestigator360}
 function restoreAdmin(){document.querySelectorAll('.admin-only,[data-dna-admin-hidden="1"]').forEach(show);['delete-case-btn','bulk-delete-btn'].forEach(id=>show(document.getElementById(id)))}
 function injectStaffEdit(){if(window.isCurrentUserAdmin||!window.rolePermissionsReady)return;const role=window.currentUserRole;if(role!=='senior'&&role!=='junior')return;const tb=document.getElementById('cases-tbody');if(!tb||typeof cases==='undefined')return;Array.from(tb.rows).forEach(row=>{if(row.dataset.dnaEditInjected)return;const code=row.dataset.docCode||row.querySelector('[data-col="doc_code"]')?.textContent?.trim()||row.cells[1]?.textContent?.trim(),c=cases.find(x=>x.doc_code===code),cell=row.querySelector('[data-col="actions"]')||row.cells[row.cells.length-1];if(!c||!cell)return;const b=document.createElement('button');b.className='btn btn-ghost btn-sm';b.textContent='Edit';b.type='button';b.onclick=()=>window.editCase?.(cases.indexOf(c));cell.appendChild(b);row.dataset.dnaEditInjected='1'})}
-function staffUI(){if(window.isCurrentUserAdmin)return;const role=window.currentUserRole||'staff';document.querySelectorAll('.admin-only').forEach(hide);const re=/^(delete\b|remove\b|clear\b|bulk\s+delete\b|manage\s+roles\b|add\s+investigator\b|remove\s+investigator\b|rename\s+investigator\b|merge\s+investigator\b)/i;document.querySelectorAll('button,a,input[type="button"],input[type="submit"]').forEach(e=>{if(re.test((e.textContent||e.value||'').trim()))hide(e)});document.querySelectorAll('.panel').forEach(p=>{const t=p.querySelector('.panel-title')?.textContent?.toLowerCase()||'';if(t.includes('agency branding')||t.includes('danger zone'))hide(p)});['invite-email','invite-status'].forEach(id=>hide(document.getElementById(id)));hide(document.querySelector('button[onclick="inviteStaff()"]'));const f=document.getElementById('restore-file');if(f?.parentElement)hide(f.parentElement);hide(document.getElementById('delete-case-btn'));hide(document.getElementById('bulk-delete-btn'));if(role==='junior'){hide(document.getElementById('bulk-edit-btn'));hide(document.getElementById('bulk-pay-btn')||document.querySelector('button[onclick="openBulkPayment()"]'));hide(document.querySelector('button[onclick="openReconciliation()"]'));hide(document.querySelector('button[onclick="openScorecard()"]'));hide(document.querySelector('button[onclick*="openAddInvestigator"]'))}else if(role==='senior'){hide(document.querySelector('button[onclick="openReconciliation()"]'))}else if(role==='accounts'){hide(document.querySelector('button[onclick="openAddCase()"]'));hide(document.querySelector('button[onclick*="openAddInvestigator"]'));hide(document.querySelector('button[onclick="openScorecard()"]'))}else if(role==='company'){hide(document.querySelector('button[onclick="openAddCase()"]'));hide(document.querySelector('button[onclick="openBulkPayment()"]'));hide(document.querySelector('button[onclick="openReconciliation()"]'));hide(document.querySelector('button[onclick="openScorecard()"]'));hide(document.querySelector('button[onclick*="openAddInvestigator"]'));hide(document.getElementById('bulk-edit-btn'));hide(document.getElementById('bulk-delete-btn'));document.querySelectorAll('[data-view="investigators"],.tab[data-view="investigators"]').forEach(hide)}injectStaffEdit()}
+function staffUI(){if(window.isCurrentUserAdmin)return;const role=window.currentUserRole||'staff';document.querySelectorAll('.admin-only').forEach(hide);const re=/^(delete\b|remove\b|clear\b|bulk\s+delete\b|manage\s+roles\b|add\s+investigator\b|remove\s+investigator\b|rename\s+investigator\b|merge\s+investigator\b)/i;document.querySelectorAll('button,a,input[type="button"],input[type="submit"]').forEach(e=>{if(re.test((e.textContent||e.value||'').trim()))hide(e)});document.querySelectorAll('.panel').forEach(p=>{const t=p.querySelector('.panel-title')?.textContent?.toLowerCase()||'';if(t.includes('agency branding')||t.includes('danger zone'))hide(p)});['invite-email','invite-status'].forEach(id=>hide(document.getElementById(id)));hide(document.querySelector('button[onclick="inviteStaff()"]'));const f=document.getElementById('restore-file');if(f?.parentElement)hide(f.parentElement);hide(document.getElementById('delete-case-btn'));hide(document.getElementById('bulk-delete-btn'));if(role==='junior'){hide(document.getElementById('bulk-edit-btn'));hide(document.getElementById('bulk-pay-btn')||document.querySelector('button[onclick="openBulkPayment()"]'));hide(document.querySelector('button[onclick="openReconciliation()"]'));hide(document.querySelector('button[onclick="openScorecard()"]'));hide(document.querySelector('button[onclick*="openAddInvestigator"]'))}else if(role==='senior'){hide(document.querySelector('button[onclick="openReconciliation()"]'))}else if(role==='accounts'){hide(document.querySelector('button[onclick="openAddCase()"]'));hide(document.querySelector('button[onclick*="openAddInvestigator"]'));hide(document.querySelector('button[onclick="openScorecard()"]'))}else if(role==='company'){hide(document.querySelector('button[onclick="openAddCase()"]'));hide(document.querySelector('button[onclick="openBulkPayment()"]'));hide(document.querySelector('button[onclick="openReconciliation()"]'));hide(document.querySelector('button[onclick="openScorecard()"]'));hide(document.querySelector('button[onclick*="openAddInvestigator"]'));hide(document.getElementById('bulk-edit-btn'));hide(document.getElementById('bulk-delete-btn'));hide(document.querySelector('button[onclick="exportToExcel()"]'));document.querySelectorAll('[data-view="investigators"],.tab[data-view="investigators"],[data-view="monthly"],.tab[data-view="monthly"],[data-view="salary"],.tab[data-view="salary"],[data-view="yearly"],.tab[data-view="yearly"],[data-view="reconciliation"],.tab[data-view="reconciliation"],[data-view="intelligence"],.tab[data-view="intelligence"],[data-view="ta-approvals"],.tab[data-view="ta-approvals"],[data-view="reports"],.tab[data-view="reports"],[data-view="documents"],.tab[data-view="documents"],[data-view="settings"],.tab[data-view="settings"]').forEach(hide)}injectStaffEdit()}
 function applyRole(){
   document.body.classList.toggle('role-admin',!!window.isCurrentUserAdmin);
   document.body.classList.toggle('role-staff',!window.isCurrentUserAdmin);
@@ -28,23 +28,38 @@ function applyRole(){
     staffUI();
   }
 
-  
+  // Ensure table headers and cells are 100% matched with no column shifts
+  if(typeof window.applyCasesColumnOrderToDOM==='function')window.applyCasesColumnOrderToDOM();
+  if(typeof window.renderCasesTable==='function')window.renderCasesTable();
 }
-async function loadCurrentUserRole(user){window.isCurrentUserAdmin=false;window.currentUserRole=null;window.rolePermissionsReady=false;applyRole();if(!user){window.rolePermissionsReady=true;applyRole();return}try{if(user.email==='jairanjeet992@gmail.com'){ window.currentUserRole='admin';window.isCurrentUserAdmin=true;window.rolePermissionsReady=true;applyRole();await ensureInvestigator360(); try{ if(getClient()) { await getClient().from('user_roles').upsert([{user_id: user.id, role: 'admin'}]); } }catch(e){} return; }const c=getClient();if(!c)throw Error('Supabase client unavailable');
+async function loadCurrentUserRole(user){window.isCurrentUserAdmin=false;window.currentUserRole=null;window.currentUserCompany=null;window.rolePermissionsReady=false;applyRole();if(!user){window.rolePermissionsReady=true;applyRole();return}try{if(user.email==='jairanjeet992@gmail.com'){ window.currentUserRole='admin';window.isCurrentUserAdmin=true;window.rolePermissionsReady=true;applyRole();await ensureInvestigator360(); try{ if(getClient()) { await getClient().from('user_roles').upsert([{user_id: user.id, role: 'admin'}]); } }catch(e){} return; }const c=getClient();if(!c)throw Error('Supabase client unavailable');
   let dbRole = 'staff';
+  let dbCompany = null;
   try {
-    const {data: urData} = await c.from('user_roles').select('role').eq('user_id', user.id).maybeSingle();
+    const {data: urData} = await c.from('user_roles').select('role, company_name').eq('user_id', user.id).maybeSingle();
     if (urData?.role) dbRole = urData.role;
+    if (urData?.company_name) dbCompany = urData.company_name;
   } catch(e) {}
   
   try {
     const {data: asData} = await c.from('agency_settings').select('field_permissions').eq('id', 1).maybeSingle();
-    if (asData?.field_permissions?._staffRoles?.[user.email]) {
-      dbRole = asData.field_permissions._staffRoles[user.email];
+    const staffRoles = asData?.field_permissions?._staffRoles;
+    if (staffRoles && staffRoles[user.email]) {
+      const val = staffRoles[user.email];
+      if (typeof val === 'object' && val?.role) {
+        dbRole = val.role;
+        if (val.company) dbCompany = val.company;
+      } else if (typeof val === 'string') {
+        dbRole = val;
+      }
+    }
+    if (!dbCompany && asData?.field_permissions?._companyMappings?.[user.email]) {
+      dbCompany = asData.field_permissions._companyMappings[user.email];
     }
   } catch(e) {}
   
-      window.currentUserRole = dbRole;
+  window.currentUserRole = dbRole;
+  window.currentUserCompany = dbCompany;
     
     
   window.isCurrentUserAdmin=window.currentUserRole==='admin';if(window.currentUserRole==='staff'){const {count}=await c.from('user_roles').select('*',{count:'exact',head:true});if(!count||count===0){window.currentUserRole='admin';window.isCurrentUserAdmin=true;await c.from('user_roles').insert([{user_id:user.id,role:'admin'}])}}}catch(e){console.error('[DNA] role lookup failed; staff fallback',e);window.currentUserRole='staff';window.isCurrentUserAdmin=false}window.rolePermissionsReady=true;applyRole();await ensureInvestigator360()}

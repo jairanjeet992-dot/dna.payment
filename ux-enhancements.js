@@ -7,15 +7,54 @@ function initUXEnhancements() {
     const style = document.createElement('style');
     style.innerHTML = `
         .tbl-scroll, .table-container { position: relative; }
-        .tbl-scroll th, table.data-table th, #cases-table th, #monthly-table th {
+        .tbl-scroll th, table.data-table th, #monthly-table th {
             position: sticky;
             top: 0;
             z-index: 10;
-            background: var(--paper, #fff);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            background: #0D2B46;
+            color: #FFFFFF;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
         }
-        body.dark-mode .tbl-scroll th, body.dark-mode table.data-table th, body.dark-mode #cases-table th, body.dark-mode #monthly-table th {
-            background: var(--surface-1, #1a222c);
+        #cases-table th {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: linear-gradient(180deg, #0D2B46 0%, #071e33 100%) !important;
+            color: #FFFFFF !important;
+            font-size: 10px !important;
+            font-weight: 750 !important;
+            letter-spacing: 0.6px !important;
+            text-transform: uppercase !important;
+            padding: 10px 10px !important;
+            border-top: none !important;
+            border-bottom: 2px solid #C79A3B !important;
+            border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+            box-shadow: 0 4px 12px rgba(7, 24, 37, 0.3) !important;
+            white-space: nowrap !important;
+            transition: background 0.18s ease, color 0.18s ease;
+        }
+        #cases-table th:hover {
+            background: linear-gradient(180deg, #12395B 0%, #0D2B46 100%) !important;
+            color: #F8DC9C !important;
+        }
+        #cases-table th input[type="checkbox"] {
+            accent-color: #C79A3B;
+            cursor: pointer;
+        }
+        body.dark-mode .tbl-scroll th, body.dark-mode table.data-table th, body.dark-mode #monthly-table th {
+            background: #091c2e;
+            color: #F0F4F8;
+        }
+        body.dark-mode #cases-table th {
+            background: linear-gradient(180deg, #091a29 0%, #05101a 100%) !important;
+            color: #EDF3F8 !important;
+            border-bottom: 2px solid #D4AF37 !important;
+            border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45) !important;
+        }
+        body.dark-mode #cases-table th:hover {
+            background: linear-gradient(180deg, #0e243a 0%, #091a29 100%) !important;
+            color: #E2B961 !important;
         }
     `;
     document.head.appendChild(style);

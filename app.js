@@ -100,6 +100,10 @@ function refreshDynamicCompanies() {
     fct.value = val;
   }
 
+  if (typeof populateAssignRoleCompanyDropdown === 'function') {
+    populateAssignRoleCompanyDropdown();
+  }
+
   
 
 
@@ -794,6 +798,7 @@ function showView(name, el) {
   if (name === 'documents') renderDocuments();
   if (name === 'reports') buildBulkSlipSummary();
   if (name === 'intelligence') renderIntelligenceView();
+  if (name === 'ta-approvals' && typeof window.renderTaApprovalsView === 'function') window.renderTaApprovalsView();
   if (name === 'settings') {
     if (typeof refreshBackupStatus === 'function') refreshBackupStatus();
     if (typeof renderPermissionsMatrix === 'function') renderPermissionsMatrix();
@@ -801,6 +806,7 @@ function showView(name, el) {
     if (typeof window.renderCustomFieldsSettings === 'function') window.renderCustomFieldsSettings();
     if (typeof renderAssignedRoles === 'function') renderAssignedRoles();
     if (typeof initSettingsSubTabs === 'function') initSettingsSubTabs();
+    if (typeof populateAssignRoleCompanyDropdown === 'function') populateAssignRoleCompanyDropdown();
   }
 }
 
@@ -836,7 +842,7 @@ function calculateCasePayableAndProfit(caseObj) {
       if (inv1 && inv1.payment_type === 'Salary') {
         const typeChangedAt = inv1.payment_type_changed_at ? new Date(inv1.payment_type_changed_at) : null;
         if (!typeChangedAt || caseDate >= typeChangedAt) {
-          effectiveFee1 = 0; effectiveTa1 = 0;
+          effectiveFee1 = 0; // Salaried staff earn no per-case fee, but travel reimbursement (TA) is preserved
         }
       }
     }
@@ -846,7 +852,7 @@ function calculateCasePayableAndProfit(caseObj) {
       if (inv2 && inv2.payment_type === 'Salary') {
         const typeChangedAt = inv2.payment_type_changed_at ? new Date(inv2.payment_type_changed_at) : null;
         if (!typeChangedAt || caseDate >= typeChangedAt) {
-          effectiveFee2 = 0; effectiveTa2 = 0;
+          effectiveFee2 = 0; // Salaried staff earn no per-case fee, but travel reimbursement (TA) is preserved
         }
       }
     }
@@ -978,6 +984,19 @@ function parseDateComponents(dateStr) {
   const code = `${codes[monthIdx]}${shortYear}`;
   return { y, m, code };
 }
+
+function sanitizeInvestigatorName(raw) {
+  if (!raw) return '';
+  let str = String(raw).trim().replace(/\s+/g, ' ');
+  if (!str || str.toUpperCase() === 'NA' || str === '-' || str === '—') return 'NA';
+  if (typeof getAllInvestigators === 'function') {
+    const known = getAllInvestigators();
+    const found = known.find(k => k.trim().toLowerCase() === str.toLowerCase());
+    if (found) return found;
+  }
+  return str;
+}
+window.sanitizeInvestigatorName = sanitizeInvestigatorName;
 
 async function genDocCodeDB(dateStr) {
   const { code: monthCode } = parseDateComponents(dateStr);
@@ -1176,28 +1195,96 @@ function renderDashboard() {
   const visibleCases = getVisibleCases();
   const nonWithdrawnCases = visibleCases.filter(c => c.exception_type !== 'Withdrawn');
   const total = nonWithdrawnCases.length;
-  const totalPayable = visibleCases.reduce((s,c)=>s+(c.total_payable||0),0);
-  const totalReceived = visibleCases.reduce((s,c)=>s+(c.received||0),0);
-  const totalProfit = totalReceived - totalPayable;
-  
+
+  // 1. Direct Case Costs (COGS: Investigator Fees + TA)
+  const totalPayable = visibleCases.reduce((s, c) => s + (c.total_payable || 0), 0);
+
+  // 2. Cash Inflow directly received from insurance companies / TPAs
+  const totalReceived = visibleCases.reduce((s, c) => s + (Number(c.received) || 0), 0);
+
+  // 3. Client TDS Deducted u/s 194J (Tax Credit Asset deposited in 26AS)
+  const totalTds = visibleCases.reduce((s, c) => s + (Number(c.tds_deducted) || 0), 0);
+
+  // 4. Realized Gross Revenue = Cash Received + Client TDS Asset
+  const grossRevenue = totalReceived + totalTds;
+
+  // 5. Gross Profit = Gross Revenue - Case Direct Costs
+  const grossProfit = grossRevenue - totalPayable;
+  const grossMarginPct = grossRevenue > 0 ? ((grossProfit / grossRevenue) * 100).toFixed(1) : '0.0';
+
+  // 6. Operating Expenses / Staff Vouchers (from Monthly tab investigator_expenses)
+  const expList = (window.investigatorExpenses && window.investigatorExpenses.length)
+    ? window.investigatorExpenses
+    : (typeof investigatorExpenses !== 'undefined' ? investigatorExpenses : []);
+
+  // Filter expenses matching visibleCases timeframe if a date-filtered subset is active
+  let relevantExpenses = expList;
+  if (visibleCases.length > 0 && visibleCases.length < cases.length) {
+    const dates = visibleCases.map(c => c.date).filter(Boolean);
+    if (dates.length > 0) {
+      const minDate = new Date(Math.min(...dates.map(d => new Date(d).getTime())));
+      const maxDate = new Date(Math.max(...dates.map(d => new Date(d).getTime())));
+      if (!isNaN(minDate.getTime()) && !isNaN(maxDate.getTime())) {
+        relevantExpenses = expList.filter(e => {
+          if (!e.date) return false;
+          const ed = new Date(e.date);
+          return ed >= minDate && ed <= maxDate;
+        });
+      }
+    }
+  }
+
+  const fieldVouchersAmt = relevantExpenses.filter(e => !isOfficeExpense(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const staffSalariesAmt = relevantExpenses.filter(e => isSalaryExpense(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const officeOverheadsAmt = relevantExpenses.filter(e => isOfficeExpense(e) && !isSalaryExpense(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const totalOperatingExpenses = fieldVouchersAmt + staffSalariesAmt + officeOverheadsAmt;
+
+  // 7. Real Net Profit = Gross Profit - Operating Expenses / Vouchers
+  const netProfit = grossProfit - totalOperatingExpenses;
+  const netMarginPct = grossRevenue > 0 ? ((netProfit / grossRevenue) * 100).toFixed(1) : '0.0';
+
+  // 8. Investigator Outstanding (Unpaid Case Fees + TA)
   let outstandingInv = 0;
   visibleCases.forEach(c => {
-      let paidAmt = 0;
-      if ((c.inv1_status || '').trim() === 'Paid') paidAmt += (c.fee1||0) + (c.ta1||0);
-      if ((c.inv2_status || '').trim() === 'Paid') paidAmt += (c.fee2||0) + (c.ta2||0);
-      outstandingInv += ((c.total_payable||0) - paidAmt);
+    let paidAmt = 0;
+    if ((c.inv1_status || '').trim() === 'Paid') paidAmt += (Number(c.fee1) || 0) + (Number(c.ta1) || 0);
+    if ((c.inv2_status || '').trim() === 'Paid') paidAmt += (Number(c.fee2) || 0) + (Number(c.ta2) || 0);
+    outstandingInv += ((c.total_payable || 0) - paidAmt);
   });
-  
-  const marginPct = totalReceived > 0 ? ((totalProfit / totalReceived) * 100).toFixed(1) : 0;
 
   renderMissingPhoneBanner();
-  
+
   document.getElementById('kpi-row').innerHTML = `
-    <div class="kpi gold"><div class="kpi-label">Revenue</div><div class="kpi-value gold">Rs ${fmt(totalReceived)}</div></div>
-    <div class="kpi"><div class="kpi-label">Expenses</div><div class="kpi-value">Rs ${fmt(totalPayable)}</div></div>
-    <div class="kpi ${totalProfit>=0?'green':'red'}"><div class="kpi-label">Net Profit</div><div class="kpi-value ${totalProfit>=0?'green':'red'}">Rs ${fmt(totalProfit)}</div></div>
-    <div class="kpi"><div class="kpi-label">Margin %</div><div class="kpi-value">${marginPct}%</div></div>
-    <div class="kpi red"><div class="kpi-label">Outstanding</div><div class="kpi-value red">Rs ${fmt(outstandingInv)}</div></div>
+    <div class="kpi gold">
+      <div class="kpi-label">Cash Received</div>
+      <div class="kpi-value gold"><span class="kpi-curr">₹</span>${fmt(totalReceived)}</div>
+      <div class="kpi-sub">Direct Bank Inflow</div>
+    </div>
+    <div class="kpi blue">
+      <div class="kpi-label">Client TDS (26AS)</div>
+      <div class="kpi-value blue"><span class="kpi-curr">₹</span>${fmt(totalTds)}</div>
+      <div class="kpi-sub">Tax Credit Asset (194J)</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Case Direct Cost</div>
+      <div class="kpi-value"><span class="kpi-curr">₹</span>${fmt(totalPayable)}</div>
+      <div class="kpi-sub" title="Unpaid Case Fees: ₹${fmt(outstandingInv)}">Unpaid: ₹${fmt(outstandingInv)}</div>
+    </div>
+    <div class="kpi ${grossProfit >= 0 ? 'green' : 'red'}">
+      <div class="kpi-label">Gross Profit (${grossMarginPct}%)</div>
+      <div class="kpi-value ${grossProfit >= 0 ? 'green' : 'red'}"><span class="kpi-curr">₹</span>${fmt(grossProfit)}</div>
+      <div class="kpi-sub">Revenue − Direct Cost</div>
+    </div>
+    <div class="kpi gold" title="Field Vouchers: ₹${fmt(fieldVouchersAmt)} | Salaries: ₹${fmt(staffSalariesAmt)} | Overheads: ₹${fmt(officeOverheadsAmt)}">
+      <div class="kpi-label">Operating Overheads</div>
+      <div class="kpi-value gold"><span class="kpi-curr">₹</span>${fmt(totalOperatingExpenses)}</div>
+      <div class="kpi-sub">Field: ₹${fmt(fieldVouchersAmt)} | Office: ₹${fmt(staffSalariesAmt + officeOverheadsAmt)}</div>
+    </div>
+    <div class="kpi ${netProfit >= 0 ? 'green' : 'red'}">
+      <div class="kpi-label">Net Profit (${netMarginPct}%)</div>
+      <div class="kpi-value ${netProfit >= 0 ? 'green' : 'red'}"><span class="kpi-curr">₹</span>${fmt(netProfit)}</div>
+      <div class="kpi-sub">Gross Profit − Overheads</div>
+    </div>
   `;
   
   const coStats = {};
@@ -1233,7 +1320,7 @@ function renderDashboard() {
   document.getElementById('company-kpi-row').innerHTML = `
     <div class="kpi"><div class="kpi-label">Highest Collection</div><div class="kpi-value gold" style="font-size:16px;">${maxRevCo}</div></div>
     <div class="kpi"><div class="kpi-label">Lowest Margin</div><div class="kpi-value red" style="font-size:16px;">${minMarginCo} (${minMargin.toFixed(1)}%)</div></div>
-    <div class="kpi"><div class="kpi-label">Avg Claim Value</div><div class="kpi-value">Rs ${avgClaimValue}</div></div>
+    <div class="kpi"><div class="kpi-label">Avg Claim Value</div><div class="kpi-value"><span class="kpi-curr">₹</span>${avgClaimValue}</div></div>
     <div class="kpi"><div class="kpi-label">Collection %</div><div class="kpi-value">${collectionPct}%</div></div>
   `;
 
@@ -1330,24 +1417,44 @@ CASE_TYPES.forEach(ct => {
 
   // --- TOP INVESTIGATORS LEADERBOARD ---
   const invStats = investigatorRows.map(inv => {
-    const assigned = cases.filter(c => c.inv1 === inv.name || c.inv2 === inv.name);
-    const completed = assigned.filter(c => c.completed_at);
+    const invNorm = (inv.name || '').trim().toLowerCase();
+    const assigned = cases.filter(c => {
+      const inv1 = (c.inv1 || '').trim().toLowerCase();
+      const inv2 = (c.inv2 || '').trim().toLowerCase();
+      return inv1 === invNorm || inv2 === invNorm;
+    });
+
+    const completed = assigned.filter(c => {
+      if (c.completed_at) return true;
+      const st = (c.investigation_status || '').toLowerCase();
+      const out = (c.outcome || '').toLowerCase();
+      return st === 'completed' || st === 'submitted' || out === 'positive' || out === 'negative' || out === 'genuine' || out === 'repudiated' || out === 'closed';
+    });
+
     const totalAssigned = assigned.length;
     const completedCount = completed.length;
+    const activeCount = Math.max(0, totalAssigned - completedCount);
     let qualityScore = 100;
-    if (totalAssigned > 0) qualityScore = (completedCount / totalAssigned) * 100;
-    
+    if (totalAssigned > 0) qualityScore = Math.round((completedCount / totalAssigned) * 100);
+
+    // Balanced Composite Score: Volume (completed cases * 10) + Efficiency (quality * 0.5)
+    // Ensures high-caseload investigators (e.g. Sultan) are fairly recognized over 1-case accounts
+    const compositeScore = (completedCount * 10) + (qualityScore * 0.5);
+
     return {
       id: inv.id,
       name: inv.name,
+      total: totalAssigned,
       completed: completedCount,
-      quality: qualityScore
+      active: activeCount,
+      quality: qualityScore,
+      score: compositeScore
     };
   });
 
-  // Sort: Completed DESC, then Quality DESC
-  invStats.sort((a, b) => (b.completed - a.completed) || (b.quality - a.quality));
-  const topInv = invStats.slice(0, 5);
+  // Sort: Composite Rank Score DESC, then Total Completed DESC
+  invStats.sort((a, b) => (b.score - a.score) || (b.completed - a.completed));
+  const topInv = invStats.filter(i => i.total > 0).slice(0, 5);
   const maxCompleted = Math.max(...topInv.map(i => i.completed), 1);
 
   const lbEl = document.getElementById('investigator-leaderboard');
@@ -1356,18 +1463,19 @@ CASE_TYPES.forEach(ct => {
       lbEl.innerHTML = '<div class="empty-state">No investigators ranked yet</div>';
     } else {
       lbEl.innerHTML = topInv.map((inv, idx) => {
-        const pct = (inv.completed / maxCompleted) * 100;
+        const pct = Math.min(100, Math.round((inv.completed / maxCompleted) * 100));
         return `
-          <div style="margin-bottom:12px; cursor:pointer;" onclick="openInvestigator360('${inv.id}')">
+          <div style="margin-bottom:12px; cursor:pointer;" onclick="openInvestigator360('${inv.id}')" title="Click to view full 360 profile for ${escAttr(inv.name)}">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
               <div style="display:flex; align-items:center; gap:8px;">
                 <span style="font-size:10px; font-weight:900; color:var(--gold); width:20px;">#${idx+1}</span>
-                <span style="font-size:12px; font-weight:700; color:var(--navy);">${inv.name}</span>
+                <span style="font-size:12px; font-weight:700; color:var(--navy);">${escAttr(inv.name)}</span>
               </div>
               <div style="font-size:11px; font-family:var(--mono);">
-                <b style="color:var(--navy);">${inv.completed}</b> <span style="color:var(--sub); font-size:10px;">Cases</span>
+                <b style="color:var(--navy);">${inv.completed}/${inv.total}</b> <span style="color:var(--sub); font-size:10px;">Done</span>
+                ${inv.active > 0 ? `<span style="color:#d97706; font-size:10px; margin-left:3px;">(${inv.active} active)</span>` : ''}
                 <span style="margin:0 6px; color:var(--line);">|</span>
-                <b style="color:var(--green);">${Math.round(inv.quality)}%</b> <span style="color:var(--sub); font-size:10px;">Quality</span>
+                <b style="color:var(--green);">${inv.quality}%</b> <span style="color:var(--sub); font-size:10px;">Closure</span>
               </div>
             </div>
             <div style="height:6px; background:var(--paper); border-radius:3px; overflow:hidden;">
@@ -1490,7 +1598,13 @@ function renderStatusRing(paid, pending, total) {
 }
 
 function getVisibleCases() {
-  return cases;
+  const role = window.currentUserRole;
+  const userCompany = window.currentUserCompany;
+  if (role === 'company' && userCompany) {
+    const norm = userCompany.trim().toLowerCase();
+    return (cases || []).filter(c => (c.company || '').trim().toLowerCase() === norm);
+  }
+  return cases || [];
 }
 
 // ============================================================
@@ -1593,13 +1707,42 @@ let isDraggingCol = false;
 let draggedColId = null;
 
 function getCasesColumnOrder() {
+  const isAdmin = typeof window.isCurrentUserAdmin !== 'undefined' ? window.isCurrentUserAdmin : true;
+  const role = window.currentUserRole || (isAdmin ? 'admin' : 'staff');
+
   let baseOrder = [...DEFAULT_CASES_COLUMN_ORDER];
+
+  // 1. Non-admins must NEVER have 'select' (checkbox) column
+  if (!isAdmin) {
+    baseOrder = baseOrder.filter(col => col !== 'select');
+  }
+
+  // 2. Role-specific sensitive column guards
+  const hiddenCols = new Set();
+  if (role === 'company') {
+    // Client company should only see case workflow, never internal financials or staff names
+    ['inv1', 'inv2', 'fee1', 'fee2', 'ta1', 'ta2', 'total_payable', 'received', 'profit', 'margin', 'inv1_status', 'inv2_status', 'hardcopy1_status', 'invoice_no', 'invoice_amount'].forEach(c => hiddenCols.add(c));
+  } else if (role === 'junior') {
+    ['profit', 'margin'].forEach(c => hiddenCols.add(c));
+    const perms = (window.settings && window.settings.fieldPermissions) || {};
+    if (perms.group_fees && perms.group_fees.junior === 'hide') {
+      ['fee1', 'fee2', 'ta1', 'ta2', 'total_payable'].forEach(c => hiddenCols.add(c));
+    }
+    if (perms.group_payout && perms.group_payout.junior === 'hide') {
+      ['received', 'invoice_no', 'invoice_amount'].forEach(c => hiddenCols.add(c));
+    }
+  } else if (role === 'senior' && !isAdmin) {
+    ['profit', 'margin'].forEach(c => hiddenCols.add(c));
+  }
+
+  baseOrder = baseOrder.filter(col => !hiddenCols.has(col));
+
   if (window.CUSTOM_FIELDS && window.CUSTOM_FIELDS.length > 0) {
     const invNoIdx = baseOrder.indexOf('invoice_no');
     const insertIdx = invNoIdx !== -1 ? invNoIdx : baseOrder.length - 1;
     window.CUSTOM_FIELDS.forEach(cf => {
       const colId = 'custom_' + cf.id;
-      if (!baseOrder.includes(colId)) {
+      if (!baseOrder.includes(colId) && !hiddenCols.has(colId)) {
         baseOrder.splice(insertIdx, 0, colId);
       }
     });
@@ -1611,7 +1754,7 @@ function getCasesColumnOrder() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const valid = parsed.filter(col => baseOrder.includes(col));
+          const valid = parsed.filter(col => baseOrder.includes(col) && !hiddenCols.has(col));
           baseOrder.forEach(col => {
             if (!valid.includes(col)) valid.push(col);
           });
@@ -1664,6 +1807,15 @@ function applyCasesColumnOrderToDOM() {
       th.setAttribute('data-col', colId);
     }
     if (colId) thMap[colId] = th;
+  });
+
+  // HIDE all TH elements not in currentOrder; SHOW the ones that are in currentOrder
+  Object.keys(thMap).forEach(colId => {
+    if (!currentOrder.includes(colId)) {
+      thMap[colId].style.setProperty('display', 'none', 'important');
+    } else {
+      thMap[colId].style.removeProperty('display');
+    }
   });
 
   currentOrder.forEach(colId => {
@@ -3030,6 +3182,14 @@ async function saveBulkPayment() {
     } else {
         fields = { fee2: fee, ta2: ta, inv2_status: paid ? 'Paid' : 'Pending' };
     }
+    const simulatedCase = { ...(cData || {}), ...fields };
+    const calc = typeof calculateCasePayableAndProfit === 'function'
+      ? calculateCasePayableAndProfit(simulatedCase)
+      : null;
+    if (calc) {
+      fields.total_payable = calc.payable;
+      fields.profit = calc.profit;
+    }
     updates.push({ doc_code: docCode, fields });
   });
 
@@ -3038,7 +3198,7 @@ async function saveBulkPayment() {
       const result = await window.executeAtomicBatchUpdate(updates, {
         actionTitle: `Bulk Payment: recorded payments for ${updates.length} case(s) (${name})`,
         investigatorName: name,
-        updatedFields: ['fee1', 'ta1', 'inv1_status', 'fee2', 'ta2', 'inv2_status'],
+        updatedFields: ['fee1', 'ta1', 'inv1_status', 'fee2', 'ta2', 'inv2_status', 'total_payable', 'profit'],
         onProgress: (done, total) => {
           if (btn) btn.textContent = `Saving (${done}/${total})…`;
         }
@@ -3218,25 +3378,100 @@ function getExpensesForMonth(mo) {
   });
 }
 
-function openAddExpenseModal(defaultInv = '', defaultMonthIdx = null) {
+function isOfficeExpense(e) {
+  if (!e) return false;
+  const name = (e.investigator_name || '').trim();
+  if (name.startsWith('[Office]') || name.startsWith('[Staff]')) return true;
+  const cat = (e.category || '').toLowerCase();
+  return cat.includes('office') || cat.includes('salary') || cat.includes('rent') || cat.includes('utility') || cat.includes('electricity') || cat.includes('pantry') || cat.includes('chai') || cat.includes('maintenance') || cat.includes('repair');
+}
+
+function isSalaryExpense(e) {
+  if (!e) return false;
+  return (e.category || '').toLowerCase().includes('salary');
+}
+
+function getExpensePayeeName(e) {
+  if (!e) return '—';
+  let name = (e.investigator_name || '').trim();
+  if (name.startsWith('[Office]')) name = name.replace(/^\[Office\]\s*/i, '').trim();
+  if (name.startsWith('[Staff]')) name = name.replace(/^\[Staff\]\s*/i, '').trim();
+  return name || 'Office / General';
+}
+
+const INV_EXPENSE_CATEGORIES = [
+  { val: 'Courier / Hardcopy', label: '📦 Courier / Hardcopy Dispatch' },
+  { val: 'Bonus / Incentive', label: '🎁 Bonus / Performance Incentive' },
+  { val: 'Travel / Fuel', label: '⛽ Travel / Fuel / Outstation TA' },
+  { val: 'Printing / Stationery', label: '📄 Printing / Document Charges' },
+  { val: 'Special Allowance', label: '⭐ Special Investigation Allowance' },
+  { val: 'Advance / Deduction', label: '🔻 Advance / Deduction' },
+  { val: 'Other Misc', label: '🏷️ Other Miscellaneous' }
+];
+
+const OFFICE_EXPENSE_CATEGORIES = [
+  { val: 'Office Staff Salary', label: '💼 Office Staff Salary' },
+  { val: 'Office Rent', label: '🏢 Office Rent' },
+  { val: 'Electricity / Utility / Internet', label: '💡 Electricity, Utility & Internet' },
+  { val: 'Tea / Pantry / Petty Cash', label: '☕ Tea, Pantry & Daily Petty Cash' },
+  { val: 'Printing / Stationery', label: '🖨️ Office Printing & Stationery' },
+  { val: 'Office Repair / Maintenance', label: '🛠️ Office Repair & Maintenance' },
+  { val: 'Other Misc', label: '🏷️ Office Miscellaneous' }
+];
+
+function switchExpenseScope(scope) {
+  const scopeEl = document.getElementById('exp-scope');
+  if (scopeEl) scopeEl.value = scope;
+
+  const tabInv = document.getElementById('exp-tab-inv');
+  const tabOffice = document.getElementById('exp-tab-office');
+  const invGroup = document.getElementById('exp-inv-group');
+  const officeGroup = document.getElementById('exp-office-group');
+  const titleEl = document.getElementById('exp-modal-title');
+  const remLabel = document.getElementById('exp-remarks-label');
+  const catEl = document.getElementById('exp-category');
+  const stEl = document.getElementById('exp-status');
+
+  if (scope === 'OFFICE') {
+    if (tabInv) { tabInv.className = 'btn btn-sm btn-ghost'; }
+    if (tabOffice) { tabOffice.className = 'btn btn-sm btn-navy'; }
+    if (invGroup) invGroup.style.display = 'none';
+    if (officeGroup) officeGroup.style.display = 'block';
+    if (titleEl) titleEl.textContent = '🏢 Add Office / Staff Expense';
+    if (remLabel) remLabel.textContent = 'Remarks / Payment Ref (e.g. Sept Salary via UPI, Landlord rent receipt)';
+    if (stEl) stEl.value = 'Paid';
+    if (catEl) {
+      catEl.innerHTML = OFFICE_EXPENSE_CATEGORIES.map(c => `<option value="${escAttr(c.val)}">${escAttr(c.label)}</option>`).join('');
+    }
+  } else {
+    if (tabInv) { tabInv.className = 'btn btn-sm btn-navy'; }
+    if (tabOffice) { tabOffice.className = 'btn btn-sm btn-ghost'; }
+    if (invGroup) invGroup.style.display = 'block';
+    if (officeGroup) officeGroup.style.display = 'none';
+    if (titleEl) titleEl.textContent = '💵 Add Field Investigator Voucher';
+    if (remLabel) remLabel.textContent = 'Remarks / Reference (e.g. DTDC Tracking No, 35 Cases hardcopy packet)';
+    if (stEl) stEl.value = 'Pending';
+    if (catEl) {
+      catEl.innerHTML = INV_EXPENSE_CATEGORIES.map(c => `<option value="${escAttr(c.val)}">${escAttr(c.label)}</option>`).join('');
+    }
+  }
+}
+window.switchExpenseScope = switchExpenseScope;
+
+function openAddExpenseModal(defaultInv = '', defaultMonthIdx = null, defaultScope = '') {
   const selInv = document.getElementById('exp-inv');
   if (selInv) {
     selInv.innerHTML = '<option value="">-- Select Investigator --</option>' + INVESTIGATORS.map(n => `<option value="${escAttr(n)}">${escAttr(n)}</option>`).join('');
-    if (defaultInv) selInv.value = defaultInv;
   }
   const idEl = document.getElementById('exp-id');
   if (idEl) idEl.value = '';
-  const titleEl = document.getElementById('exp-modal-title');
-  if (titleEl) titleEl.textContent = '💵 Add Expense / Voucher';
+  const vendorEl = document.getElementById('exp-office-vendor');
+  if (vendorEl) vendorEl.value = '';
   const amtEl = document.getElementById('exp-amount');
   if (amtEl) amtEl.value = '';
   const remEl = document.getElementById('exp-remarks');
   if (remEl) remEl.value = '';
-  const catEl = document.getElementById('exp-category');
-  if (catEl) catEl.value = 'Courier / Hardcopy';
-  const stEl = document.getElementById('exp-status');
-  if (stEl) stEl.value = 'Pending';
-  
+
   const dateInput = document.getElementById('exp-date');
   if (dateInput) {
     if (defaultMonthIdx !== null && MONTHS[defaultMonthIdx]) {
@@ -3248,6 +3483,18 @@ function openAddExpenseModal(defaultInv = '', defaultMonthIdx = null) {
       dateInput.value = new Date().toISOString().slice(0, 10);
     }
   }
+
+  const isOffice = defaultScope === 'OFFICE' || (defaultInv && defaultInv.startsWith('[Office]'));
+  if (isOffice) {
+    switchExpenseScope('OFFICE');
+    if (vendorEl && defaultInv) {
+      vendorEl.value = defaultInv.replace(/^\[Office\]\s*/i, '').trim();
+    }
+  } else {
+    switchExpenseScope('INVESTIGATOR');
+    if (selInv && defaultInv) selInv.value = defaultInv;
+  }
+
   const modal = document.getElementById('expense-modal');
   if (modal) modal.classList.add('open');
 }
@@ -3255,36 +3502,61 @@ function openAddExpenseModal(defaultInv = '', defaultMonthIdx = null) {
 function editExpenseVoucher(id) {
   const exp = investigatorExpenses.find(e => e.id === id);
   if (!exp) return;
-  openAddExpenseModal(exp.investigator_name);
+  const isOffice = isOfficeExpense(exp);
+  openAddExpenseModal(exp.investigator_name, null, isOffice ? 'OFFICE' : 'INVESTIGATOR');
+
   const idEl = document.getElementById('exp-id');
   if (idEl) idEl.value = exp.id;
   const titleEl = document.getElementById('exp-modal-title');
-  if (titleEl) titleEl.textContent = '✏️ Edit Expense / Voucher';
+  if (titleEl) titleEl.textContent = isOffice ? '✏️ Edit Office / Staff Expense' : '✏️ Edit Investigator Voucher';
+
+  if (isOffice) {
+    const vendorEl = document.getElementById('exp-office-vendor');
+    if (vendorEl) vendorEl.value = getExpensePayeeName(exp);
+  } else {
+    const selInv = document.getElementById('exp-inv');
+    if (selInv) selInv.value = exp.investigator_name;
+  }
+
   const catEl = document.getElementById('exp-category');
-  if (catEl) catEl.value = exp.category || 'Courier / Hardcopy';
+  if (catEl) catEl.value = exp.category || (isOffice ? 'Office Staff Salary' : 'Courier / Hardcopy');
   const amtEl = document.getElementById('exp-amount');
   if (amtEl) amtEl.value = exp.amount || '';
   const dtEl = document.getElementById('exp-date');
   if (dtEl) dtEl.value = exp.date || new Date().toISOString().slice(0, 10);
   const stEl = document.getElementById('exp-status');
-  if (stEl) stEl.value = exp.status || 'Pending';
+  if (stEl) stEl.value = exp.status || (isOffice ? 'Paid' : 'Pending');
   const remEl = document.getElementById('exp-remarks');
   if (remEl) remEl.value = exp.remarks || '';
 }
 
 async function saveExpenseVoucher() {
   const id = document.getElementById('exp-id').value.trim();
-  const inv = document.getElementById('exp-inv').value;
-  const category = document.getElementById('exp-category').value;
-  const amount = parseFloat(document.getElementById('exp-amount').value);
-  const date = document.getElementById('exp-date').value;
-  const status = document.getElementById('exp-status').value;
-  const remarks = document.getElementById('exp-remarks').value.trim();
+  const scope = document.getElementById('exp-scope')?.value || 'INVESTIGATOR';
+  let invName = '';
 
-  if (!inv) {
-    showToast('Please select an investigator', true);
-    return;
+  if (scope === 'OFFICE') {
+    const vendor = (document.getElementById('exp-office-vendor')?.value || '').trim();
+    if (!vendor) {
+      showToast('Please enter Staff / Payee / Vendor name', true);
+      return;
+    }
+    invName = `[Office] ${vendor}`;
+  } else {
+    const inv = document.getElementById('exp-inv')?.value || '';
+    if (!inv) {
+      showToast('Please select an investigator', true);
+      return;
+    }
+    invName = inv;
   }
+
+  const category = document.getElementById('exp-category')?.value || 'Other Misc';
+  const amount = parseFloat(document.getElementById('exp-amount')?.value);
+  const date = document.getElementById('exp-date')?.value;
+  const status = document.getElementById('exp-status')?.value || (scope === 'OFFICE' ? 'Paid' : 'Pending');
+  const remarks = (document.getElementById('exp-remarks')?.value || '').trim();
+
   if (!amount || isNaN(amount) || amount <= 0) {
     showToast('Please enter a valid amount', true);
     return;
@@ -3300,7 +3572,7 @@ async function saveExpenseVoucher() {
 
   const payload = {
     id: id || undefined,
-    investigator_name: inv,
+    investigator_name: invName,
     category,
     amount,
     date,
@@ -3315,7 +3587,9 @@ async function saveExpenseVoucher() {
   await saveInvestigatorExpenseDB(payload);
   if (btn) { btn.disabled = false; btn.textContent = '💾 Save Voucher'; }
   closeModal('expense-modal');
-  showToast(`Voucher of ₹${fmt(amount)} saved for ${inv}`);
+
+  const payeeName = getExpensePayeeName(payload);
+  showToast(`Saved ₹${fmt(amount)} for ${payeeName}`);
   renderMonthly(activeMonth);
   renderSalary();
   if (document.getElementById('expense-ledger-modal').classList.contains('open')) {
@@ -3323,7 +3597,7 @@ async function saveExpenseVoucher() {
   }
 }
 
-function openExpenseLedgerModal(filterInv = '') {
+function openExpenseLedgerModal(filterInv = '', filterScope = 'ALL') {
   const mSel = document.getElementById('ledger-filter-month');
   if (mSel) {
     const available = getAvailableMonths();
@@ -3332,9 +3606,30 @@ function openExpenseLedgerModal(filterInv = '') {
       return `<option value="${idx}" ${idx === activeMonth ? 'selected' : ''}>${mo.label}</option>`;
     }).join('');
   }
+  const sSel = document.getElementById('ledger-filter-scope');
+  if (sSel) {
+    sSel.value = filterScope || 'ALL';
+  }
   const iSel = document.getElementById('ledger-filter-inv');
   if (iSel) {
-    iSel.innerHTML = '<option value="">All Investigators</option>' + INVESTIGATORS.map(n => `<option value="${escAttr(n)}" ${n === filterInv ? 'selected' : ''}>${escAttr(n)}</option>`).join('');
+    const allPayees = new Set();
+    INVESTIGATORS.forEach(n => allPayees.add(n));
+    investigatorExpenses.forEach(e => {
+      const p = getExpensePayeeName(e);
+      if (p && p !== '—') allPayees.add(p);
+    });
+    iSel.innerHTML = '<option value="">All Payees / Staff</option>' + Array.from(allPayees).sort().map(n => `<option value="${escAttr(n)}" ${n === filterInv ? 'selected' : ''}>${escAttr(n)}</option>`).join('');
+  }
+  const cSel = document.getElementById('ledger-filter-cat');
+  if (cSel) {
+    const allCats = new Set([
+      'Courier / Hardcopy', 'Bonus / Incentive', 'Travel / Fuel',
+      'Printing / Stationery', 'Special Allowance', 'Advance / Deduction',
+      'Office Staff Salary', 'Office Rent', 'Electricity / Utility / Internet',
+      'Tea / Pantry / Petty Cash', 'Office Repair / Maintenance', 'Other Misc'
+    ]);
+    investigatorExpenses.forEach(e => { if (e.category) allCats.add(e.category); });
+    cSel.innerHTML = '<option value="">All Categories</option>' + Array.from(allCats).map(c => `<option value="${escAttr(c)}">${escAttr(c)}</option>`).join('');
   }
   renderExpenseLedgerTable();
   document.getElementById('expense-ledger-modal').classList.add('open');
@@ -3342,6 +3637,7 @@ function openExpenseLedgerModal(filterInv = '') {
 
 function renderExpenseLedgerTable() {
   const mVal = document.getElementById('ledger-filter-month')?.value || 'ALL';
+  const sVal = document.getElementById('ledger-filter-scope')?.value || 'ALL';
   const iVal = document.getElementById('ledger-filter-inv')?.value || '';
   const cVal = document.getElementById('ledger-filter-cat')?.value || '';
 
@@ -3353,13 +3649,24 @@ function renderExpenseLedgerTable() {
       list = list.filter(e => {
         if (e.month_code === mo.code) return true;
         const { y, m } = parseDateComponents(e.date);
-    return m === mo.m && y === mo.y;
+        return m === mo.m && y === mo.y;
       });
     }
   }
 
+  if (sVal === 'INVESTIGATOR') {
+    list = list.filter(e => !isOfficeExpense(e));
+  } else if (sVal === 'OFFICE') {
+    list = list.filter(e => isOfficeExpense(e));
+  } else if (sVal === 'SALARY') {
+    list = list.filter(e => isSalaryExpense(e));
+  }
+
   if (iVal) {
-    list = list.filter(e => e.investigator_name === iVal);
+    list = list.filter(e => {
+      const p = getExpensePayeeName(e);
+      return p === iVal || e.investigator_name === iVal;
+    });
   }
 
   if (cVal) {
@@ -3367,23 +3674,32 @@ function renderExpenseLedgerTable() {
   }
 
   const totalAmt = list.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const salaryAmt = list.filter(e => isSalaryExpense(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const officeNonSalaryAmt = list.filter(e => isOfficeExpense(e) && !isSalaryExpense(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const fieldVouchersAmt = list.filter(e => !isOfficeExpense(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
   const paidAmt = list.filter(e => e.status === 'Paid').reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const pendingAmt = list.filter(e => e.status !== 'Paid').reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
   const kpiEl = document.getElementById('ledger-kpi-summary');
   if (kpiEl) {
     kpiEl.innerHTML = `
-      <div style="flex:1;background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 12px;">
-        <div style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;">Total Vouchers</div>
-        <div style="font-size:16px;font-weight:800;color:var(--navy);margin-top:2px;">${list.length} item(s) &bull; ₹${fmt(totalAmt)}</div>
+      <div style="flex:1;min-width:180px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 12px;">
+        <div style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;">Total Incurred</div>
+        <div style="font-size:16px;font-weight:800;color:var(--navy);margin-top:2px;">${list.length} item(s) • ₹${fmt(totalAmt)}</div>
+        <div style="font-size:10px;color:var(--sub);margin-top:2px;">Paid: ₹${fmt(paidAmt)} | Due: ₹${fmt(pendingAmt)}</div>
       </div>
-      <div style="flex:1;background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 12px;">
-        <div style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;">Paid Vouchers</div>
-        <div style="font-size:16px;font-weight:800;color:var(--green);margin-top:2px;">₹${fmt(paidAmt)}</div>
+      <div style="flex:1;min-width:160px;background:#fdf4ff;border:1px solid #f0abfc;border-radius:6px;padding:8px 12px;">
+        <div style="font-size:10px;text-transform:uppercase;color:#86198f;font-weight:700;">💼 Staff Salaries</div>
+        <div style="font-size:16px;font-weight:800;color:#a21caf;margin-top:2px;">₹${fmt(salaryAmt)}</div>
       </div>
-      <div style="flex:1;background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 12px;">
-        <div style="font-size:10px;text-transform:uppercase;color:var(--sub);font-weight:700;">Pending Vouchers</div>
-        <div style="font-size:16px;font-weight:800;color:var(--red);margin-top:2px;">₹${fmt(pendingAmt)}</div>
+      <div style="flex:1;min-width:160px;background:#faf5ff;border:1px solid #d8b4fe;border-radius:6px;padding:8px 12px;">
+        <div style="font-size:10px;text-transform:uppercase;color:#581c87;font-weight:700;">🏢 Office Overheads</div>
+        <div style="font-size:16px;font-weight:800;color:#7e22ce;margin-top:2px;">₹${fmt(officeNonSalaryAmt)}</div>
+      </div>
+      <div style="flex:1;min-width:160px;background:#f0f9ff;border:1px solid #7dd3fc;border-radius:6px;padding:8px 12px;">
+        <div style="font-size:10px;text-transform:uppercase;color:#0369a1;font-weight:700;">👤 Field Vouchers</div>
+        <div style="font-size:16px;font-weight:800;color:#0284c7;margin-top:2px;">₹${fmt(fieldVouchersAmt)}</div>
       </div>
     `;
   }
@@ -3392,18 +3708,29 @@ function renderExpenseLedgerTable() {
   if (!tbody) return;
 
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="ic">🧾</div>No vouchers found for this filter</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="ic">🧾</div>No expenses found for this filter</div></td></tr>`;
     return;
   }
 
   tbody.innerHTML = list.map(e => {
     const isPaid = e.status === 'Paid';
+    const isOffice = isOfficeExpense(e);
+    const isSalary = isSalaryExpense(e);
+    const payee = getExpensePayeeName(e);
+
+    const typeBadge = isSalary
+      ? `<span class="badge" style="background:#ede9fe;color:#5b21b6;font-weight:700;">💼 Staff Salary</span>`
+      : isOffice
+      ? `<span class="badge" style="background:#f3e8ff;color:#7e22ce;font-weight:700;">🏢 Office / Ops</span>`
+      : `<span class="badge" style="background:#e0f2fe;color:#0369a1;font-weight:700;">👤 Field Staff</span>`;
+
     return `
       <tr style="border-bottom:1px solid var(--line);">
         <td style="padding:8px 10px;font-family:var(--mono);">${e.date || '—'}</td>
-        <td style="padding:8px 10px;font-weight:700;color:var(--navy);">${escAttr(e.investigator_name)}</td>
+        <td style="padding:8px 10px;">${typeBadge}</td>
+        <td style="padding:8px 10px;font-weight:700;color:var(--navy);">${escAttr(payee)}</td>
         <td style="padding:8px 10px;"><span class="badge" style="background:#f1f5f9;color:#334155;font-weight:600;">${escAttr(e.category)}</span></td>
-        <td style="padding:8px 10px;color:var(--sub);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escAttr(e.remarks||'')}">${escAttr(e.remarks || '—')}</td>
+        <td style="padding:8px 10px;color:var(--sub);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escAttr(e.remarks||'')}">${escAttr(e.remarks || '—')}</td>
         <td style="padding:8px 10px;text-align:right;font-weight:700;">₹${fmt(e.amount)}</td>
         <td style="padding:8px 10px;text-align:center;">
           <button class="badge ${isPaid ? 'paid' : 'pending'}" style="cursor:pointer;border:none;" onclick="toggleExpenseVoucherStatus('${e.id}')" title="Click to toggle status">
@@ -3439,6 +3766,7 @@ async function deleteExpenseVoucher(id) {
 
 function exportExpenseLedgerCSV() {
   const mVal = document.getElementById('ledger-filter-month')?.value || 'ALL';
+  const sVal = document.getElementById('ledger-filter-scope')?.value || 'ALL';
   const iVal = document.getElementById('ledger-filter-inv')?.value || '';
   const cVal = document.getElementById('ledger-filter-cat')?.value || '';
 
@@ -3449,25 +3777,42 @@ function exportExpenseLedgerCSV() {
       list = list.filter(e => {
         if (e.month_code === mo.code) return true;
         const { y, m } = parseDateComponents(e.date);
-    return m === mo.m && y === mo.y;
+        return m === mo.m && y === mo.y;
       });
     }
   }
-  if (iVal) list = list.filter(e => e.investigator_name === iVal);
+
+  if (sVal === 'INVESTIGATOR') {
+    list = list.filter(e => !isOfficeExpense(e));
+  } else if (sVal === 'OFFICE') {
+    list = list.filter(e => isOfficeExpense(e));
+  } else if (sVal === 'SALARY') {
+    list = list.filter(e => isSalaryExpense(e));
+  }
+
+  if (iVal) list = list.filter(e => getExpensePayeeName(e) === iVal || e.investigator_name === iVal);
   if (cVal) list = list.filter(e => (e.category || '').toLowerCase().includes(cVal.toLowerCase()));
 
   if (!list.length) { showToast('No data to export', true); return; }
 
-  const headers = ['Date', 'Investigator', 'Category', 'Amount', 'Status', 'Remarks'];
+  const headers = ['Date', 'Scope / Type', 'Payee / Investigator', 'Category', 'Remarks', 'Amount (Rs)', 'Status', 'Month Code'];
   const csvRows = [headers.join(',')];
+
   list.forEach(e => {
+    const isSalary = isSalaryExpense(e);
+    const isOffice = isOfficeExpense(e);
+    const scopeStr = isSalary ? 'Staff Salary' : (isOffice ? 'Office Overhead' : 'Field Staff Voucher');
+    const payeeStr = getExpensePayeeName(e);
+
     csvRows.push([
       `"${e.date || ''}"`,
-      `"${(e.investigator_name || '').replace(/"/g, '""')}"`,
+      `"${scopeStr}"`,
+      `"${payeeStr.replace(/"/g, '""')}"`,
       `"${(e.category || '').replace(/"/g, '""')}"`,
+      `"${(e.remarks || '').replace(/"/g, '""')}"`,
       e.amount || 0,
       `"${e.status || 'Pending'}"`,
-      `"${(e.remarks || '').replace(/"/g, '""')}"`
+      `"${e.month_code || ''}"`
     ].join(','));
   });
 
@@ -3475,9 +3820,12 @@ function exportExpenseLedgerCSV() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `DNA_Expenses_Vouchers_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `DNA_Expenses_Ledger_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
+  showToast('Expenses CSV exported successfully');
 }
 
 function renderMonthly(idx) {
@@ -3493,9 +3841,11 @@ function renderMonthly(idx) {
   const monthExpenses = getExpensesForMonth(mo);
   const totalPayableM = monthCases.reduce((s,c)=>s+(c.total_payable||0),0);
   const totalReceivedM = monthCases.reduce((s,c)=>s+(c.received||0),0);
-  const totalExpensesM = monthExpenses.reduce((s,e)=>s+(Number(e.amount)||0),0);
-  const totalNetPayableM = totalPayableM + totalExpensesM;
-  const netAgencyProfitM = totalReceivedM - totalNetPayableM;
+  const fieldVouchersM = monthExpenses.filter(e => !isOfficeExpense(e)).reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const officeExpensesM = monthExpenses.filter(e => isOfficeExpense(e)).reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const totalExpensesM = fieldVouchersM + officeExpensesM;
+  const totalNetPayableM = totalPayableM + fieldVouchersM;
+  const netAgencyProfitM = totalReceivedM - totalNetPayableM - officeExpensesM;
 
   document.getElementById('monthly-kpi').innerHTML = `
     <div class="kpi tab-kpi-enhanced">
@@ -3504,23 +3854,27 @@ function renderMonthly(idx) {
     </div>
     <div class="kpi tab-kpi-enhanced gold">
       <div class="tab-kpi-icon" style="background:#fef3c7; color:#d97706;">💸</div>
-      <div><div class="kpi-label">Case Payable</div><div class="kpi-value gold">Rs ${fmt(totalPayableM)}</div></div>
+      <div><div class="kpi-label">Case Payable</div><div class="kpi-value gold"><span class="kpi-curr">₹</span>${fmt(totalPayableM)}</div></div>
     </div>
     <div class="kpi tab-kpi-enhanced" style="background:#f8fafc;border-left:3px solid #0284c7;">
       <div class="tab-kpi-icon" style="background:#e0f2fe; color:#0284c7;">📦</div>
-      <div><div class="kpi-label">Extra Vouchers (Courier/Bonus)</div><div class="kpi-value" style="color:#0284c7;">Rs ${fmt(totalExpensesM)}</div></div>
+      <div><div class="kpi-label">Field Vouchers (TA/Courier)</div><div class="kpi-value" style="color:#0284c7;"><span class="kpi-curr">₹</span>${fmt(fieldVouchersM)}</div></div>
     </div>
     <div class="kpi tab-kpi-enhanced" style="background:#fdf4ff;border-left:3px solid #a855f7;">
       <div class="tab-kpi-icon" style="background:#fae8ff; color:#a855f7;">💼</div>
-      <div><div class="kpi-label">Net Investigator Payable</div><div class="kpi-value" style="color:#9333ea;">Rs ${fmt(totalNetPayableM)}</div></div>
+      <div><div class="kpi-label">Net Field Staff Payable</div><div class="kpi-value" style="color:#9333ea;"><span class="kpi-curr">₹</span>${fmt(totalNetPayableM)}</div></div>
+    </div>
+    <div class="kpi tab-kpi-enhanced" style="background:#faf5ff;border-left:3px solid #7e22ce;">
+      <div class="tab-kpi-icon" style="background:#f3e8ff; color:#7e22ce;">🏢</div>
+      <div><div class="kpi-label">Office & Staff Overheads</div><div class="kpi-value" style="color:#7e22ce;"><span class="kpi-curr">₹</span>${fmt(officeExpensesM)}</div></div>
     </div>
     <div class="kpi tab-kpi-enhanced green">
       <div class="tab-kpi-icon" style="background:#dcfce7; color:#15803d;">💰</div>
-      <div><div class="kpi-label">Total Received</div><div class="kpi-value green">Rs ${fmt(totalReceivedM)}</div></div>
+      <div><div class="kpi-label">Total Received</div><div class="kpi-value green"><span class="kpi-curr">₹</span>${fmt(totalReceivedM)}</div></div>
     </div>
     <div class="kpi tab-kpi-enhanced ${netAgencyProfitM>=0?'green':'red'}">
       <div class="tab-kpi-icon" style="background:${netAgencyProfitM>=0?'#dcfce7':'#fee2e2'}; color:${netAgencyProfitM>=0?'#15803d':'#be123c'};">${netAgencyProfitM>=0?'📈':'📉'}</div>
-      <div><div class="kpi-label">Net Agency Margin</div><div class="kpi-value ${netAgencyProfitM>=0?'green':'red'}">Rs ${fmt(netAgencyProfitM)}</div></div>
+      <div><div class="kpi-label">Net Agency Margin</div><div class="kpi-value ${netAgencyProfitM>=0?'green':'red'}"><span class="kpi-curr">₹</span>${fmt(netAgencyProfitM)}</div></div>
     </div>
   `;
 
@@ -3736,15 +4090,15 @@ function renderYearly() {
     </div>
     <div class="kpi tab-kpi-enhanced gold">
       <div class="tab-kpi-icon" style="background:#fef3c7; color:#d97706;">💸</div>
-      <div><div class="kpi-label">Total Payable (FY)</div><div class="kpi-value gold">Rs ${fmt(totalPayable)}</div></div>
+      <div><div class="kpi-label">Total Payable (FY)</div><div class="kpi-value gold"><span class="kpi-curr">₹</span>${fmt(totalPayable)}</div></div>
     </div>
     <div class="kpi tab-kpi-enhanced green">
       <div class="tab-kpi-icon" style="background:#dcfce7; color:#15803d;">💰</div>
-      <div><div class="kpi-label">Total Received (FY)</div><div class="kpi-value green">Rs ${fmt(totalReceived)}</div></div>
+      <div><div class="kpi-label">Total Received (FY)</div><div class="kpi-value green"><span class="kpi-curr">₹</span>${fmt(totalReceived)}</div></div>
     </div>
     <div class="kpi tab-kpi-enhanced ${totalProfit>=0?'green':'red'}">
       <div class="tab-kpi-icon" style="background:${totalProfit>=0?'#dcfce7':'#fee2e2'}; color:${totalProfit>=0?'#15803d':'#be123c'};">${totalProfit>=0?'📈':'📉'}</div>
-      <div><div class="kpi-label">Net Profit (FY)</div><div class="kpi-value ${totalProfit>=0?'green':'red'}">Rs ${fmt(totalProfit)}</div></div>
+      <div><div class="kpi-label">Net Profit (FY)</div><div class="kpi-value ${totalProfit>=0?'green':'red'}"><span class="kpi-curr">₹</span>${fmt(totalProfit)}</div></div>
     </div>
   `;
 
@@ -5881,7 +6235,8 @@ function parseBulkPasteRows(raw) {
       isDuplicate: dupInDB || dupInBatch,
       duplicateReason: dupInDB ? 'existing' : (dupInBatch ? 'batch' : null),
       company: compUpper, date: useDate, case_type: cTypeUpper, claim_no, policy_no: policy_no||'',
-      insured_name, hospital: hospital||'', location: location||'', inv1: inv1||'', inv2: inv2||'',
+      insured_name, hospital: hospital||'', location: location||'',
+      inv1: sanitizeInvestigatorName(inv1), inv2: sanitizeInvestigatorName(inv2),
       fee1: f1, fee2: f2, ta1: t1, ta2: t2, total_payable: f1+f2+t1+t2, received: rec,
       invoice_no: invoice_no||'', invoice_amount: invoice_amount || null, outcome: outcome || 'Pending',
       profit: rec-(f1+f2+t1+t2),
@@ -6046,7 +6401,7 @@ function parseCsvRows(text) {
       duplicateReason: dupInDB ? 'existing' : (dupInBatch ? 'batch' : null),
       company: compUpper, date, case_type: cTypeUpper, claim_no: claim, policy_no: get('policy_no'),
       insured_name, hospital: get('hospital'), location: get('location'),
-      inv1: get('inv1'), inv2: get('inv2'),
+      inv1: sanitizeInvestigatorName(get('inv1')), inv2: sanitizeInvestigatorName(get('inv2')),
       fee1: finalFee1, fee2: finalFee2, ta1: finalTa1, ta2: finalTa2,
       total_payable: finalFee1+finalFee2+finalTa1+finalTa2,
       received: finalReceived,
@@ -6218,9 +6573,12 @@ async function commitImportPreview() {
   });
   const resolveName = (n) => {
     if (!n || n==='NA') return n||'';
+    const sanitized = sanitizeInvestigatorName(n);
+    if (!sanitized || sanitized === 'NA') return 'NA';
+    if (nameResolution[sanitized] !== undefined && nameResolution[sanitized] !== sanitized) return nameResolution[sanitized];
     if (nameResolution[n] !== undefined && nameResolution[n] !== n) return nameResolution[n];
-    const exact = knownInvLower.get(n.toLowerCase());
-    return exact || n;
+    const exact = knownInvLower.get(sanitized.toLowerCase());
+    return exact || sanitized;
   };
 
   const companyResolution = {};
@@ -6636,31 +6994,109 @@ function advanceSlipQueue() {
 }
 
 
-async function markStatementPaid() {
-  const name = document.getElementById('slip-inv').value;
-  const monthCode = document.getElementById('slip-month').value;
+function markStatementPaid() {
+  const name = document.getElementById('slip-inv')?.value;
+  const monthCode = document.getElementById('slip-month')?.value;
   if (!name || !monthCode) {
-    showToast('Please select investigator and month', true);
+    showToast('Please select investigator and month first', true);
     return;
   }
-  
-  if (!confirm(`Are you sure you want to mark all cases and vouchers for ${name} in ${monthCode} as PAID?`)) {
-    return;
-  }
-  const payoutRef = (prompt(`Enter Bank UTR / Reference No. for this settlement (Optional — leave blank if none):`, '') || '').trim();
-
   const mo = MONTHS.find(m => m.code === monthCode);
-  const btn = document.querySelector('button[onclick="markStatementPaid()"]');
-  if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
+  if (!mo) {
+    showToast('Invalid month selected', true);
+    return;
+  }
+  const normName = (name || '').trim().toLowerCase();
+  const casesToUpdate = cases.filter(c => {
+    if (!c.date) return false;
+    const { y: cy, m: cm } = parseDateComponents(c.date);
+    if (cm !== mo.m || cy !== mo.y) return false;
+    const asInv1 = ((c.inv1 || '').trim().toLowerCase() === normName && (c.inv1_status || '').trim() !== 'Paid');
+    const asInv2 = ((c.inv2 || '').trim().toLowerCase() === normName && (c.inv2_status || '').trim() !== 'Paid');
+    return asInv1 || asInv2;
+  });
+  const expensesToUpdate = (window.investigatorExpenses || []).filter(e => {
+    if ((e.investigator_name || '').trim().toLowerCase() !== normName || !e.date || e.status === 'Paid') return false;
+    const { y, m } = parseDateComponents(e.date);
+    return m === mo.m && y === mo.y;
+  });
+
+  if (casesToUpdate.length === 0 && expensesToUpdate.length === 0) {
+    showToast('All cases and vouchers are already paid for this period.');
+    return;
+  }
+
+  // Compute pending amounts
+  const allMonthCases = cases.filter(c => {
+    if (!c.date) return false;
+    const { y, m } = parseDateComponents(c.date);
+    return m === mo.m && y === mo.y && (((c.inv1 || '').trim().toLowerCase() === normName) || ((c.inv2 || '').trim().toLowerCase() === normName));
+  });
+  const stats = computeInvStats(name, allMonthCases);
+  const expPendingAmt = expensesToUpdate.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const totalDue = stats.pendingAmt + expPendingAmt;
+  const tax = typeof getSlipTaxConfig === 'function' ? getSlipTaxConfig() : { rate: 0, label: '0%', base: 'fees_only' };
+  const taxableBase = tax.base === 'fees_only' ? (typeof stats.pendingFees === 'number' ? stats.pendingFees : (stats.totalFees || 0)) : totalDue;
+  const tdsAmount = tax.rate > 0 ? Math.round((taxableBase * tax.rate) / 100) : 0;
+  const netDisbursable = Math.max(0, totalDue - tdsAmount);
+
+  // Populate modal fields
+  document.getElementById('settle-inv-name').value = name;
+  document.getElementById('settle-month-code').value = monthCode;
+  const dateInput = document.getElementById('settle-payout-date');
+  if (dateInput) dateInput.value = new Date().toISOString().slice(0, 10);
+  const refInput = document.getElementById('settle-payout-ref');
+  if (refInput) refInput.value = '';
+
+  const summaryBox = document.getElementById('settle-summary-box');
+  if (summaryBox) {
+    summaryBox.innerHTML = `
+      <div style="font-weight:700;color:var(--navy);font-size:13px;margin-bottom:6px;">👤 ${escAttr(name)} &bull; ${escAttr(mo.label)}</div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;color:var(--sub);">
+        <span>Unpaid Cases / Vouchers:</span>
+        <span style="font-weight:700;color:var(--navy);">${casesToUpdate.length} Case(s) &bull; ${expensesToUpdate.length} Voucher(s)</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;color:var(--sub);">
+        <span>Total Gross Balance:</span>
+        <span style="font-weight:700;color:var(--navy);">₹${fmt(totalDue)}</span>
+      </div>
+      ${tdsAmount > 0 ? `
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;color:#c53030;">
+        <span>Statutory TDS (${tax.label}):</span>
+        <span style="font-weight:700;">- ₹${fmt(tdsAmount)}</span>
+      </div>` : ''}
+      <div style="display:flex;justify-content:space-between;margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);font-size:14px;color:var(--green);font-weight:800;">
+        <span>Net Disbursable:</span>
+        <span>₹${fmt(netDisbursable)}</span>
+      </div>
+    `;
+  }
+  const modal = document.getElementById('settlement-confirm-modal');
+  if (modal) modal.classList.add('open');
+}
+window.markStatementPaid = markStatementPaid;
+
+async function executeSettlementPaid() {
+  const name = document.getElementById('settle-inv-name')?.value;
+  const monthCode = document.getElementById('settle-month-code')?.value;
+  const payoutRef = (document.getElementById('settle-payout-ref')?.value || '').trim();
+  const payMode = document.getElementById('settle-pay-mode')?.value || 'Bank Transfer';
+  const payoutDate = document.getElementById('settle-payout-date')?.value || new Date().toISOString().slice(0, 10);
+
+  if (!name || !monthCode) {
+    showToast('Missing settlement data', true);
+    return;
+  }
+  const mo = MONTHS.find(m => m.code === monthCode);
+  const btn = document.getElementById('settle-confirm-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Processing Settlement…'; }
 
   try {
     const normName = (name || '').trim().toLowerCase();
     const casesToUpdate = cases.filter(c => {
       if (!c.date) return false;
       const { y: cy, m: cm } = parseDateComponents(c.date);
-      const isMonth = cm===mo.m && cy===mo.y;
-      if (!isMonth) return false;
-      
+      if (cm !== mo.m || cy !== mo.y) return false;
       const asInv1 = ((c.inv1 || '').trim().toLowerCase() === normName && (c.inv1_status || '').trim() !== 'Paid');
       const asInv2 = ((c.inv2 || '').trim().toLowerCase() === normName && (c.inv2_status || '').trim() !== 'Paid');
       return asInv1 || asInv2;
@@ -6671,12 +7107,6 @@ async function markStatementPaid() {
       const { y, m } = parseDateComponents(e.date);
       return m === mo.m && y === mo.y;
     });
-
-    if (casesToUpdate.length === 0 && expensesToUpdate.length === 0) {
-      showToast('All cases and vouchers are already paid for this period.');
-      if (btn) { btn.disabled = false; btn.textContent = '✅ Mark Statement as Paid'; }
-      return;
-    }
 
     // Update Cases
     if (casesToUpdate.length > 0) {
@@ -6735,7 +7165,7 @@ async function markStatementPaid() {
         investigator_name: name,
         month_code: monthCode,
         month_label: mo.label,
-        payout_date: new Date().toISOString().slice(0, 10),
+        payout_date: payoutDate,
         total_cases: stats.totalCases,
         gross_fees: stats.totalFees,
         gross_ta: stats.totalTA,
@@ -6747,37 +7177,37 @@ async function markStatementPaid() {
         tds_amount: tdsAmount,
         net_disbursable: netDisbursable,
         status: 'Paid',
-        payment_mode: payoutRef ? 'Bank Transfer' : 'Direct',
+        payment_mode: payMode,
         reference_no: payoutRef || null,
         created_at: new Date().toISOString()
       };
 
       if (supabaseClient) {
-        // Attempt to upsert into investigator_payouts table
         supabaseClient.from('investigator_payouts').upsert(settlementPayload, { onConflict: 'investigator_name,month_code' }).then(({ error }) => {
           if (error) console.info('Note: investigator_payouts table optional record:', error.message);
         }).catch(err => console.info('Settlement log note:', err));
 
-        // Also record in activity_log for permanent audit trail
         supabaseClient.from('activity_log').insert({
           action: 'PAYMENT_SETTLEMENT_RECORDED',
           module: 'Payouts & TDS',
-          details: `Settlement for ${name} (${mo.label}): Gross Rs ${grossTotal.toLocaleString('en-IN')}, TDS ${tax.label} (-Rs ${tdsAmount.toLocaleString('en-IN')}), Net Disbursed Rs ${netDisbursable.toLocaleString('en-IN')}`
+          details: `Settlement for ${name} (${mo.label}): Gross Rs ${grossTotal.toLocaleString('en-IN')}, Mode ${payMode}, Ref ${payoutRef || 'Direct'}, Net Rs ${netDisbursable.toLocaleString('en-IN')}`
         }).then(() => {}).catch(() => {});
       }
     } catch (settleErr) {
       console.warn('Settlement logging warning:', settleErr);
     }
 
-    showToast(`Successfully marked ${casesToUpdate.length} case(s) and ${expensesToUpdate.length} voucher(s) as Paid.`);
+    closeModal('settlement-confirm-modal');
+    showToast(`Settlement completed: ${casesToUpdate.length} case(s) & ${expensesToUpdate.length} voucher(s) marked Paid.`);
     renderAll();
   } catch (err) {
     console.error('Mark Paid Error:', err);
     showToast('Error updating status: ' + err.message, true);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '✅ Mark Statement as Paid'; }
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Confirm & Mark as Paid'; }
   }
 }
+window.executeSettlementPaid = executeSettlementPaid;
 
 function getSlipTaxConfig() {
   const rateEl = document.getElementById('slip-tds-rate');
@@ -6868,7 +7298,7 @@ function updateSlipTaxPreview() {
     return;
   }
 
-  const taxableBase = tax.base === 'fees_only' ? (stats.pendingFees || stats.totalFees) : stats.pendingAmt;
+  const taxableBase = tax.base === 'fees_only' ? (typeof stats.pendingFees === 'number' ? stats.pendingFees : (stats.totalFees || 0)) : stats.pendingAmt;
   const tdsAmount = Math.round((taxableBase * tax.rate) / 100);
   const netDisbursable = Math.max(0, stats.pendingAmt - tdsAmount);
 
@@ -6937,7 +7367,7 @@ function sendSlipWhatsApp() {
   let taxText = '';
   let netLine = `*Net Payable Now: Rs ${fmt(stats.pendingAmt)}*`;
   if (tax.rate > 0) {
-    const taxableBase = tax.base === 'fees_only' ? (stats.pendingFees || stats.totalFees) : stats.pendingAmt;
+    const taxableBase = tax.base === 'fees_only' ? (typeof stats.pendingFees === 'number' ? stats.pendingFees : (stats.totalFees || 0)) : stats.pendingAmt;
     const tdsAmount = Math.round((taxableBase * tax.rate) / 100);
     const netDisbursable = Math.max(0, stats.pendingAmt - tdsAmount);
     taxText = `Gross Balance: Rs ${fmt(stats.pendingAmt)}\nLess TDS (${tax.label}): -Rs ${fmt(tdsAmount)}\n`;
@@ -7001,7 +7431,7 @@ async function generateSlip(previewOnly = true) {
 
   const tax = getSlipTaxConfig();
   if (tax.rate > 0) {
-    const taxableBase = tax.base === 'fees_only' ? (stats.pendingFees || stats.totalFees) : stats.pendingAmt;
+    const taxableBase = tax.base === 'fees_only' ? (typeof stats.pendingFees === 'number' ? stats.pendingFees : (stats.totalFees || 0)) : stats.pendingAmt;
     const tdsAmount = Math.round((taxableBase * tax.rate) / 100);
     const netDisbursable = Math.max(0, stats.pendingAmt - tdsAmount);
 
@@ -7852,6 +8282,7 @@ async function getAuthHeaders() {
     return {};
   }
 }
+window.getAuthHeaders = getAuthHeaders;
 
 async function getAuthTokenParam() {
   try {
@@ -9269,9 +9700,14 @@ function renderAssignedRoles() {
   
   let html = '<table class="data-table" style="width:100%; margin:0;"><tbody>';
   emails.forEach(email => {
+    const roleVal = staffRoles[email];
+    let label = typeof roleVal === 'object' && roleVal?.role ? roleVal.role : (roleVal || '');
+    if (typeof roleVal === 'object' && roleVal?.company) {
+      label += ` (${roleVal.company})`;
+    }
     html += `<tr>
       <td style="font-weight:600;">${esc(email)}</td>
-      <td style="text-transform:capitalize;">${esc(staffRoles[email] || '')}</td>
+      <td style="text-transform:capitalize;">${esc(label)}</td>
       <td style="text-align:right;"><button class="btn btn-ghost btn-sm" style="color:var(--amber); padding:2px 6px;" onclick="removeAssignedRole('${escAttr(email).replace(/'/g, "\\'")}')">Remove</button></td>
     </tr>`;
   });
@@ -9279,27 +9715,76 @@ function renderAssignedRoles() {
   container.innerHTML = html;
 }
 
+window.toggleAssignRoleCompanyField = function() {
+  const role = document.getElementById('assign-role-select')?.value;
+  const fg = document.getElementById('assign-role-company-fg');
+  if (!fg) return;
+  if (role === 'company') {
+    fg.style.display = 'block';
+    populateAssignRoleCompanyDropdown();
+  } else {
+    fg.style.display = 'none';
+  }
+};
+
+function getActiveCompaniesList() {
+  const set = new Set();
+  if (Array.isArray(COMPANIES)) {
+    COMPANIES.forEach(c => { if (c && c.trim()) set.add(c.trim().toUpperCase()); });
+  }
+  if (Array.isArray(cases)) {
+    cases.forEach(c => {
+      if (c && c.company && c.company.trim()) {
+        set.add(c.company.trim().toUpperCase());
+      }
+    });
+  }
+  return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+window.getActiveCompaniesList = getActiveCompaniesList;
+
+function populateAssignRoleCompanyDropdown() {
+  const sel = document.getElementById('assign-role-company-select');
+  if (!sel) return;
+  const companies = getActiveCompaniesList();
+  const currentVal = sel.value;
+  sel.innerHTML = '<option value="">-- Select Company --</option>' + 
+    companies.map(c => `<option value="${escAttr(c)}" ${c===currentVal?'selected':''}>${esc(c)}</option>`).join('');
+}
+window.populateAssignRoleCompanyDropdown = populateAssignRoleCompanyDropdown;
+
 async function assignRoleByEmail() {
   const email = document.getElementById('assign-role-email').value.trim().toLowerCase();
   const role = document.getElementById('assign-role-select').value;
+  const company = document.getElementById('assign-role-company-select')?.value || null;
   if (!email || !email.includes('@')) { showToast('Enter a valid email.', true); return; }
+  if (role === 'company' && !company) { showToast('Please select a company for this client user.', true); return; }
   
   if (!settings.fieldPermissions) settings.fieldPermissions = {};
   if (!settings.fieldPermissions._staffRoles) settings.fieldPermissions._staffRoles = {};
   
+  const rolePayload = role === 'company' ? { role: 'company', company } : role;
+
   // Sync to database table for RLS
   try {
     const { error } = await supabaseClient.rpc('assign_role_to_email', { p_email: email, p_role: role });
-    if (error) throw error;
-    
-    settings.fieldPermissions._staffRoles[email] = role;
-    saveSettings();
+    if (error) console.warn('RPC assign_role_to_email notice:', error);
+  } catch (err) {
+    console.warn('DB Sync fallback notice:', err);
+  }
+
+  try {
+    settings.fieldPermissions._staffRoles[email] = rolePayload;
+    if (role === 'company') {
+      if (!settings.fieldPermissions._companyMappings) settings.fieldPermissions._companyMappings = {};
+      settings.fieldPermissions._companyMappings[email] = company;
+    }
+    await saveSettings();
     renderAssignedRoles();
     document.getElementById('assign-role-email').value = '';
-    showToast(`Assigned '${role}' to ${email}`);
+    showToast(`Assigned '${role}${company ? ` (${company})` : ''}' to ${email}`);
   } catch (err) {
-    console.error('Role sync failed:', err);
-    showToast('DB Sync failed: ' + err.message + '. (Make sure to run master_setup.sql in Supabase)', true);
+    showToast('Failed to save role: ' + (err?.message || err), true);
   }
 }
 
@@ -9307,15 +9792,21 @@ async function removeAssignedRole(email) {
   if (settings.fieldPermissions && settings.fieldPermissions._staffRoles) {
     try {
       const { error } = await supabaseClient.rpc('remove_role_from_email', { p_email: email });
-      if (error) throw error;
-      
+      if (error) console.warn('RPC remove_role_from_email notice:', error);
+    } catch (err) {
+      console.warn('DB Sync fallback notice:', err);
+    }
+    try {
       delete settings.fieldPermissions._staffRoles[email];
-      saveSettings();
+      if (settings.fieldPermissions._companyMappings) {
+        delete settings.fieldPermissions._companyMappings[email];
+      }
+      await saveSettings();
       renderAssignedRoles();
       showToast(`Removed role for ${email}`);
     } catch (err) {
       console.error('Role removal failed:', err);
-      showToast('DB Sync failed: ' + err.message, true);
+      showToast('Failed to remove role: ' + (err?.message || err), true);
     }
   }
 }
@@ -10138,9 +10629,9 @@ window.renderFinanceLedger = function() {
   }
   
   // Render KPIs
-  if (document.getElementById('fin-kpi-inv')) document.getElementById('fin-kpi-inv').textContent = 'Rs ' + money(totalInv);
-  if (document.getElementById('fin-kpi-rec')) document.getElementById('fin-kpi-rec').textContent = 'Rs ' + money(totalRec);
-  if (document.getElementById('fin-kpi-tds')) document.getElementById('fin-kpi-tds').textContent = 'Rs ' + money(totalTds);
+  if (document.getElementById('fin-kpi-inv')) document.getElementById('fin-kpi-inv').innerHTML = '<span class="kpi-curr">₹</span>' + money(totalInv);
+  if (document.getElementById('fin-kpi-rec')) document.getElementById('fin-kpi-rec').innerHTML = '<span class="kpi-curr">₹</span>' + money(totalRec);
+  if (document.getElementById('fin-kpi-tds')) document.getElementById('fin-kpi-tds').innerHTML = '<span class="kpi-curr">₹</span>' + money(totalTds);
   
   // Render Table
   const rows = Object.values(ledger).sort((a,b) => {

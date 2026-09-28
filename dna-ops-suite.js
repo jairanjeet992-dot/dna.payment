@@ -34,8 +34,10 @@
   window.computeCaseSlaStatus = function(c) {
     if (!c) return { status: 'NO_SLA', label: '—', color: 'var(--sub)', bg: 'var(--paper)', text: '—' };
 
-    // If case is already completed or marked withdrawn/rejected, SLA is settled
-    if (c.completed_at || c.exception_type === 'Withdrawn' || c.exception_type === 'Rejected' || (c.investigation_status || '').toLowerCase() === 'completed') {
+    // If case is already completed or marked withdrawn/rejected or has resolved outcome, SLA is settled
+    const outcomeNorm = (c.outcome || '').trim().toLowerCase();
+    const isResolvedOutcome = ['genuine', 'repudiated', 'fraud', 'settled', 'closed'].includes(outcomeNorm);
+    if (c.completed_at || c.exception_type === 'Withdrawn' || c.exception_type === 'Rejected' || (c.investigation_status || '').toLowerCase() === 'completed' || isResolvedOutcome) {
       return { status: 'COMPLETED', label: 'Completed', color: 'var(--green)', bg: '#f0fdf4', diffHours: null, text: 'Done' };
     }
 
