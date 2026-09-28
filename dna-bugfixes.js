@@ -51,7 +51,10 @@ ready(()=>{
     const risk_level = existingCase ? existingCase.risk_level : null;
     const isResolvedOutcome = ['genuine', 'repudiated', 'fraud', 'settled', 'closed'].includes((outcome || '').toLowerCase().trim());
     let completed_at = null;
-    if (isResolvedOutcome) {
+    const manualClosed = $('f-completed-at')?.value?.trim();
+    if (manualClosed) {
+      completed_at = manualClosed.includes('T') ? manualClosed : `${manualClosed.slice(0, 10)}T18:00:00.000Z`;
+    } else if (isResolvedOutcome) {
       completed_at = (existingCase && existingCase.completed_at) ? existingCase.completed_at : new Date().toISOString();
     } else if (existingCase && existingCase.completed_at && (outcome || '').toLowerCase().trim() === 'pending') {
       completed_at = null;

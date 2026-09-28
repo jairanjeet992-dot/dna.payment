@@ -1700,6 +1700,7 @@ const DEFAULT_CASES_COLUMN_ORDER = [
   'inv2_status',
   'hardcopy1_status',
   'outcome',
+  'completed_at',
   'actions'
 ];
 const CASES_COLUMN_ORDER_STORAGE = 'dna_cases_column_order';
@@ -2120,6 +2121,7 @@ function renderCasesTable() {
       inv2_status: `<td data-col="inv2_status" ${ed} data-field="inv2_status" data-val="${escAttr(c.inv2_status||'')}" data-type="status">${statusBadge(c.inv2_status)}</td>`,
       hardcopy1_status: `<td data-col="hardcopy1_status" ${ed} data-field="hardcopy1_status" data-val="${escAttr(c.hardcopy1_status||'')}" data-type="hardcopy">${hardcopyStatusCell(c)}</td>`,
       outcome: `<td data-col="outcome" ${ed} data-field="outcome" data-val="${escAttr(c.outcome||'Pending')}" data-type="outcome">${outcomeBadge(c.outcome)}</td>`,
+      completed_at: `<td data-col="completed_at" ${ed} data-field="completed_at" data-val="${escAttr(c.completed_at ? c.completed_at.slice(0,10) : '')}" data-type="date" style="font-family:var(--mono);">${escAttr(c.completed_at ? c.completed_at.slice(0, 10) : '—')}</td>`,
       actions: `<td data-col="actions" style="white-space:nowrap;">${isAdmin ? `<div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-ghost btn-sm" onclick="editCase(${idx})" title="Edit Case">Edit</button><button class="btn btn-sm" style="padding:2px 6px;background:#25D366;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;" onclick="openCaseDispatchModal('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="Dispatch WhatsApp / Email">📲</button></div>` : ''}</td>`
     };
 
@@ -4490,6 +4492,8 @@ function editCase(idx) {
   const compAwb = document.getElementById('f-companyawb');
   if (compAwb) compAwb.value = c.company_hardcopy_awb || '';
   document.getElementById('f-outcome').value = c.outcome||'Pending';
+  const fCompletedAt = document.getElementById('f-completed-at');
+  if (fCompletedAt) fCompletedAt.value = c.completed_at ? c.completed_at.slice(0, 10) : '';
   document.getElementById('f-remarks').value = c.remarks||'';
   checkHospitalRisk(c.hospital || '');
   calcTotal();
@@ -4611,7 +4615,11 @@ async function finishInlineEdit(cell, cancelled) {
             update.custom_data[cfId] = parsedVal;
         }
     } else {
-        update[field] = parsedVal;
+        if (field === 'completed_at') {
+          update[field] = parsedVal ? `${parsedVal.slice(0, 10)}T18:00:00.000Z` : null;
+        } else {
+          update[field] = parsedVal;
+        }
     }
     
     if (['fee1', 'fee2', 'ta1', 'ta2', 'received', 'tds_deducted', 'inv1', 'inv2', 'date'].includes(field)) {
@@ -4641,6 +4649,7 @@ function renderCellDisplay(c, field, type, val) {
     case 'fee1': case 'fee2': case 'ta1': case 'ta2': case 'received': case 'invoice_amount': return money(val);
     case 'inv1_status': case 'inv2_status': return statusBadge(val);
     case 'outcome': return outcomeBadge(val);
+    case 'completed_at': return escAttr(val ? val.slice(0, 10) : '—');
     case 'hardcopy1_status':
     case 'hardcopy2_status': {
       // Create a temp case with the override value for rendering
@@ -4658,6 +4667,21 @@ function renderCellDisplay(c, field, type, val) {
   }
 }
 
+function onOutcomeChange() {
+  const outcomeEl = document.getElementById('f-outcome');
+  const closeEl = document.getElementById('f-completed-at');
+  if (!outcomeEl || !closeEl) return;
+  const val = (outcomeEl.value || '').trim().toLowerCase();
+  const isResolved = ['genuine', 'repudiated', 'fraud', 'settled', 'closed'].includes(val);
+  if (isResolved && !closeEl.value) {
+    const today = new Date().toISOString().slice(0, 10);
+    closeEl.value = today;
+  } else if (val === 'pending') {
+    closeEl.value = '';
+  }
+}
+window.onOutcomeChange = onOutcomeChange;
+
 function clearForm() {
   if (typeof window.populateCustomFieldsInForm === 'function') window.populateCustomFieldsInForm(null);
   ['f-company','f-date','f-casetype','f-claim','f-policy','f-insured','f-hospital','f-location','f-sla',
@@ -4670,6 +4694,8 @@ function clearForm() {
   if (fCompanyHardcopy) fCompanyHardcopy.value = 'Pending';
   const fOutcome = document.getElementById('f-outcome');
   if (fOutcome) fOutcome.value = 'Pending';
+  const fCompletedAt = document.getElementById('f-completed-at');
+  if (fCompletedAt) fCompletedAt.value = '';
   const hRiskWarn = document.getElementById('hospital-risk-warning');
   if (hRiskWarn) hRiskWarn.style.display = 'none';
   document.getElementById('f-total').value = '';
@@ -5287,8 +5313,15 @@ async function saveCase() {
   
   let completed_at = null;
   const existingCase = editingDocCode ? cases.find(c => c.doc_code === editingDocCode) : null;
-  if (isCompleted) {
-      completed_at = (existingCase && existingCase.completed_at) ? existingCase.completed_at : new Date().toISOString();
+  const manualCompletedAt = document.getElementById('f-completed-at')?.value?.trim();
+  if (manualCompletedAt) {
+    completed_at = manualCompletedAt.includes('T') ? manualCompletedAt : `${manualCompletedAt.slice(0, 10)}T18:00:00.000Z`;
+  } else if (isCompleted) {
+    completed_at = (existingCase && existingCase.completed_at) ? existingCase.completed_at : new Date().toISOString();
+  } else if (existingCase && existingCase.completed_at && outcomeValue === 'Pending') {
+    completed_at = null;
+  } else {
+    completed_at = existingCase ? existingCase.completed_at : null;
   }
 
   const existingException = (editingDocCode && cases[editIdx]) ? cases[editIdx].exception_type : null;

@@ -48,7 +48,7 @@ const VALID_CASE_SCHEMA_COLUMNS = [
   'inv1_status', 'inv2_status', 'hardcopy1_status', 'hardcopy2_status',
   'company_hardcopy_status', 'company_hardcopy_awb', 'hardcopy_receive_date',
   'company_dispatch_date', 'outcome', 'exception_type', 'exception_reason',
-  'exception_at', 'exception_by', 'total_payable', 'profit', 'closed_date',
+  'exception_at', 'exception_by', 'total_payable', 'profit',
   'remarks', 'sla_hours', 'due_date', 'risk_level', 'completed_at', 'custom_data'
 ];
 

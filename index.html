@@ -814,6 +814,7 @@ tbody tr:hover{background:var(--line);}
             <th data-col="inv2_status">INV2 St.</th>
             <th data-col="hardcopy1_status">Hard Copy</th>
             <th data-col="outcome" onclick="sortCases('outcome')" style="cursor:pointer">Outcome ⇅</th>
+            <th data-col="completed_at" onclick="sortCases('completed_at')" style="cursor:pointer">Close Date ⇅</th>
             <th data-col="actions"></th>
           </tr></thead>
           <tbody id="cases-tbody"></tbody>
@@ -1806,16 +1807,22 @@ tbody tr:hover{background:var(--line);}
           </div>
           <span class="badge" style="background:var(--paper);color:var(--sub);font-size:10px;">Step 5 of 5</span>
         </div>
-        <div class="fg" style="margin-bottom:12px;">
-          <label>Investigation Outcome</label>
-          <select id="f-outcome">
-            <option value="Pending">Pending / In Progress</option>
-            <option value="Genuine">Genuine</option>
-            <option value="Fraud">Fraud / Fake</option>
-            <option value="Suspicious">Suspicious (Doubtful)</option>
-            <option value="Not Found">Insured Not Found</option>
-            <option value="Settled">Settled / Closed</option>
-          </select>
+        <div class="form-grid" style="margin-bottom:12px;">
+          <div class="fg">
+            <label>Investigation Outcome</label>
+            <select id="f-outcome" onchange="onOutcomeChange()">
+              <option value="Pending">Pending / In Progress</option>
+              <option value="Genuine">Genuine</option>
+              <option value="Fraud">Fraud / Fake</option>
+              <option value="Suspicious">Suspicious (Doubtful)</option>
+              <option value="Not Found">Insured Not Found</option>
+              <option value="Settled">Settled / Closed</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label>Case Close Date</label>
+            <input type="date" id="f-completed-at" class="fin" title="Case completion or closure date">
+          </div>
         </div>
         <div class="fg" style="margin-bottom:12px;"><label>Remarks</label><textarea id="f-remarks" rows="2"></textarea></div>
         <div id="dynamic-custom-fields" class="form-grid" style="margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 12px; display: none;"></div>
@@ -2914,16 +2921,16 @@ tbody tr:hover{background:var(--line);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js?v=2"></script>
 <script src="ux-enhancements.js?v=2"></script>
-<script src="app.js?v=73"></script>
+<script src="app.js?v=74"></script>
 <script src="investigator-portal.js?v=5"></script>
 <script src="company-recovery.js?v=9"></script>
-<script src="batch-rollback.js?v=2"></script>
+<script src="batch-rollback.js?v=3"></script>
 <script src="realtime-sync.js?v=4"></script>
-<script src="role-permissions.js?v=5"></script>
+<script src="role-permissions.js?v=6"></script>
 <script src="import-pdf-enhancements.js?v=4"></script>
-<script src="dna-bugfixes.js?v=6"></script>
-<script src="frontend/investigator-360/investigator-360.js"></script>
-<script src="investigator-case-breakdown.js"></script>
+<script src="dna-bugfixes.js?v=7"></script>
+<script src="frontend/investigator-360/investigator-360.js?v=2"></script>
+<script src="investigator-case-breakdown.js?v=2"></script>
 <script src="plugins-manager.js?v=2"></script>
 <script src="custom-fields.js?v=2"></script>
 <script src="smart-merge-engine.js?v=32"></script>
