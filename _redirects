@@ -1,0 +1,4 @@
+# Cloudflare Pages Proxy Rewrites to Render Backend
+# Keeps the domain https://dna-payments.pages.dev/ while seamlessly routing all API calls to Render
+/api/*      https://dna-payment.onrender.com/api/:splat  200
+/config.js  https://dna-payment.onrender.com/config.js   200
