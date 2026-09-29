@@ -8,7 +8,12 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=2"></script>
+<script>
+if (!window.supabase) {
+  document.write('<script src="/vendor/supabase.js"><\/script>');
+}
+</script>
+<script src="config.js?v=3"></script>
 <script>
 // Prevent html2canvas oklab/oklch crashes globally
 (function() {
@@ -1168,6 +1173,8 @@ tbody tr:hover{background:var(--line);}
     <!-- Category Navigation Subtabs -->
     <div class="settings-subtabs-bar">
       <button class="settings-subtab active" data-settab="branding" onclick="switchSettingsTab('branding')">🏢 Branding & Identity</button>
+      <button class="settings-subtab admin-only" data-settab="billing" onclick="switchSettingsTab('billing')">🧾 Agency GST & Bank</button>
+      <button class="settings-subtab admin-only" data-settab="branches" onclick="switchSettingsTab('branches')">🏛️ Company Branches & GST</button>
       <button class="settings-subtab" data-settab="team" onclick="switchSettingsTab('team')">👥 Team & Account</button>
       <button class="settings-subtab" data-settab="fields" onclick="switchSettingsTab('fields')">📋 Dropdowns & Custom Fields</button>
       <button class="settings-subtab" data-settab="permissions" onclick="switchSettingsTab('permissions')">🛡️ Field Permissions Matrix</button>
@@ -1222,6 +1229,61 @@ tbody tr:hover{background:var(--line);}
             <button class="btn btn-ghost btn-sm" onclick="document.getElementById('logo-file').click()">Change Logo</button>
             <span style="font-size:10.5px; color:var(--sub);">Embedded as Base64</span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Category: Agency GST & Bank Details -->
+    <div class="settings-section-card admin-only" data-settings-sec="billing" id="settings-sec-billing">
+      <div class="settings-category-header">
+        <h3>🧾 Agency Legal, GST & Banking Details</h3>
+      </div>
+      <div class="settings-two-col">
+        <div class="panel" style="padding:20px;">
+          <div class="panel-title" style="margin-bottom:12px;">🏛️ Agency GST & Tax Details</div>
+          <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;line-height:1.5;">Official GSTIN and PAN printed on all generated client tax invoices and statutory vouchers.</p>
+          <div class="fg" style="margin-top:10px;"><label>Agency GSTIN</label><input type="text" id="agency-gstin" placeholder="e.g. 23AAAAA0000A1Z5 (MP - 23)" maxlength="15" onchange="saveAgencyGstBankSettings()" style="font-family:var(--mono);text-transform:uppercase;"></div>
+          <div class="fg" style="margin-top:10px;"><label>Agency PAN</label><input type="text" id="agency-pan" placeholder="e.g. ABCDE1234F" maxlength="10" onchange="saveAgencyGstBankSettings()" style="font-family:var(--mono);text-transform:uppercase;"></div>
+          <div class="fg" style="margin-top:10px;"><label>Invoice Serial Prefix</label><input type="text" id="agency-invoice-prefix" value="DNA/" placeholder="e.g. DNA/26-27/" onchange="saveAgencyGstBankSettings()" style="font-family:var(--mono);"></div>
+          <div class="fg" style="margin-top:10px;"><label>Invoice Terms & Jurisdiction</label><textarea id="agency-invoice-terms" rows="2" onchange="saveAgencyGstBankSettings()" placeholder="Terms printed at bottom of Tax Invoices..."></textarea></div>
+          <div style="font-size:11px; color:var(--green); font-weight:600; margin-top:12px; display:flex; align-items:center; gap:6px;">
+            <span>✓</span> <span>Auto-saves to Supabase</span>
+          </div>
+        </div>
+        
+        <div class="panel" style="padding:20px;">
+          <div class="panel-title" style="margin-bottom:12px;">🏦 Bank Account Details (For Client Remittances)</div>
+          <p style="font-size:11.5px;color:var(--sub);margin-bottom:14px;line-height:1.5;">Bank details printed in the footer of Tax Invoices for insurance company NEFT/RTGS payments.</p>
+          <div class="fg" style="margin-top:10px;"><label>Bank Name</label><input type="text" id="agency-bank-name" placeholder="e.g. Punjab National Bank" onchange="saveAgencyGstBankSettings()"></div>
+          <div class="fg" style="margin-top:10px;"><label>Account Number</label><input type="text" id="agency-bank-acc" placeholder="e.g. 1234002100012345" onchange="saveAgencyGstBankSettings()" style="font-family:var(--mono);"></div>
+          <div class="fg" style="margin-top:10px;"><label>IFSC Code</label><input type="text" id="agency-bank-ifsc" placeholder="e.g. PUNB0123400" maxlength="11" onchange="saveAgencyGstBankSettings()" style="font-family:var(--mono);text-transform:uppercase;"></div>
+          <div class="fg" style="margin-top:10px;"><label>Branch Location</label><input type="text" id="agency-bank-branch" placeholder="e.g. Manikbagh Branch, Indore" onchange="saveAgencyGstBankSettings()"></div>
+          <div style="margin-top:16px;">
+            <button class="btn btn-navy btn-sm" onclick="saveAgencyGstBankSettings()">💾 Save Banking Details</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Category: Company Branches Master -->
+    <div class="settings-section-card admin-only" data-settings-sec="branches" id="settings-sec-branches">
+      <div class="settings-category-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <h3>🏛️ Insurance Companies & State Branches Master</h3>
+          <div style="font-size:11.5px; color:var(--sub); margin-top:2px;">Register state-wise regional branches, GSTIN, and billing addresses for automated CGST/SGST & IGST billing.</div>
+        </div>
+        <button class="btn btn-navy btn-sm" onclick="openAddBranchModal()">+ Add New Company Branch</button>
+      </div>
+      <div class="panel" style="padding:16px;">
+        <div style="display:flex; gap:10px; margin-bottom:12px; align-items:center;">
+          <div style="font-size:12px; font-weight:700; color:var(--navy);">Filter Company:</div>
+          <select id="settings-branch-filter-company" onchange="renderCompanyBranchesSettings()" style="font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid var(--line); background:var(--card);">
+            <option value="">All Companies</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="loadCompanyBranchesFromDB()">🔄 Refresh</button>
+        </div>
+        <div id="settings-branches-list" style="overflow-x:auto;">
+          <div style="padding:20px; text-align:center; color:var(--sub);">Loading branches from Supabase...</div>
         </div>
       </div>
     </div>
@@ -1694,7 +1756,7 @@ tbody tr:hover{background:var(--line);}
         </div>
         <div class="notice" style="margin-bottom:12px;">📌 Case count rule: Investigator 1 only = <b>0.5 case</b>. Investigator 1 + Investigator 2 = <b>1 case each</b>.</div>
         <div class="form-grid">
-          <div class="fg"><label>Company *</label><select id="f-company" onchange="updateCaseFormMiniSummary()"><option value="">-- Select --</option></select></div>
+          <div class="fg"><label>Company *</label><select id="f-company" onchange="updateCaseFormMiniSummary(); if(typeof populateCaseFormBranches==='function') populateCaseFormBranches(this.value);"><option value="">-- Select --</option></select></div>
           <div class="fg"><label>Allocation Date *</label><input type="date" id="f-date"></div>
           <div class="fg"><label>Case Type *</label><select id="f-casetype" onchange="updateCaseFormMiniSummary()"></select></div>
           <div class="fg"><label>Claim No *</label><input type="text" id="f-claim"></div>
@@ -1764,9 +1826,45 @@ tbody tr:hover{background:var(--line);}
           <div class="fg"><label>Total Payable (auto)</label><input type="number" id="f-total" readonly style="font-weight:700;color:var(--amber);"></div>
           <div class="fg"><label>Payment Received (₹)</label><input type="number" id="f-received" oninput="calcTotal()"></div>
           <div class="fg"><label>TDS Deducted (₹)</label><input type="number" id="f-tds" placeholder="0" oninput="calcTotal()"></div>
-          <div class="fg"><label>Invoice No</label><input type="text" id="f-invoice"></div>
-          <div class="fg"><label>Invoice Amount (₹)</label><input type="number" id="f-invoice-amount" oninput="calcTotal()"></div>
           <div class="fg"><label>Profit (auto)</label><input type="number" id="f-profit" readonly style="font-weight:700;"></div>
+        </div>
+
+        <!-- Smart Tax Invoicing Card (Client Billing) -->
+        <div style="margin-top:16px; border:1px solid var(--gold); border-radius:8px; padding:14px; background:linear-gradient(135deg, rgba(15,41,66,0.03), rgba(184,134,46,0.05));">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--line); padding-bottom:8px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:16px;">🧾</span>
+              <span style="font-weight:800; font-size:12.5px; color:var(--navy);">Client Tax Invoicing (Insurance Company)</span>
+            </div>
+            <div id="f-invoice-tax-type-badge">
+              <span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700;">Intra-State: CGST (9%) + SGST (9%)</span>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="fg" style="grid-column:span 2;"><label>Company Billing Branch *</label><select id="f-invoice-branch" onchange="onInvoiceBranchChange()"><option value="">-- Select Billing Branch --</option></select></div>
+            <div class="fg"><label>Invoice No</label><input type="text" id="f-invoice" placeholder="Auto or manual"></div>
+            <div class="fg"><label>Invoice Date</label><input type="date" id="f-invoice-date"></div>
+            <div class="fg"><label>Professional Fee (₹)</label><input type="number" id="f-invoice-fee" placeholder="0" oninput="calcInvoiceTotals()"></div>
+            <div class="fg"><label>Conveyance / TA (₹)</label><input type="number" id="f-invoice-expense" placeholder="0" oninput="calcInvoiceTotals()"></div>
+            <div class="fg"><label>Taxable Base (₹)</label><input type="number" id="f-invoice-taxable" readonly style="font-weight:700; color:var(--ink);"></div>
+            <div class="fg">
+              <label>GST Rate (%)</label>
+              <select id="f-invoice-gst-rate" onchange="calcInvoiceTotals()">
+                <option value="18" selected>18% (Standard Services)</option>
+                <option value="0">0% (Exempt / Non-GST)</option>
+                <option value="12">12%</option>
+                <option value="5">5%</option>
+              </select>
+            </div>
+            <div class="fg"><label>GST Amount (₹)</label><input type="number" id="f-invoice-gst-amount" readonly style="font-weight:700; color:var(--navy);"></div>
+            <div class="fg"><label style="font-weight:800; color:var(--green);">Grand Total Invoice (₹)</label><input type="number" id="f-invoice-amount" readonly style="font-weight:800; font-size:14px; color:var(--green);" oninput="calcTotal()"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:8px; border-top:1px dashed var(--line); flex-wrap:wrap; gap:8px;">
+            <div id="f-invoice-calc-detail" style="font-size:11px; color:var(--sub); font-weight:600;"></div>
+            <button type="button" class="btn btn-navy btn-sm" onclick="previewSingleCaseInvoice(editingDocCode)" style="display:inline-flex; align-items:center; gap:5px; font-weight:700;">
+              <span>📄</span> Generate &amp; Print Tax Invoice
+            </button>
+          </div>
         </div>
         <div class="caseform-step-nav">
           <button type="button" class="btn btn-ghost btn-sm" onclick="switchCaseFormTab('assignment')">⬅ Back: Investigators</button>
@@ -1987,6 +2085,9 @@ tbody tr:hover{background:var(--line);}
         <button class="btn btn-sm btn-ghost" onclick="exportCompanyRecoveryPDF()" style="display:flex; align-items:center; gap:5px; font-weight:600; font-size:11px; height:30px; padding:0 10px;" title="Generate PDF Statement">
           <span>📄</span> Export PDF
         </button>
+        <button class="btn btn-sm" id="cr-bulk-invoice-btn" onclick="openBulkInvoiceModal()" style="display:flex; align-items:center; gap:5px; font-weight:700; font-size:11px; height:30px; padding:0 12px; background:var(--gold); color:var(--navy); border:none; border-radius:4px;" title="Generate Consolidated GST Tax Invoice + Annexure">
+          <span>🧾</span> Generate Bulk Tax Invoice <span id="cr-bulk-count-badge" style="font-size:10px;opacity:0.9;"></span>
+        </button>
         <button class="btn btn-sm btn-navy" onclick="openRecordRemittanceModal()" id="cr-record-pay-btn" style="display:flex; align-items:center; gap:5px; font-weight:700; font-size:11px; height:30px; padding:0 12px;">
           <span>⚡</span> Record Payment / Region Details
         </button>
@@ -2093,6 +2194,142 @@ tbody tr:hover{background:var(--line);}
     <div class="modal-foot" style="justify-content:space-between;">
       <button class="btn btn-ghost" onclick="closeModal('cr-remittance-modal')">Cancel</button>
       <button class="btn btn-navy" id="cr-remit-save-btn" onclick="saveCRRemittance()" style="font-weight:700;">💾 Save Payment &amp; Update Database</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🧾 GENERATE BULK TAX INVOICE MODAL -->
+<div class="overlay" id="cr-bulk-invoice-modal" style="z-index:9999;">
+  <div class="modal" style="max-width:620px; width:92%;">
+    <div class="modal-head" style="border-bottom:1px solid var(--line); padding:14px 18px; display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <h3 style="margin:0; font-size:15px; color:var(--navy);">🧾 Generate Bulk Tax Invoice (Insurance Company)</h3>
+        <div style="font-size:11px; color:var(--sub); margin-top:2px;">Consolidate selected cases into an official GST Master Tax Invoice + Annexure Statement</div>
+      </div>
+      <button class="modal-x" onclick="closeModal('cr-bulk-invoice-modal')">✕</button>
+    </div>
+    <div class="modal-body" style="padding:18px;">
+      <div style="background:var(--paper); border:1px solid var(--line); border-radius:6px; padding:10px 14px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-size:10px; color:var(--sub); text-transform:uppercase; font-weight:700;">Insurance Company:</div>
+          <div id="cr-bulk-inv-company-name" style="font-size:14px; font-weight:800; color:var(--navy);">STAR HEALTH</div>
+        </div>
+        <span class="badge" id="cr-bulk-inv-count-badge" style="background:var(--navy); color:#fff; font-size:11px; font-weight:700;">0 Cases Selected</span>
+      </div>
+
+      <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:12px;">
+        <div class="fg" style="grid-column:span 2; margin-bottom:0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <label style="margin:0;">Select Company Billing Branch *</label>
+            <span id="cr-bulk-inv-tax-type-badge"></span>
+          </div>
+          <select id="cr-bulk-inv-branch-select" class="fin" onchange="calcBulkInvoiceTotals()"></select>
+        </div>
+        <div class="fg" style="margin-bottom:0;">
+          <label>Invoice Number *</label>
+          <input type="text" id="cr-bulk-inv-number" class="fin" style="font-family:var(--mono); font-weight:700;">
+        </div>
+        <div class="fg" style="margin-bottom:0;">
+          <label>Invoice Date *</label>
+          <input type="date" id="cr-bulk-inv-date" class="fin">
+        </div>
+        <div class="fg" style="margin-bottom:0;">
+          <label>Total Professional Fees (₹)</label>
+          <input type="number" id="cr-bulk-inv-fee" class="fin" oninput="calcBulkInvoiceTotals()">
+        </div>
+        <div class="fg" style="margin-bottom:0;">
+          <label>Total Conveyance / TA (₹)</label>
+          <input type="number" id="cr-bulk-inv-ta" class="fin" oninput="calcBulkInvoiceTotals()">
+        </div>
+        <div class="fg" style="grid-column:span 2; margin-bottom:0;">
+          <label>GST Rate (%)</label>
+          <select id="cr-bulk-inv-gst-rate" class="fin" onchange="calcBulkInvoiceTotals()">
+            <option value="18" selected>18% (Standard Professional Services)</option>
+            <option value="0">0% (Non-GST / Exempt)</option>
+            <option value="12">12%</option>
+            <option value="5">5%</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Financial Summary -->
+      <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:12px; margin-top:14px; font-size:12px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+          <span style="color:var(--sub);">Taxable Base Amount:</span>
+          <span id="cr-bulk-inv-taxable" style="font-weight:700;">₹0.00</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+          <span style="color:var(--sub);">GST Amount:</span>
+          <span id="cr-bulk-inv-gst-amount" style="font-weight:700; color:var(--navy);">₹0.00</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; border-top:1px solid var(--line); padding-top:6px; margin-top:4px; font-size:13px;">
+          <span style="font-weight:800; color:var(--navy);">Grand Total (Billed to Company):</span>
+          <span id="cr-bulk-inv-grand-total" style="font-weight:800; color:var(--green); font-size:15px;">₹0.00</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot" style="justify-content:space-between; padding:12px 18px; border-top:1px solid var(--line);">
+      <button class="btn btn-ghost" onclick="closeModal('cr-bulk-invoice-modal')">Cancel</button>
+      <button class="btn btn-navy" id="cr-save-bulk-inv-btn" onclick="saveAndGenerateBulkInvoice()" style="font-weight:700;">
+        <span>📄</span> Save &amp; Generate Bulk Tax Invoice (PDF)
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 🏛️ ADD / EDIT INSURANCE COMPANY BRANCH MODAL -->
+<div class="overlay" id="branch-modal" style="z-index:9999;">
+  <div class="modal" style="max-width:540px; width:92%;">
+    <div class="modal-head" style="border-bottom:1px solid var(--line); padding:14px 18px; display:flex; justify-content:space-between; align-items:center;">
+      <h3 id="branch-modal-title" style="margin:0; font-size:15px; color:var(--navy);">Add Insurance Company Branch</h3>
+      <button class="modal-x" onclick="closeModal('branch-modal')">✕</button>
+    </div>
+    <div class="modal-body" style="padding:18px;">
+      <input type="hidden" id="branch-form-id">
+      <div class="fg" style="margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <label style="margin:0; font-weight:700;">Insurance Company *</label>
+          <a href="javascript:void(0)" onclick="promptAddNewCompanyForBranch()" style="font-size:11px; color:var(--navy); font-weight:700; text-decoration:underline;">+ Add New Company</a>
+        </div>
+        <select id="branch-form-company" class="fin" style="font-size:12px; font-weight:700;" onchange="onBranchCompanyChange()"></select>
+      </div>
+      <div class="fg" style="margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <label style="margin:0; font-weight:700;">Full Legal Entity Name (Printed on Tax Invoice) *</label>
+          <span style="font-size:10px; color:var(--sub);">Official Corporate Name</span>
+        </div>
+        <input type="text" id="branch-form-legal-name" class="fin" placeholder="e.g. Care Health Insurance Limited" style="font-weight:600;">
+      </div>
+      <div class="fg" style="margin-bottom:12px;">
+        <label>Branch / Office Name *</label>
+        <input type="text" id="branch-form-name" class="fin" placeholder="e.g. Indore / MP Regional Office">
+      </div>
+      <div class="form-grid" style="grid-template-columns: 2fr 1fr; gap:10px; margin-bottom:12px;">
+        <div class="fg" style="margin-bottom:0;">
+          <label>State *</label>
+          <select id="branch-form-state" class="fin" onchange="onBranchStateChange()"></select>
+        </div>
+        <div class="fg" style="margin-bottom:0;">
+          <label>State Code</label>
+          <input type="text" id="branch-form-state-code" class="fin" readonly style="font-family:var(--mono); font-weight:700; text-align:center;">
+        </div>
+      </div>
+      <div class="fg" style="margin-bottom:12px;">
+        <label>Branch GSTIN (15 Digits)</label>
+        <input type="text" id="branch-form-gstin" class="fin" maxlength="15" placeholder="e.g. 23AAACS9604G1ZT" style="font-family:var(--mono); text-transform:uppercase;">
+      </div>
+      <div class="fg" style="margin-bottom:12px;">
+        <label>Full Billing Address (Printed on Bill To) *</label>
+        <textarea id="branch-form-address" class="fin" rows="3" placeholder="Registered office address, street, city, pincode..."></textarea>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <input type="checkbox" id="branch-form-default" style="cursor:pointer; width:15px; height:15px;">
+        <label for="branch-form-default" style="font-size:12px; cursor:pointer; font-weight:600; color:var(--ink);">Set as Default Branch for this Company</label>
+      </div>
+    </div>
+    <div class="modal-foot" style="justify-content:space-between; padding:12px 18px; border-top:1px solid var(--line);">
+      <button class="btn btn-ghost" onclick="closeModal('branch-modal')">Cancel</button>
+      <button class="btn btn-navy" onclick="saveBranchToDB()" style="font-weight:700;">💾 Save Branch to Supabase</button>
     </div>
   </div>
 </div>
@@ -2921,15 +3158,16 @@ tbody tr:hover{background:var(--line);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js?v=2"></script>
 <script src="ux-enhancements.js?v=2"></script>
-<script src="app.js?v=74"></script>
+<script src="app.js?v=79"></script>
 <script src="investigator-portal.js?v=5"></script>
-<script src="company-recovery.js?v=9"></script>
-<script src="batch-rollback.js?v=3"></script>
-<script src="realtime-sync.js?v=4"></script>
-<script src="role-permissions.js?v=6"></script>
+<script src="company-recovery.js?v=10"></script>
+<script src="gst-invoicing.js?v=6"></script>
+<script src="batch-rollback.js?v=4"></script>
+<script src="realtime-sync.js?v=5"></script>
+<script src="role-permissions.js?v=8"></script>
 <script src="import-pdf-enhancements.js?v=4"></script>
 <script src="dna-bugfixes.js?v=7"></script>
-<script src="frontend/investigator-360/investigator-360.js?v=2"></script>
+<script src="frontend/investigator-360/investigator-360.js?v=4"></script>
 <script src="investigator-case-breakdown.js?v=2"></script>
 <script src="plugins-manager.js?v=2"></script>
 <script src="custom-fields.js?v=2"></script>

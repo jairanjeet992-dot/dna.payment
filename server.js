@@ -667,28 +667,34 @@ app.get('/api/investigator/my-cases', requireInvestigatorAuth, async (req, res) 
       return res.status(400).json({ success: false, error: 'Investigator profile name missing.' });
     }
 
-    // Query with ilike pattern and generous limit so no historical or paid cases are cut off
+    // Query exact investigator or shared assignment without loose substring leakage
+    const cleanTarget = rawInvName.replace(/[%_,()]/g, ' ').trim();
     const { data: allCases, error } = await supabase
       .from('cases')
       .select('*')
-      .or(`inv1.ilike.%${rawInvName}%,inv2.ilike.%${rawInvName}%`)
+      .or(`inv1.ilike.${cleanTarget},inv2.ilike.${cleanTarget},inv1.ilike.%/${cleanTarget}%,inv1.ilike.%${cleanTarget}/%,inv2.ilike.%/${cleanTarget}%,inv2.ilike.%${cleanTarget}/%`)
       .order('date', { ascending: false })
       .limit(5000);
 
     if (error) throw error;
 
     // Filter and sanitize: STRICTLY NO AGENCY FINANCIALS (received, profit, invoice, tds)
+    // Matches exact name or delimited pair (e.g. "Raj / Amit"), preventing "Raj" from seeing "Rajesh" cases
+    const target = rawInvName.toLowerCase();
+    const isSalary = (req.investigator.payment_type || '').toLowerCase() === 'salary';
+
     const sanitized = (allCases || []).filter(c => {
       const i1 = (c.inv1 || '').trim().toLowerCase();
       const i2 = (c.inv2 || '').trim().toLowerCase();
-      const target = rawInvName.toLowerCase();
-      return i1 === target || i2 === target || i1.includes(target) || i2.includes(target);
+      const names1 = i1.split(/[\/,+&]/).map(s => s.trim());
+      const names2 = i2.split(/[\/,+&]/).map(s => s.trim());
+      return names1.includes(target) || names2.includes(target) || i1 === target || i2 === target;
     }).map(c => {
       const i1 = (c.inv1 || '').trim().toLowerCase();
-      const target = rawInvName.toLowerCase();
-      const isInv1 = i1 === target || i1.includes(target);
+      const names1 = i1.split(/[\/,+&]/).map(s => s.trim());
+      const isInv1 = names1.includes(target) || i1 === target;
       
-      const assignedFee = isInv1 ? (Number(c.fee1) || 0) : (Number(c.fee2) || 0);
+      const assignedFee = isSalary ? 0 : (isInv1 ? (Number(c.fee1) || 0) : (Number(c.fee2) || 0));
       const currentTa = isInv1 ? (Number(c.ta1) || 0) : (Number(c.ta2) || 0);
       const rawStatus = isInv1 ? (c.inv1_status || '') : (c.inv2_status || '');
       const isPaid = (rawStatus || '').trim().toLowerCase() === 'paid';
@@ -1369,6 +1375,17 @@ window.APP_CONFIG = {
   }
 };
 `);
+});
+
+// Provide offline / fallback endpoint for Supabase client UMD bundle
+app.get('/vendor/supabase.js', (req, res) => {
+  const localSupabase = path.join(__dirname, 'node_modules', '@supabase', 'supabase-js', 'dist', 'umd', 'supabase.js');
+  if (fs.existsSync(localSupabase)) {
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(localSupabase);
+  } else {
+    res.status(404).send('// Supabase local bundle not found');
+  }
 });
 
 // Serve static files from the root directory with 1-hour browser cache for assets

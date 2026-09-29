@@ -49,7 +49,9 @@ const VALID_CASE_SCHEMA_COLUMNS = [
   'company_hardcopy_status', 'company_hardcopy_awb', 'hardcopy_receive_date',
   'company_dispatch_date', 'outcome', 'exception_type', 'exception_reason',
   'exception_at', 'exception_by', 'total_payable', 'profit',
-  'remarks', 'sla_hours', 'due_date', 'risk_level', 'completed_at', 'custom_data'
+  'remarks', 'sla_hours', 'due_date', 'risk_level', 'completed_at', 'custom_data',
+  'branch_id', 'invoice_date', 'invoice_fee', 'invoice_expense', 'invoice_gst_rate',
+  'invoice_gst_amount', 'bulk_invoice_id', 'billing_status', 'payment_mode', 'utr', 'client_invoice_date'
 ];
 
 /**
@@ -211,6 +213,25 @@ function recordBatchSnapshot({ action, type, docCodes = [], previousState = null
     snapshots.unshift(snapshot);
     saveBatchSnapshots(snapshots);
 
+    // Persist to Supabase batch_snapshots table for cross-device history
+    if (typeof window !== 'undefined' && window.supabaseClient) {
+      window.supabaseClient.from('batch_snapshots').insert([{
+        id: snapshot.id,
+        action: snapshot.action,
+        type: snapshot.type,
+        user_info: snapshot.user,
+        affected_count: snapshot.affectedCount,
+        doc_codes: snapshot.docCodes,
+        previous_state: snapshot.previousState,
+        new_state: snapshot.newState,
+        metadata: snapshot.metadata,
+        rolled_back: false,
+        created_at: snapshot.timestamp
+      }]).then(({ error }) => {
+        if (error) console.debug('[DNA Rollback] Supabase snapshot insert notice:', error.message);
+      }).catch(() => {});
+    }
+
     console.log(`[DNA Rollback] Recorded snapshot: "${snapshot.action}" with ID ${snapshot.id} (${snapshot.affectedCount} cases)`);
     return snapshot;
   } catch (err) {
@@ -329,10 +350,19 @@ async function rollbackBatchSnapshot(snapshotId) {
       }
     }
 
-    // Mark as rolled back
+    // Mark as rolled back locally and in Supabase
     snapshot.rolledBack = true;
     snapshot.rolledBackAt = new Date().toISOString();
     saveBatchSnapshots(snapshots);
+
+    if (typeof window !== 'undefined' && window.supabaseClient) {
+      window.supabaseClient.from('batch_snapshots').update({
+        rolled_back: true,
+        rolled_back_at: snapshot.rolledBackAt
+      }).eq('id', snapshot.id).then(({ error }) => {
+        if (error) console.debug('[DNA Rollback] Supabase rollback mark notice:', error.message);
+      }).catch(() => {});
+    }
 
     // Refresh database and UI
     if (typeof loadCasesFromDB === 'function') await loadCasesFromDB();
@@ -357,6 +387,38 @@ async function rollbackBatchSnapshot(snapshotId) {
 }
 
 /**
+ * Sync batch snapshots from Supabase database table
+ */
+async function syncSnapshotsFromDB() {
+  if (typeof window === 'undefined' || !window.supabaseClient) return;
+  try {
+    const { data, error } = await window.supabaseClient
+      .from('batch_snapshots')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(60);
+    if (!error && data && data.length) {
+      const mapped = data.map(r => ({
+        id: r.id,
+        action: r.action,
+        type: r.type,
+        timestamp: r.created_at,
+        user: r.user_info,
+        affectedCount: r.affected_count,
+        docCodes: r.doc_codes || [],
+        previousState: r.previous_state || [],
+        newState: r.new_state,
+        metadata: r.metadata || {},
+        rolledBack: !!r.rolled_back,
+        rolledBackAt: r.rolled_back_at
+      }));
+      saveBatchSnapshots(mapped);
+      renderRollbackHistoryTable();
+    }
+  } catch (e) {}
+}
+
+/**
  * Open Rollback History Modal and populate table.
  */
 function openRollbackHistoryModal() {
@@ -364,6 +426,7 @@ function openRollbackHistoryModal() {
   if (!modal) return;
   modal.classList.add('open');
   renderRollbackHistoryTable();
+  syncSnapshotsFromDB();
 }
 
 /**

@@ -66,9 +66,19 @@ let INVESTIGATORS = [];        // array of names, sorted — replaces getAllInve
 let INVESTIGATOR_PHONES = {};  // name -> phone, replaces the old localStorage map
 let investigatorRows = [];     // full rows (id, name, phone, is_base, removed) — needed for id-based updates
 let COMPANIES = ["ADITYA BIRLA","BRAINBIRD","CARE","CHOLA","IFFCO TOKIO","KOTAK","MAGMA","RELIANCE","SBI","STAR HEALTH","TATA AIA","TATA AIG","VIDAL HEALTH"];
+window.COMPANIES = COMPANIES;
+window.getAllCompanies = function() {
+  if (typeof COMPANIES !== 'undefined' && Array.isArray(COMPANIES) && COMPANIES.length) return [...COMPANIES];
+  if (Array.isArray(window.COMPANIES) && window.COMPANIES.length) return [...window.COMPANIES];
+  return [];
+};
 let CASE_TYPES = ["PA","CASHLESS","REIMBURSEMENT","MB","FVR","SPOT","PROJECT","HOSPICASH","POST FACTO"];
 
 function refreshDynamicCompanies() {
+  window.COMPANIES = COMPANIES;
+  if (typeof window.populateBranchFilterCompanies === 'function') {
+    try { window.populateBranchFilterCompanies(); } catch(e){}
+  }
   // Update Add Case dropdown
   const fCompany = document.getElementById('f-company');
   if (fCompany) {
@@ -807,6 +817,7 @@ function showView(name, el) {
     if (typeof renderAssignedRoles === 'function') renderAssignedRoles();
     if (typeof initSettingsSubTabs === 'function') initSettingsSubTabs();
     if (typeof populateAssignRoleCompanyDropdown === 'function') populateAssignRoleCompanyDropdown();
+    if (typeof window.renderCompanyBranchesSettings === 'function') window.renderCompanyBranchesSettings();
   }
 }
 
@@ -2122,7 +2133,7 @@ function renderCasesTable() {
       hardcopy1_status: `<td data-col="hardcopy1_status" ${ed} data-field="hardcopy1_status" data-val="${escAttr(c.hardcopy1_status||'')}" data-type="hardcopy">${hardcopyStatusCell(c)}</td>`,
       outcome: `<td data-col="outcome" ${ed} data-field="outcome" data-val="${escAttr(c.outcome||'Pending')}" data-type="outcome">${outcomeBadge(c.outcome)}</td>`,
       completed_at: `<td data-col="completed_at" ${ed} data-field="completed_at" data-val="${escAttr(c.completed_at ? c.completed_at.slice(0,10) : '')}" data-type="date" style="font-family:var(--mono);">${escAttr(c.completed_at ? c.completed_at.slice(0, 10) : '—')}</td>`,
-      actions: `<td data-col="actions" style="white-space:nowrap;">${isAdmin ? `<div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-ghost btn-sm" onclick="editCase(${idx})" title="Edit Case">Edit</button><button class="btn btn-sm" style="padding:2px 6px;background:#25D366;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;" onclick="openCaseDispatchModal('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="Dispatch WhatsApp / Email">📲</button></div>` : ''}</td>`
+      actions: `<td data-col="actions" style="white-space:nowrap;">${isAdmin ? `<div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-ghost btn-sm" onclick="editCase(${idx})" title="Edit Case">Edit</button><button class="btn btn-sm" style="padding:2px 6px;background:#25D366;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;" onclick="openCaseDispatchModal('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="Dispatch WhatsApp / Email">📲</button><button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;color:var(--navy);font-weight:600;" onclick="previewSingleCaseInvoice('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="Print / Download Tax Invoice">🧾 Invoice</button></div>` : `<button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;color:var(--navy);" onclick="previewSingleCaseInvoice('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="View Tax Invoice">🧾</button>`}</td>`
     };
 
     if (window.CUSTOM_FIELDS && window.CUSTOM_FIELDS.length > 0) {
@@ -2516,9 +2527,17 @@ async function applyReconciliation() {
   let ok = 0;
   for (const m of toApply) {
     try {
-      const matchAmt = (m.txn && typeof m.txn.amt === 'number') ? m.txn.amt : (m.case.total_payable || 0);
+      const matchAmt = (m.txn && typeof m.txn.amt === 'number') ? m.txn.amt : (Number(m.case.invoice_amount) || Number(m.case.total_payable) || 0);
       const newReceived = (m.case.received ? m.case.received + matchAmt : matchAmt);
-      await updateCaseDB(m.docCode, { received: newReceived, inv1_status: 'Paid', inv2_status: m.case.inv2 && m.case.inv2 !== 'NA' ? 'Paid' : m.case.inv2_status || '' });
+      const recDate = (m.txn && m.txn.date) ? m.txn.date : new Date().toISOString().slice(0, 10);
+      const calcProfit = (newReceived + Number(m.case.tds_deducted || 0)) - Number(m.case.total_payable || 0);
+      
+      // Update client receipt and profit; preserves investigator disbursement status
+      await updateCaseDB(m.docCode, { 
+        received: newReceived, 
+        received_date: recDate,
+        profit: calcProfit
+      });
       ok++;
     } catch (e) { /* keep going */ }
   }
@@ -4482,7 +4501,23 @@ function editCase(idx) {
   const fTds = document.getElementById('f-tds');
   if (fTds) fTds.value = c.tds_deducted || '';
   document.getElementById('f-invoice').value = c.invoice_no||'';
+  const fInvDate = document.getElementById('f-invoice-date');
+  if (fInvDate) fInvDate.value = c.invoice_date || (c.client_invoice_date ? c.client_invoice_date.slice(0, 10) : '');
+  const fInvFee = document.getElementById('f-invoice-fee');
+  if (fInvFee) fInvFee.value = (c.invoice_fee !== undefined && c.invoice_fee !== null && c.invoice_fee !== 0) ? c.invoice_fee : '';
+  const fInvExp = document.getElementById('f-invoice-expense');
+  if (fInvExp) fInvExp.value = (c.invoice_expense !== undefined && c.invoice_expense !== null && c.invoice_expense !== 0) ? c.invoice_expense : '';
+  const fInvGstRate = document.getElementById('f-invoice-gst-rate');
+  if (fInvGstRate) fInvGstRate.value = (c.invoice_gst_rate !== undefined && c.invoice_gst_rate !== null) ? c.invoice_gst_rate : '18';
+  const fInvGstAmt = document.getElementById('f-invoice-gst-amount');
+  if (fInvGstAmt) fInvGstAmt.value = (c.invoice_gst_amount !== undefined && c.invoice_gst_amount !== null && c.invoice_gst_amount !== 0) ? c.invoice_gst_amount : '';
   document.getElementById('f-invoice-amount').value = c.invoice_amount||'';
+  if (typeof window.populateCaseFormBranches === 'function') {
+    window.populateCaseFormBranches(c.company || '', c.branch_id || '');
+  }
+  if (typeof window.calcInvoiceTotals === 'function') {
+    window.calcInvoiceTotals();
+  }
   document.getElementById('f-inv1status').value = c.inv1_status||'';
   document.getElementById('f-inv2status').value = c.inv2_status||'';
   document.getElementById('f-hardcopy1status').value = c.hardcopy1_status||'';
@@ -4686,10 +4721,15 @@ function clearForm() {
   if (typeof window.populateCustomFieldsInForm === 'function') window.populateCustomFieldsInForm(null);
   ['f-company','f-date','f-casetype','f-claim','f-policy','f-insured','f-hospital','f-location','f-sla',
    'f-inv1','f-inv2','f-fee1','f-fee2','f-ta1','f-ta2','f-received','f-tds','f-invoice','f-invoice-amount',
+   'f-invoice-branch','f-invoice-date','f-invoice-fee','f-invoice-expense','f-invoice-taxable','f-invoice-gst-amount',
    'f-inv1status','f-inv2status','f-hardcopy1status','f-hardcopy2status','f-companyawb','f-remarks'].forEach(id => {
      const el = document.getElementById(id);
      if (el) el.value = '';
    });
+  const fGstRate = document.getElementById('f-invoice-gst-rate');
+  if (fGstRate) fGstRate.value = '18';
+  const fCalcDetail = document.getElementById('f-invoice-calc-detail');
+  if (fCalcDetail) fCalcDetail.innerHTML = '';
   const fCompanyHardcopy = document.getElementById('f-companyhardcopy');
   if (fCompanyHardcopy) fCompanyHardcopy.value = 'Pending';
   const fOutcome = document.getElementById('f-outcome');
@@ -5348,6 +5388,12 @@ async function saveCase() {
     inv1, inv2: document.getElementById('f-inv2').value,
     fee1, fee2, ta1, ta2, received,
     tds_deducted: Math.max(0, parseFloat(document.getElementById('f-tds')?.value) || 0),
+    branch_id: document.getElementById('f-invoice-branch')?.value || null,
+    invoice_date: document.getElementById('f-invoice-date')?.value || null,
+    invoice_fee: document.getElementById('f-invoice-fee')?.value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-fee').value) || 0) : 0,
+    invoice_expense: document.getElementById('f-invoice-expense')?.value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-expense').value) || 0) : 0,
+    invoice_gst_rate: document.getElementById('f-invoice-gst-rate')?.value !== '' ? parseFloat(document.getElementById('f-invoice-gst-rate').value) : 18,
+    invoice_gst_amount: document.getElementById('f-invoice-gst-amount')?.value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-gst-amount').value) || 0) : 0,
     invoice_no: (document.getElementById('f-invoice').value || '').trim(),
     invoice_amount: document.getElementById('f-invoice-amount').value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-amount').value) || 0) : null,
     inv1_status: document.getElementById('f-inv1status').value,
@@ -7775,18 +7821,21 @@ function openPDFPreview(html, filename, options = {}) {
     }
   };
 }
+window.openPDFPreview = openPDFPreview;
 
 function closePDFPreview() {
   const modal = document.getElementById('pdf-preview-modal');
   modal.style.display = 'none';
   document.body.style.overflow = '';
 }
+window.closePDFPreview = closePDFPreview;
 
 function printHTML(html) {
   const printArea = document.getElementById('slip-print');
   printArea.innerHTML = html;
   window.print();
 }
+window.printHTML = printHTML;
 
 // ============================================================
 // SETTINGS
@@ -7810,10 +7859,14 @@ async function loadSettingsFromDB() {
   const { data, error } = await supabaseClient.from('agency_settings').select('*').eq('id', 1).single();
   if (error) { showToast('Failed to load settings: ' + error.message, true); return; }
   
-  if (data.companies && Array.isArray(data.companies)) COMPANIES = data.companies;
+  if (data.companies && Array.isArray(data.companies)) {
+    COMPANIES = data.companies;
+    window.COMPANIES = COMPANIES;
+  }
   if (data.case_types && Array.isArray(data.case_types)) CASE_TYPES = data.case_types;
   refreshDynamicCompanies();
   if (typeof renderSettingsLists === 'function') renderSettingsLists();
+  if (typeof window.populateBranchFilterCompanies === 'function') window.populateBranchFilterCompanies();
   
   if (data.custom_fields_config && Array.isArray(data.custom_fields_config)) {
     window.CUSTOM_FIELDS = data.custom_fields_config;
@@ -7824,7 +7877,21 @@ async function loadSettingsFromDB() {
   if (typeof window.injectCustomHeadersIntoTable === 'function') window.injectCustomHeadersIntoTable();
   if (typeof window.injectCustomFieldsIntoForm === 'function') window.injectCustomFieldsIntoForm();
 
-  settings = { agencyName: data.agency_name, agencyAddress: data.agency_address || '', logo: data.logo || null, fieldPermissions: data.field_permissions || {} };
+  settings = {
+    agencyName: data.agency_name,
+    agencyAddress: data.agency_address || '',
+    logo: data.logo || null,
+    fieldPermissions: data.field_permissions || {},
+    gstin: data.gstin || '',
+    pan: data.pan || '',
+    bankName: data.bank_name || '',
+    bankAccountNo: data.bank_account_no || '',
+    bankIfsc: data.bank_ifsc || '',
+    bankBranch: data.bank_branch || '',
+    invoicePrefix: data.invoice_prefix || 'DNA/',
+    invoiceTerms: data.invoice_terms || ''
+  };
+  if (typeof window.populateAgencyBillingFields === 'function') window.populateAgencyBillingFields(data);
   if(typeof renderPermissionsMatrix === 'function') renderPermissionsMatrix();
   if(typeof renderAssignedRoles === 'function') renderAssignedRoles();
 }
@@ -7837,6 +7904,7 @@ async function saveSettings() {
     agency_name: settings.agencyName, agency_address: settings.agencyAddress, logo: settings.logo, field_permissions: settings.fieldPermissions
   }).eq('id', 1);
   if (error) { showToast('Failed to save settings: ' + error.message, true); return; }
+  if (typeof window.saveAgencyGstBankSettings === 'function') window.saveAgencyGstBankSettings();
 }
 
 // ============================================================
@@ -7854,6 +7922,9 @@ function switchSettingsTab(tabKey) {
       const match = s.getAttribute('data-settings-sec') === tabKey;
       s.style.display = match ? '' : 'none';
     });
+  }
+  if ((tabKey === 'branches' || tabKey === 'all') && typeof window.renderCompanyBranchesSettings === 'function') {
+    window.renderCompanyBranchesSettings();
   }
   try {
     if (typeof localStorage !== 'undefined') {
@@ -8057,14 +8128,22 @@ async function addCompany() {
   if (COMPANIES.includes(val)) { showToast('Company already exists.', true); return; }
   COMPANIES.push(val);
   COMPANIES.sort();
+  window.COMPANIES = COMPANIES;
   await _saveListsToDB();
   input.value = '';
+  if (typeof window.populateBranchFilterCompanies === 'function') {
+    window.populateBranchFilterCompanies();
+  }
 }
 
 async function removeCompany(name) {
   if (!confirm(`Are you sure you want to remove "${name}"? Existing cases will not be changed, but you won't be able to select it for new cases.`)) return;
   COMPANIES = COMPANIES.filter(c => c !== name);
+  window.COMPANIES = COMPANIES;
   await _saveListsToDB();
+  if (typeof window.populateBranchFilterCompanies === 'function') {
+    window.populateBranchFilterCompanies();
+  }
 }
 
 async function addCaseType() {
@@ -8247,9 +8326,6 @@ async function restoreBackup(e) {
       }
       if (data.cases) {
         showToast('Restoring backup…');
-        // Delete existing cases safely
-        const { error: delErr } = await supabaseClient.from('cases').delete().not('doc_code', 'is', null);
-        if (delErr) throw delErr;
 
         const restoreRows = data.cases.map(c => {
           const fee1 = Number(c.fee1) || 0;
@@ -8287,11 +8363,11 @@ async function restoreBackup(e) {
           };
         });
 
-        // Resilient chunked inserts to prevent Supabase 413 or timeout
+        // Resilient chunked upsert on conflict doc_code (zero data loss risk)
         const BATCH_SIZE = 100;
         for (let i = 0; i < restoreRows.length; i += BATCH_SIZE) {
           const batch = restoreRows.slice(i, i + BATCH_SIZE);
-          const { error: insErr } = await supabaseClient.from('cases').insert(batch);
+          const { error: insErr } = await supabaseClient.from('cases').upsert(batch, { onConflict: 'doc_code' });
           if (insErr) throw insErr;
         }
 

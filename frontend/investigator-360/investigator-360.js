@@ -1,5 +1,19 @@
 (()=>{'use strict';
-const S=()=>window.supabaseClient;
+const S=()=>{
+  if (typeof window !== 'undefined' && window.supabaseClient) return window.supabaseClient;
+  if (typeof supabaseClient !== 'undefined' && supabaseClient) return supabaseClient;
+  if (typeof window !== 'undefined' && window.supabase) {
+    try {
+      const cfg = window.APP_CONFIG?.supabase || {
+        url: 'https://aacvwozpfjuhcvihnaen.supabase.co',
+        anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhY3Z3b3pwZmp1aGN2aWhuYWVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3Nzc2MjUsImV4cCI6MjEwMjM1MzYyNX0.nPHpd2YeC-VgF-xKCKO7kLzr_5TncD84b8IOzoiKAIk'
+      };
+      window.supabaseClient = window.supabase.createClient(cfg.url, cfg.anonKey);
+      return window.supabaseClient;
+    } catch(e) {}
+  }
+  return null;
+};
 const esc=v=>String(v??'').replace(/[&<>\"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[m]));
 const money=v=>'₹'+Math.round(Number(v)||0).toLocaleString('en-IN');
 const norm=v=>String(v??'').trim().toLowerCase();
@@ -20,7 +34,7 @@ async function fetchRows(){
   }
   const c=S();
   if(!c){
-    toast('Supabase client unavailable',true);
+    console.debug('[DNA 360] Supabase client initializing or using in-memory rows');
     return window.investigatorRows || [];
   }
   try{
@@ -44,7 +58,33 @@ async function fetchRows(){
   }
 }
 function casesFor(name){const cs=Array.isArray(window.cases)?window.cases:[];return cs.filter(c=>norm(c.inv1)===norm(name)||norm(c.inv2)===norm(name))}
-function caseAmount(c,name){let cost=0,paid=0,status=[];if(norm(c.inv1)===norm(name)){cost+=Number(c.fee1||0)+Number(c.ta1||0);if(c.inv1_status==='Paid')paid+=Number(c.fee1||0)+Number(c.ta1||0);status.push(c.inv1_status||'Pending')}if(norm(c.inv2)===norm(name)){cost+=Number(c.fee2||0)+Number(c.ta2||0);if(c.inv2_status==='Paid')paid+=Number(c.fee2||0)+Number(c.ta2||0);status.push(c.inv2_status||'Pending')}return {cost,paid,status:status.join(' / ')}}
+function isInvSalaried(invName, caseDateStr) {
+  const inv = (rows || []).find(r => norm(r.name) === norm(invName));
+  if (!inv || inv.payment_type !== 'Salary') return false;
+  if (!inv.payment_type_changed_at) return true;
+  const changedAt = new Date(inv.payment_type_changed_at);
+  const cDate = caseDateStr ? new Date(caseDateStr) : new Date();
+  return cDate >= changedAt;
+}
+function caseAmount(c,name){
+  let cost=0,paid=0,status=[];
+  const salaried = isInvSalaried(name, c.date);
+  if(norm(c.inv1)===norm(name)){
+    const fee1 = salaried ? 0 : Number(c.fee1||0);
+    const ta1 = Number(c.ta1||0);
+    cost += fee1 + ta1;
+    if(c.inv1_status==='Paid') paid += fee1 + ta1;
+    status.push(c.inv1_status||'Pending');
+  }
+  if(norm(c.inv2)===norm(name)){
+    const fee2 = salaried ? 0 : Number(c.fee2||0);
+    const ta2 = Number(c.ta2||0);
+    cost += fee2 + ta2;
+    if(c.inv2_status==='Paid') paid += fee2 + ta2;
+    status.push(c.inv2_status||'Pending');
+  }
+  return {cost,paid,status:status.join(' / ')};
+}
 function detail(k,v){return `<div class="inv360-detail"><label>${esc(k)}</label><b>${esc(v==null||v===''?'Not set':v)}</b></div>`}
 function filtered(){const q=norm(document.getElementById('inv360-search')?.value),st=document.getElementById('inv360-status')?.value||'';return rows.filter(r=>(!q||[r.name,r.email,r.city,r.state,r.office_branch,r.employee_id,r.specialization].some(x=>norm(x).includes(q)))&&(!st||r.availability===st))}
 function render(){const w=shell();if(!w)return;w.innerHTML=`<div class="inv360-head"><div><div class="inv360-eyebrow">PEOPLE & WORKLOAD</div><div class="inv360-title">Investigator 360°</div><div class="inv360-sub">Live Supabase profiles, workload, payments, documents, activity and full admin editing.</div></div><div class="inv360-actions"><input id="inv360-search" class="fin inv360-search" placeholder="Search investigator, branch, city…"><select id="inv360-status" class="fin"><option value="">All availability</option><option value="available">Available</option><option value="limited">Limited</option><option value="leave">On Leave</option><option value="inactive">Inactive</option></select>${admin()?`<button class="btn btn-navy" style="height:38px;padding:0 16px;white-space:nowrap;font-weight:750" onclick="window.openScorecard()">📊 Scorecard</button><button class="btn btn-danger" style="height:38px;padding:0 16px;white-space:nowrap;font-weight:750" onclick="window.openMergeInvestigator()">🔗 Merge</button><button class="btn btn-gold" style="height:38px;padding:0 16px;white-space:nowrap;font-weight:750" onclick="window.openAddInvestigator()">+ Add</button>`:''}</div></div><div id="inv360-grid" class="inv360-grid"></div><div id="inv360-drawer" class="inv360-drawer"></div>`;let debounceTimer360;

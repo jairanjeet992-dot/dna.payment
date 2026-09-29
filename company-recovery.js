@@ -484,10 +484,14 @@ function updateCRSelectionBadge() {
   const badge = document.getElementById('cr-selected-count-badge');
   const selAll = document.getElementById('cr-select-all');
   const payBtn = document.getElementById('cr-record-pay-btn');
+  const bulkBadge = document.getElementById('cr-bulk-count-badge');
 
   const count = window.crSelectedDocCodes.size;
   if (badge) {
     badge.textContent = count > 0 ? `(${count} selected)` : '';
+  }
+  if (bulkBadge) {
+    bulkBadge.textContent = count > 0 ? `(${count})` : '';
   }
   if (selAll) {
     selAll.checked = count > 0 && count === window.crCurrentFilteredCases.length;
