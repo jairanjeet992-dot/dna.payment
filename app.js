@@ -4059,17 +4059,17 @@ function renderSalary() {
   const kpiEl = document.getElementById('salary-kpi');
   if (kpiEl) {
     kpiEl.innerHTML = `
-      <div class="kpi tab-kpi-enhanced" style="background-color: #ededed;">
-        <div class="tab-kpi-icon" style="background: rgba(0,0,0,0.05); color: #191a1c;">👥</div>
-        <div><div class="kpi-label" style="color: #191a1c;">Salaried Staff</div><div class="kpi-value" style="color: #191a1c;">${salaryInvestigators.length}</div></div>
+      <div class="kpi">
+        <div class="kpi-label">Salaried Staff</div>
+        <div class="kpi-value">${salaryInvestigators.length}</div>
       </div>
-      <div class="kpi tab-kpi-enhanced gold" style="border-left-color: #e3e3e3; background-color: #e0efef;">
-        <div class="tab-kpi-icon" style="background: rgba(0,0,0,0.05); color: #4e3232;">🗂️</div>
-        <div><div class="kpi-label" style="color: #4e3232;">Total Cases (Salaried)</div><div class="kpi-value" style="color: #4e3232;">${totalSalariedCases}</div></div>
+      <div class="kpi">
+        <div class="kpi-label">Total Cases (Salaried)</div>
+        <div class="kpi-value gold">${totalSalariedCases}</div>
       </div>
-      <div class="kpi tab-kpi-enhanced green" style="background-color: #ececed;">
-        <div class="tab-kpi-icon" style="background: rgba(0,0,0,0.05); color: var(--green);">🏦</div>
-        <div><div class="kpi-label">Monthly Staff Payout Budget</div><div class="kpi-value green">₹${totalExpense.toLocaleString('en-IN')}</div></div>
+      <div class="kpi">
+        <div class="kpi-label">Monthly Staff Payout Budget</div>
+        <div class="kpi-value green"><span class="kpi-curr">₹</span>${totalExpense.toLocaleString('en-IN')}</div>
       </div>
     `;
   }

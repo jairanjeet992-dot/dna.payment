@@ -7,15 +7,7 @@ function initUXEnhancements() {
     const style = document.createElement('style');
     style.innerHTML = `
         .tbl-scroll, .table-container { position: relative; }
-        .tbl-scroll th, table.data-table th, #monthly-table th {
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            background: #0D2B46;
-            color: #FFFFFF;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-        }
-        #cases-table th {
+        #cases-table th, #salary-table th, #doc-list-table th, #view-salary th, #view-documents th, .tbl-scroll th, table.data-table th, #monthly-table th, table th {
             position: sticky;
             top: 0;
             z-index: 10;
@@ -33,26 +25,22 @@ function initUXEnhancements() {
             white-space: nowrap !important;
             transition: background 0.18s ease, color 0.18s ease;
         }
-        #cases-table th:hover {
+        #cases-table th:hover, #salary-table th:hover, #doc-list-table th:hover, #view-salary th:hover, #view-documents th:hover, .tbl-scroll th:hover, table.data-table th:hover, #monthly-table th:hover, table th:hover {
             background: linear-gradient(180deg, #12395B 0%, #0D2B46 100%) !important;
             color: #F8DC9C !important;
         }
-        #cases-table th input[type="checkbox"] {
+        #cases-table th input[type="checkbox"], #salary-table th input[type="checkbox"], #doc-list-table th input[type="checkbox"], .tbl-scroll th input[type="checkbox"], table.data-table th input[type="checkbox"], #monthly-table th input[type="checkbox"], table th input[type="checkbox"] {
             accent-color: #C79A3B;
             cursor: pointer;
         }
-        body.dark-mode .tbl-scroll th, body.dark-mode table.data-table th, body.dark-mode #monthly-table th {
-            background: #091c2e;
-            color: #F0F4F8;
-        }
-        body.dark-mode #cases-table th {
+        body.dark-mode #cases-table th, body.dark-mode #salary-table th, body.dark-mode #doc-list-table th, body.dark-mode #view-salary th, body.dark-mode #view-documents th, body.dark-mode .tbl-scroll th, body.dark-mode table.data-table th, body.dark-mode #monthly-table th, body.dark-mode table th {
             background: linear-gradient(180deg, #091a29 0%, #05101a 100%) !important;
             color: #EDF3F8 !important;
             border-bottom: 2px solid #D4AF37 !important;
             border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
             box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45) !important;
         }
-        body.dark-mode #cases-table th:hover {
+        body.dark-mode #cases-table th:hover, body.dark-mode #salary-table th:hover, body.dark-mode #doc-list-table th:hover, body.dark-mode #view-salary th:hover, body.dark-mode #view-documents th:hover, body.dark-mode .tbl-scroll th:hover, body.dark-mode table.data-table th:hover, body.dark-mode #monthly-table th:hover, body.dark-mode table th:hover {
             background: linear-gradient(180deg, #0e243a 0%, #091a29 100%) !important;
             color: #E2B961 !important;
         }

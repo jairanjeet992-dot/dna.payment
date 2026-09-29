@@ -126,7 +126,29 @@ body:not(.dark-mode) #dna-cinematic-bg{opacity:.15;filter:saturate(.65)}
 /* Full-product command center treatment: operations, reports and settings. */
 .tab:nth-child(1):before{content:'▦'}.tab:nth-child(2):before{content:'□'}.tab:nth-child(3):before{content:'♙'}.tab:nth-child(4):before{content:'◷'}.tab:nth-child(5):before{content:'◫'}.tab:nth-child(6):before{content:'⌕'}.tab:nth-child(7):before{content:'↔'}.tab:nth-child(8):before{content:'▤'}.tab:nth-child(9):before{content:'⚙'}
 #view-cases>.panel,#view-monthly>.panel,#view-yearly>.panel,#view-reports>.panel,#view-settings>.panel{box-shadow:0 14px 42px rgba(8,31,47,.10)!important}body.dark-mode #view-cases>.panel,body.dark-mode #view-monthly>.panel,body.dark-mode #view-yearly>.panel,body.dark-mode #view-reports>.panel,body.dark-mode #view-settings>.panel{box-shadow:0 18px 50px rgba(0,0,0,.28)!important}#view-cases>.panel>.panel-head:first-child{min-height:72px;background:linear-gradient(105deg,color-mix(in srgb,var(--dna-primary) 8%,var(--dna-surface)),var(--dna-surface-2))!important}#view-cases>.panel>.panel-head:first-child .panel-title{font-size:14px!important}#view-cases>.panel>.panel-head:first-child .panel-title:before{content:'CASE OPERATIONS';display:block;margin-bottom:3px;color:var(--dna-primary);font-size:8px;letter-spacing:1.4px;font-weight:800}.count-chip{background:var(--dna-primary)!important;padding:3px 8px!important;border-radius:99px!important}.filters{padding:10px!important;width:100%;border-radius:10px;background:color-mix(in srgb,var(--dna-surface-2) 72%,transparent);border:1px solid var(--dna-line)}.filters .fin:first-child{background:var(--dna-surface)!important}.filters select{cursor:pointer}.tbl-scroll::-webkit-scrollbar{height:9px;width:9px}.tbl-scroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--dna-muted) 38%,transparent);border-radius:99px}.tbl-scroll:has(#cases-table){max-height:calc(100vh - 315px);min-height:340px}
-#cases-table th{
+/* Uniform Premium Table Header Treatment across ALL tables in the application */
+table thead, thead, thead tr {
+  background: transparent !important;
+}
+#cases-table th,
+#salary-table th,
+#doc-list-table th,
+#view-salary th,
+#view-documents th,
+.tbl-scroll th,
+table.data-table th,
+.data-table th,
+#monthly-table th,
+#yearly-company-table th,
+#yearly-inv-table th,
+#yearly-monthly-table th,
+#permissions-matrix th,
+#hospital-risk-table th,
+#bulkdoc-receive-table th,
+#bulkdoc-dispatch-table th,
+.modal table th,
+.panel table th,
+table th {
   font-size:10px!important;
   font-weight:750!important;
   letter-spacing:.6px!important;
@@ -138,24 +160,88 @@ body:not(.dark-mode) #dna-cinematic-bg{opacity:.15;filter:saturate(.65)}
   box-shadow:0 4px 12px rgba(7,24,37,0.3)!important;
   padding:10px 10px!important;
   white-space:nowrap!important;
+  position:sticky!important;
+  top:0!important;
+  z-index:5!important;
   transition:background .18s ease,color .18s ease;
 }
-#cases-table th:hover{
+#cases-table th:hover,
+#salary-table th:hover,
+#doc-list-table th:hover,
+#view-salary th:hover,
+#view-documents th:hover,
+.tbl-scroll th:hover,
+table.data-table th:hover,
+.data-table th:hover,
+#monthly-table th:hover,
+#yearly-company-table th:hover,
+#yearly-inv-table th:hover,
+#yearly-monthly-table th:hover,
+#permissions-matrix th:hover,
+#hospital-risk-table th:hover,
+#bulkdoc-receive-table th:hover,
+#bulkdoc-dispatch-table th:hover,
+.modal table th:hover,
+.panel table th:hover,
+table th:hover {
   background:linear-gradient(180deg,#12395B 0%,#0D2B46 100%)!important;
   color:#F8DC9C!important;
 }
-#cases-table th input[type="checkbox"]{
+#cases-table th input[type="checkbox"],
+.tbl-scroll th input[type="checkbox"],
+table.data-table th input[type="checkbox"],
+.data-table th input[type="checkbox"],
+#monthly-table th input[type="checkbox"],
+.modal table th input[type="checkbox"],
+.panel table th input[type="checkbox"],
+table th input[type="checkbox"] {
   accent-color:#C79A3B;
   cursor:pointer;
 }
-body.dark-mode #cases-table th{
+body.dark-mode #cases-table th,
+body.dark-mode #salary-table th,
+body.dark-mode #doc-list-table th,
+body.dark-mode #view-salary th,
+body.dark-mode #view-documents th,
+body.dark-mode .tbl-scroll th,
+body.dark-mode table.data-table th,
+body.dark-mode .data-table th,
+body.dark-mode #monthly-table th,
+body.dark-mode #yearly-company-table th,
+body.dark-mode #yearly-inv-table th,
+body.dark-mode #yearly-monthly-table th,
+body.dark-mode #permissions-matrix th,
+body.dark-mode #hospital-risk-table th,
+body.dark-mode #bulkdoc-receive-table th,
+body.dark-mode #bulkdoc-dispatch-table th,
+body.dark-mode .modal table th,
+body.dark-mode .panel table th,
+body.dark-mode table th {
   background:linear-gradient(180deg,#091a29 0%,#05101a 100%)!important;
   color:#EDF3F8!important;
   border-bottom:2px solid #D4AF37!important;
   border-right:1px solid rgba(255,255,255,0.06)!important;
   box-shadow:0 4px 14px rgba(0,0,0,0.45)!important;
 }
-body.dark-mode #cases-table th:hover{
+body.dark-mode #cases-table th:hover,
+body.dark-mode #salary-table th:hover,
+body.dark-mode #doc-list-table th:hover,
+body.dark-mode #view-salary th:hover,
+body.dark-mode #view-documents th:hover,
+body.dark-mode .tbl-scroll th:hover,
+body.dark-mode table.data-table th:hover,
+body.dark-mode .data-table th:hover,
+body.dark-mode #monthly-table th:hover,
+body.dark-mode #yearly-company-table th:hover,
+body.dark-mode #yearly-inv-table th:hover,
+body.dark-mode #yearly-monthly-table th:hover,
+body.dark-mode #permissions-matrix th:hover,
+body.dark-mode #hospital-risk-table th:hover,
+body.dark-mode #bulkdoc-receive-table th:hover,
+body.dark-mode #bulkdoc-dispatch-table th:hover,
+body.dark-mode .modal table th:hover,
+body.dark-mode .panel table th:hover,
+body.dark-mode table th:hover {
   background:linear-gradient(180deg,#0e243a 0%,#091a29 100%)!important;
   color:#E2B961!important;
 }
@@ -383,11 +469,11 @@ input:focus, select:focus, textarea:focus {
 }
 
 
-/* Unified Label Text */
-.kpi-label, .fg label, .inv360-detail label, .login-field label, .section-eyebrow, th, .tab {
+/* Unified Label Text (th removed so headers stay white) */
+.kpi-label, .fg label, .inv360-detail label, .login-field label, .section-eyebrow, .tab {
   color: var(--dna-muted) !important;
 }
-body.dark-mode .kpi-label, body.dark-mode .fg label, body.dark-mode .inv360-detail label, body.dark-mode .login-field label, body.dark-mode th, body.dark-mode .tab {
+body.dark-mode .kpi-label, body.dark-mode .fg label, body.dark-mode .inv360-detail label, body.dark-mode .login-field label, body.dark-mode .tab {
   color: #94a3b8 !important; /* Force readable contrast for muted text */
 }
 body.dark-mode {
@@ -490,12 +576,11 @@ body.dark-mode textarea:focus {
   box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25) !important;
 }
 
-/* Fix Labels in Light Mode */
+/* Fix Labels in Light Mode (th removed so table headers stay white) */
 body:not(.dark-mode) .kpi-label, 
 body:not(.dark-mode) .fg label, 
 body:not(.dark-mode) .inv360-detail label, 
 body:not(.dark-mode) .login-field label, 
-body:not(.dark-mode) th, 
 body:not(.dark-mode) .tab {
   color: #475569 !important;
 }
