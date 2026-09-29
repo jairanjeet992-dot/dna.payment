@@ -70,9 +70,48 @@ app.use((req, res, next) => {
   next();
 });
 
+// CORS middleware to support Cloudflare Pages (https://dna-payments.pages.dev) and local development
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://dna-payments.pages.dev',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
+  ];
+  if (allowedOrigins.includes(origin) || (origin && origin.endsWith('.pages.dev'))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-admin-token, x-investigator-token');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // Body parsing middleware for JSON and raw data (supporting base64 PDFs and images up to 25MB)
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+
+// Public Health Check & Uptime Keep-Alive Endpoint (Keeps both Render and Supabase active)
+app.get('/api/health', async (req, res) => {
+  try {
+    const start = Date.now();
+    const { data, error } = await supabase.from('agency_settings').select('id').limit(1);
+    const latency = Date.now() - start;
+    res.json({
+      status: 'ok',
+      service: 'dna-payment-backend',
+      uptimeSeconds: Math.floor(process.uptime()),
+      database: error ? `error: ${error.message}` : 'connected',
+      latencyMs: latency,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
 
 // ============================================================
 // AUTOMATED DATABASE BACKUP ENGINE (FOR SUPABASE FREE TIER)
