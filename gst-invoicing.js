@@ -642,49 +642,144 @@
   }
   window.onInvoiceBranchChange = onInvoiceBranchChange;
 
-  function calcInvoiceTotals() {
-    const fee = Math.max(0, parseFloat(document.getElementById('f-invoice-fee')?.value) || 0);
-    const expense = Math.max(0, parseFloat(document.getElementById('f-invoice-expense')?.value) || 0);
-    const gstRate = parseFloat(document.getElementById('f-invoice-gst-rate')?.value) || 0;
-
-    const taxable = Math.round((fee + expense) * 100) / 100;
-    const gstAmount = Math.round((taxable * (gstRate / 100)) * 100) / 100;
-    const totalInvoice = Math.round((taxable + gstAmount) * 100) / 100;
-
-    const taxInp = document.getElementById('f-invoice-taxable');
-    if (taxInp) taxInp.value = taxable > 0 ? taxable : '';
-
-    const gstInp = document.getElementById('f-invoice-gst-amount');
-    if (gstInp) gstInp.value = gstAmount > 0 ? gstAmount : '';
-
+  function calcInvoiceTotals(caller) {
+    const feeInp = document.getElementById('f-invoice-fee');
+    const expInp = document.getElementById('f-invoice-expense');
     const totInp = document.getElementById('f-invoice-amount');
-    if (totInp) totInp.value = totalInvoice > 0 ? totalInvoice : '';
-
-    // Show breakdown detail below
+    const gstRateSel = document.getElementById('f-invoice-gst-rate');
+    const taxInp = document.getElementById('f-invoice-taxable');
+    const gstInp = document.getElementById('f-invoice-gst-amount');
     const detailEl = document.getElementById('f-invoice-calc-detail');
-    if (detailEl) {
-      const branchSel = document.getElementById('f-invoice-branch');
-      const selectedOpt = branchSel?.options[branchSel.selectedIndex];
-      const agencyStateCode = getAgencyStateCode();
-      const stateCode = selectedOpt?.getAttribute('data-state-code') || agencyStateCode;
-      const isIntraState = stateCode === agencyStateCode;
 
-      if (gstRate > 0 && taxable > 0) {
-        if (isIntraState) {
-          const half = Math.round((gstAmount / 2) * 100) / 100;
-          detailEl.innerHTML = `Breakdown: CGST (${gstRate / 2}%): ₹${half.toFixed(2)} + SGST (${gstRate / 2}%): ₹${half.toFixed(2)} | Total: ₹${totalInvoice.toFixed(2)}`;
-        } else {
-          detailEl.innerHTML = `Breakdown: IGST (${gstRate}%): ₹${gstAmount.toFixed(2)} | Total: ₹${totalInvoice.toFixed(2)}`;
+    const gstRate = parseFloat(gstRateSel?.value) || 0;
+
+    let feeRaw = feeInp?.value !== undefined ? feeInp.value.trim() : '';
+    let expRaw = expInp?.value !== undefined ? expInp.value.trim() : '';
+    let totRaw = totInp?.value !== undefined ? totInp.value.trim() : '';
+
+    let fee = parseFloat(feeRaw) || 0;
+    let expense = parseFloat(expRaw) || 0;
+    let total = parseFloat(totRaw) || 0;
+
+    const hasItemized = (feeRaw !== '' && !isNaN(parseFloat(feeRaw))) || 
+                        (expRaw !== '' && !isNaN(parseFloat(expRaw)));
+
+    if (caller === 'total') {
+      // User specifically typed or changed the Grand Total
+      if (totRaw !== '' && !isNaN(total) && total > 0) {
+        const taxable = gstRate > 0 ? Math.round((total / (1 + gstRate / 100)) * 100) / 100 : total;
+        const gstAmount = Math.round((total - taxable) * 100) / 100;
+        if (taxInp) taxInp.value = taxable > 0 ? taxable : '';
+        if (gstInp) gstInp.value = gstAmount > 0 ? gstAmount : '';
+
+        // Auto-split fee if user has TAT / conveyance entered
+        if (expense > 0 && expense <= taxable) {
+          fee = Math.round((taxable - expense) * 100) / 100;
+          if (feeInp) feeInp.value = fee > 0 ? fee : '';
+        } else if (expense === 0 && (!feeRaw || fee === 0)) {
+          fee = taxable;
+          if (feeInp) feeInp.value = fee > 0 ? fee : '';
         }
       } else {
-        detailEl.innerHTML = taxable > 0 ? `Taxable Value: ₹${taxable.toFixed(2)} (Non-GST)` : '';
+        if (taxInp) taxInp.value = '';
+        if (gstInp) gstInp.value = '';
+      }
+    } else if (hasItemized) {
+      // User typed Fee, Expense (TAT), or changed GST rate
+      // Smart helper: If case had a total (e.g. 4130), fee was empty, and user typed Expense (e.g. 500)
+      if (caller === 'expense' && (!feeRaw || fee === 0) && total > 0) {
+        const taxableFromTotal = gstRate > 0 ? Math.round((total / (1 + gstRate / 100)) * 100) / 100 : total;
+        if (expense <= taxableFromTotal) {
+          fee = Math.round((taxableFromTotal - expense) * 100) / 100;
+          if (feeInp) feeInp.value = fee > 0 ? fee : '';
+        }
+      }
+
+      const taxable = Math.round((fee + expense) * 100) / 100;
+      const gstAmount = Math.round((taxable * (gstRate / 100)) * 100) / 100;
+      const totalInvoice = Math.round((taxable + gstAmount) * 100) / 100;
+
+      if (taxInp) taxInp.value = taxable > 0 ? taxable : '';
+      if (gstInp) gstInp.value = gstAmount > 0 ? gstAmount : '';
+      if (totInp) totInp.value = totalInvoice > 0 ? totalInvoice : '';
+    } else if (total > 0) {
+      // Case opened with only Total Invoice Amount in DB (legacy case), fee/expense not yet entered
+      // DO NOT WIPE totInp! Calculate taxable and GST preview from the existing total
+      const taxable = gstRate > 0 ? Math.round((total / (1 + gstRate / 100)) * 100) / 100 : total;
+      const gstAmount = Math.round((total - taxable) * 100) / 100;
+      if (taxInp) taxInp.value = taxable > 0 ? taxable : '';
+      if (gstInp) gstInp.value = gstAmount > 0 ? gstAmount : '';
+    } else {
+      // Everything is completely empty
+      if (taxInp) taxInp.value = '';
+      if (gstInp) gstInp.value = '';
+      if (totInp) totInp.value = '';
+    }
+
+    // Breakdown detail display below
+    const finalTaxable = parseFloat(taxInp?.value) || 0;
+    const finalGst = parseFloat(gstInp?.value) || 0;
+    const finalTotal = parseFloat(totInp?.value) || 0;
+
+    if (detailEl) {
+      if (finalTotal > 0) {
+        const branchSel = document.getElementById('f-invoice-branch');
+        const selectedOpt = branchSel?.options[branchSel.selectedIndex];
+        const agencyStateCode = getAgencyStateCode();
+        const stateCode = selectedOpt?.getAttribute('data-state-code') || agencyStateCode;
+        const isIntraState = stateCode === agencyStateCode;
+
+        if (gstRate > 0 && finalTaxable > 0) {
+          if (isIntraState) {
+            const half = Math.round((finalGst / 2) * 100) / 100;
+            detailEl.innerHTML = `Breakdown: CGST (${gstRate / 2}%): ₹${half.toFixed(2)} + SGST (${gstRate / 2}%): ₹${half.toFixed(2)} | Total: ₹${finalTotal.toFixed(2)}`;
+          } else {
+            detailEl.innerHTML = `Breakdown: IGST (${gstRate}%): ₹${finalGst.toFixed(2)} | Total: ₹${finalTotal.toFixed(2)}`;
+          }
+        } else {
+          detailEl.innerHTML = `Taxable Value: ₹${finalTaxable.toFixed(2)} (Non-GST) | Total: ₹${finalTotal.toFixed(2)}`;
+        }
+      } else {
+        detailEl.innerHTML = '';
       }
     }
 
     // Update case total profit
     if (typeof calcTotal === 'function') calcTotal();
+
+    // Dynamically update invoice button label based on whether case is already billed
+    updateCaseInvoiceButtonState();
   }
   window.calcInvoiceTotals = calcInvoiceTotals;
+
+  function updateCaseInvoiceButtonState() {
+    const invInput = document.getElementById('f-invoice');
+    const btn = document.getElementById('btn-print-case-invoice');
+    const badgeEl = document.getElementById('f-invoice-status-badge');
+    if (!btn) return;
+
+    const val = (invInput?.value || '').trim();
+    const hasInv = val !== '' && val !== '0';
+
+    if (hasInv) {
+      btn.innerHTML = `<span>🖨️</span> Print / View Existing Invoice (${esc(val)})`;
+      btn.className = 'btn btn-green btn-sm';
+      btn.style.fontWeight = '700';
+      btn.title = `Click to view / print existing Tax Invoice PDF for ${val}`;
+      if (badgeEl) {
+        badgeEl.innerHTML = `<span class="badge" style="background:#dcfce7; color:#166534; font-weight:700;">✅ Billed in Excel / System: ${esc(val)}</span>`;
+      }
+    } else {
+      btn.innerHTML = `<span>🧾</span> Create &amp; Print Tax Invoice`;
+      btn.className = 'btn btn-navy btn-sm';
+      btn.style.fontWeight = '700';
+      btn.title = `Generate and print a new Tax Invoice for this case`;
+      if (badgeEl) {
+        badgeEl.innerHTML = `<span class="badge" style="background:#f1f5f9; color:#475569; font-weight:600;">⚪ Unbilled</span>`;
+      }
+    }
+  }
+  window.updateCaseInvoiceButtonState = updateCaseInvoiceButtonState;
 
   // ========================================================================
   // 5. TAX INVOICE HTML TEMPLATE GENERATOR (STANDARD A4 PORTRAIT)
@@ -723,12 +818,17 @@
 
     const agencyStateCode = getAgencyStateCode();
     const isIntraState = (branch.state_code || agencyStateCode) === agencyStateCode;
-    const fee = Number(c.invoice_fee || 0);
-    const expense = Number(c.invoice_expense || 0);
-    const taxable = fee + expense;
+    let fee = Number(c.invoice_fee || 0);
+    let expense = Number(c.invoice_expense || 0);
+    let taxable = fee + expense;
     const gstRate = Number(c.invoice_gst_rate !== undefined ? c.invoice_gst_rate : 18);
-    const gstAmount = Number(c.invoice_gst_amount || (taxable * (gstRate / 100)));
-    const grandTotal = Number(c.invoice_amount || (taxable + gstAmount));
+    const grandTotal = Number(c.invoice_amount || (taxable + Math.round((taxable * (gstRate / 100)) * 100) / 100));
+
+    if (taxable === 0 && grandTotal > 0) {
+      taxable = gstRate > 0 ? Math.round((grandTotal / (1 + gstRate / 100)) * 100) / 100 : grandTotal;
+      fee = taxable;
+    }
+    const gstAmount = Number(c.invoice_gst_amount || Math.round((taxable * (gstRate / 100)) * 100) / 100);
 
     const invoiceNo = c.invoice_no || `INV-${(c.doc_code || 'CASE').replace(/[^a-zA-Z0-9-]/g, '')}`;
     const invoiceDate = c.invoice_date || (c.client_invoice_date || new Date().toISOString().slice(0, 10));
@@ -839,6 +939,7 @@
               <td style="padding:10px 12px; text-align:center; vertical-align:top; font-family:monospace;">9983</td>
               <td style="padding:10px 12px; text-align:right; vertical-align:top; font-weight:700;">${fmtINR(fee)}</td>
             </tr>
+            ${expense > 0 ? `
             <tr style="border-bottom:1px solid #e2e8f0;">
               <td style="padding:10px; text-align:center; vertical-align:top;">2</td>
               <td style="padding:10px 12px;">
@@ -847,7 +948,7 @@
               </td>
               <td style="padding:10px 12px; text-align:center; vertical-align:top; font-family:monospace;">9983</td>
               <td style="padding:10px 12px; text-align:right; vertical-align:top; font-weight:700;">${fmtINR(expense)}</td>
-            </tr>
+            </tr>` : ''}
             <!-- Subtotal -->
             <tr style="background:#f8fafc; border-bottom:1px solid #cbd5e1;">
               <td colspan="3" style="text-align:right; padding:8px 12px; font-weight:700; color:#0f2942;">Subtotal (Taxable Value):</td>
@@ -1008,6 +1109,25 @@
 
     document.getElementById('cr-bulk-inv-fee').value = totalFee;
     document.getElementById('cr-bulk-inv-ta').value = totalTA;
+
+    // Check if any selected cases already have invoice numbers from Excel
+    const alreadyBilled = selectedCases.filter(c => c.invoice_no && c.invoice_no !== '0');
+    const noticeEl = document.getElementById('cr-bulk-inv-notice');
+    if (noticeEl) {
+      if (alreadyBilled.length > 0) {
+        noticeEl.style.display = 'block';
+        noticeEl.style.background = '#fef3c7';
+        noticeEl.style.color = '#92400e';
+        noticeEl.style.border = '1px solid #fde68a';
+        noticeEl.style.borderRadius = '4px';
+        noticeEl.style.padding = '8px 12px';
+        noticeEl.style.fontSize = '11px';
+        noticeEl.style.marginBottom = '12px';
+        noticeEl.innerHTML = `<b>ℹ️ Notice:</b> <b>${alreadyBilled.length} of ${selectedCases.length}</b> selected cases already have existing Invoice Numbers (e.g. <b>${esc(alreadyBilled[0].invoice_no)}</b>). Generating this Master Invoice will produce a Consolidated Statement &amp; Master Invoice without overwriting their individual Excel invoice records.`;
+      } else {
+        noticeEl.style.display = 'none';
+      }
+    }
 
     calcBulkInvoiceTotals();
     document.getElementById('cr-bulk-invoice-modal').classList.add('open');
@@ -1345,14 +1465,20 @@
 
       // 2. Update each selected case in Supabase cases table with billing_status and calculated case-level invoice amounts
       const caseUpdates = selectedCases.map(c => {
-        const caseFee = (Number(c.fee1) || 0) + (Number(c.fee2) || 0);
-        const caseTa = (Number(c.ta1) || 0) + (Number(c.ta2) || 0);
+        const existingInvNo = (c.invoice_no && c.invoice_no !== '0') ? c.invoice_no : null;
+        const existingInvAmt = Number(c.invoice_amount || 0);
+        const existingFee = Number(c.invoice_fee || 0);
+        const existingExp = Number(c.invoice_expense || 0);
+
+        const caseFee = existingFee > 0 ? existingFee : ((Number(c.fee1) || 0) + (Number(c.fee2) || 0));
+        const caseTa = existingExp > 0 ? existingExp : ((Number(c.ta1) || 0) + (Number(c.ta2) || 0));
         const caseTaxable = caseFee + caseTa;
         const caseGst = Math.round(caseTaxable * (gst_rate / 100) * 100) / 100;
-        const caseInvAmount = Math.round((caseTaxable + caseGst) * 100) / 100;
+        const caseInvAmount = existingInvAmt > 0 ? existingInvAmt : Math.round((caseTaxable + caseGst) * 100) / 100;
+        const finalCaseInvNo = existingInvNo || invoice_no;
 
-        c.invoice_no = invoice_no;
-        c.invoice_date = invoice_date;
+        c.invoice_no = finalCaseInvNo;
+        c.invoice_date = c.invoice_date || invoice_date;
         c.branch_id = branch.id || null;
         c.bulk_invoice_id = bulkData ? bulkData.id : null;
         c.billing_status = 'Billed';
@@ -1365,8 +1491,8 @@
         return supabaseClient
           .from('cases')
           .update({
-            invoice_no,
-            invoice_date,
+            invoice_no: finalCaseInvNo,
+            invoice_date: c.invoice_date,
             branch_id: branch.id || null,
             bulk_invoice_id: bulkData ? bulkData.id : null,
             billing_status: 'Billed',

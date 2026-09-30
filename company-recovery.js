@@ -432,12 +432,15 @@ function renderCRIntelligenceBanner() {
     banner.style.border = '1px solid #fde68a';
     banner.style.color = '#92400e';
     banner.innerHTML = `
-      <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
         <div>
           <b>🟡 Partially Paid / Short-Settlement Mode:</b> Cases where the company paid part of the invoice (e.g. 1-2% TDS deduction or disallowed TA). 
           Use this to follow up on deductions or balance recovery.
         </div>
-        <span style="font-size:10px; background:#fef3c7; padding:2px 8px; border-radius:4px; font-weight:700; white-space:nowrap;">TDS / Short-Pay</span>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <button class="btn btn-sm" onclick="autoReconcile10PctTDS()" style="font-size:11px; background:#d97706; color:#fff; border:none; padding:4px 10px; border-radius:4px; font-weight:700; cursor:pointer;" title="Auto-detect cases with exactly 10% TDS gap and mark as settled">⚡ Auto-Resolve 10% TDS</button>
+          <span style="font-size:10px; background:#fef3c7; padding:2px 8px; border-radius:4px; font-weight:700; white-space:nowrap;">TDS / Short-Pay</span>
+        </div>
       </div>
     `;
   } else {
@@ -500,6 +503,45 @@ function updateCRSelectionBadge() {
     payBtn.textContent = count > 1 ? `⚡ Record Payment for (${count}) Cases` : '⚡ Record Payment / Region Details';
   }
 }
+
+window.autoReconcile10PctTDS = async function() {
+  const allCases = window.cases || [];
+  const candidates = allCases.filter(c => {
+    const inv = Number(c.invoice_amount || 0);
+    const rec = Number(c.received || 0);
+    const tds = Number(c.tds_deducted || 0);
+    if (inv <= 0 || rec <= 0 || rec >= inv || tds > 0) return false;
+    const diff = Math.round((inv - rec) * 100) / 100;
+    const base10 = Math.round((inv / 1.18) * 0.10);
+    const gross10 = Math.round(inv * 0.10);
+    return Math.abs(diff - base10) <= 2 || Math.abs(diff - gross10) <= 2;
+  });
+
+  if (candidates.length === 0) {
+    if (typeof showToast === 'function') showToast('No pending 10% TDS differences found. All 10% cases are already settled!');
+    return;
+  }
+
+  if (!confirm(`Found ${candidates.length} cases with exact 10% TDS deduction. Auto-fill TDS and mark as Paid in Full?`)) return;
+
+  if (typeof showToast === 'function') showToast(`Auto-reconciling ${candidates.length} cases...`);
+
+  let count = 0;
+  for (const c of candidates) {
+    const diff = Math.round((Number(c.invoice_amount) - Number(c.received)) * 100) / 100;
+    try {
+      await supabaseClient.from('cases').update({ tds_deducted: diff }).eq('doc_code', c.doc_code);
+      count++;
+    } catch(e) {
+      console.error('Error reconciling TDS for', c.doc_code, e);
+    }
+  }
+
+  if (typeof showToast === 'function') showToast(`Successfully auto-resolved 10% TDS for ${count} cases!`);
+  if (typeof loadCasesFromDB === 'function') await loadCasesFromDB();
+  if (typeof renderAll === 'function') renderAll();
+  if (typeof renderCompanyRecoveryHub === 'function') renderCompanyRecoveryHub();
+};
 
 // ========================================================================
 // 📊 EXPORT COMPANY RECOVERY EXCEL (.XLSX)

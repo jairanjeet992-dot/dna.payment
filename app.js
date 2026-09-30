@@ -2133,7 +2133,7 @@ function renderCasesTable() {
       hardcopy1_status: `<td data-col="hardcopy1_status" ${ed} data-field="hardcopy1_status" data-val="${escAttr(c.hardcopy1_status||'')}" data-type="hardcopy">${hardcopyStatusCell(c)}</td>`,
       outcome: `<td data-col="outcome" ${ed} data-field="outcome" data-val="${escAttr(c.outcome||'Pending')}" data-type="outcome">${outcomeBadge(c.outcome)}</td>`,
       completed_at: `<td data-col="completed_at" ${ed} data-field="completed_at" data-val="${escAttr(c.completed_at ? c.completed_at.slice(0,10) : '')}" data-type="date" style="font-family:var(--mono);">${escAttr(c.completed_at ? c.completed_at.slice(0, 10) : '—')}</td>`,
-      actions: `<td data-col="actions" style="white-space:nowrap;">${isAdmin ? `<div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-ghost btn-sm" onclick="editCase(${idx})" title="Edit Case">Edit</button><button class="btn btn-sm" style="padding:2px 6px;background:#25D366;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;" onclick="openCaseDispatchModal('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="Dispatch WhatsApp / Email">📲</button><button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;color:var(--navy);font-weight:600;" onclick="previewSingleCaseInvoice('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="Print / Download Tax Invoice">🧾 Invoice</button></div>` : `<button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;color:var(--navy);" onclick="previewSingleCaseInvoice('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="View Tax Invoice">🧾</button>`}</td>`
+      actions: `<td data-col="actions" style="white-space:nowrap;">${isAdmin ? `<div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-ghost btn-sm" onclick="editCase(${idx})" title="Edit Case">Edit</button><button class="btn btn-sm" style="padding:2px 6px;background:#25D366;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;" onclick="openCaseDispatchModal('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="Dispatch WhatsApp / Email">📲</button><button class="btn btn-ghost btn-sm" style="${(c.invoice_no && c.invoice_no !== '0') ? 'padding:2px 6px;font-size:11px;color:var(--green);font-weight:700;' : 'padding:2px 6px;font-size:11px;color:var(--navy);font-weight:600;'}" onclick="previewSingleCaseInvoice('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="${(c.invoice_no && c.invoice_no !== '0') ? 'Print Existing Tax Invoice (' + escAttr(c.invoice_no) + ')' : 'Create & Print Tax Invoice'}">${(c.invoice_no && c.invoice_no !== '0') ? '🖨️ Print Inv' : '🧾 Invoice'}</button></div>` : `<button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;color:var(--navy);" onclick="previewSingleCaseInvoice('${escAttr(c.doc_code||'').replace(/'/g, "\\'")}')" title="View Tax Invoice">🧾</button>`}</td>`
     };
 
     if (window.CUSTOM_FIELDS && window.CUSTOM_FIELDS.length > 0) {
@@ -4511,12 +4511,15 @@ function editCase(idx) {
   if (fInvGstRate) fInvGstRate.value = (c.invoice_gst_rate !== undefined && c.invoice_gst_rate !== null) ? c.invoice_gst_rate : '18';
   const fInvGstAmt = document.getElementById('f-invoice-gst-amount');
   if (fInvGstAmt) fInvGstAmt.value = (c.invoice_gst_amount !== undefined && c.invoice_gst_amount !== null && c.invoice_gst_amount !== 0) ? c.invoice_gst_amount : '';
-  document.getElementById('f-invoice-amount').value = c.invoice_amount||'';
+  document.getElementById('f-invoice-amount').value = (c.invoice_amount !== undefined && c.invoice_amount !== null && c.invoice_amount !== 0) ? c.invoice_amount : '';
   if (typeof window.populateCaseFormBranches === 'function') {
     window.populateCaseFormBranches(c.company || '', c.branch_id || '');
   }
   if (typeof window.calcInvoiceTotals === 'function') {
-    window.calcInvoiceTotals();
+    window.calcInvoiceTotals('init');
+  }
+  if (typeof window.updateCaseInvoiceButtonState === 'function') {
+    window.updateCaseInvoiceButtonState();
   }
   document.getElementById('f-inv1status').value = c.inv1_status||'';
   document.getElementById('f-inv2status').value = c.inv2_status||'';
@@ -5156,7 +5159,21 @@ function calcTotal() {
   const ta1 = Math.max(0, parseFloat(document.getElementById('f-ta1').value) || 0);
   const ta2 = Math.max(0, parseFloat(document.getElementById('f-ta2').value) || 0);
   const received = Math.max(0, parseFloat(document.getElementById('f-received').value) || 0);
-  const tds = Math.max(0, parseFloat(document.getElementById('f-tds')?.value) || 0);
+  const tdsInp = document.getElementById('f-tds');
+  let tds = Math.max(0, parseFloat(tdsInp?.value) || 0);
+  const invAmt = Math.max(0, parseFloat(document.getElementById('f-invoice-amount')?.value) || 0);
+
+  // Smart Auto-TDS detection (10% TDS under Section 194J on base fee or gross)
+  if (tds === 0 && invAmt > 0 && received > 0 && received < invAmt) {
+    const diff = Math.round((invAmt - received) * 100) / 100;
+    const base10 = Math.round((invAmt / 1.18) * 0.10);
+    const gross10 = Math.round(invAmt * 0.10);
+    if (Math.abs(diff - base10) <= 2 || Math.abs(diff - gross10) <= 2) {
+      tds = diff;
+      if (tdsInp) tdsInp.value = diff;
+    }
+  }
+
   const inv1Name = document.getElementById('f-inv1').value;
   const inv2Name = document.getElementById('f-inv2').value;
   const dateStr = document.getElementById('f-date').value;
@@ -5390,12 +5407,12 @@ async function saveCase() {
     tds_deducted: Math.max(0, parseFloat(document.getElementById('f-tds')?.value) || 0),
     branch_id: document.getElementById('f-invoice-branch')?.value || null,
     invoice_date: document.getElementById('f-invoice-date')?.value || null,
-    invoice_fee: document.getElementById('f-invoice-fee')?.value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-fee').value) || 0) : 0,
-    invoice_expense: document.getElementById('f-invoice-expense')?.value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-expense').value) || 0) : 0,
+    invoice_fee: document.getElementById('f-invoice-fee')?.value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-fee').value) || 0) : (existingCase?.invoice_fee || 0),
+    invoice_expense: document.getElementById('f-invoice-expense')?.value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-expense').value) || 0) : (existingCase?.invoice_expense || 0),
     invoice_gst_rate: document.getElementById('f-invoice-gst-rate')?.value !== '' ? parseFloat(document.getElementById('f-invoice-gst-rate').value) : 18,
     invoice_gst_amount: document.getElementById('f-invoice-gst-amount')?.value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-gst-amount').value) || 0) : 0,
     invoice_no: (document.getElementById('f-invoice').value || '').trim(),
-    invoice_amount: document.getElementById('f-invoice-amount').value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-amount').value) || 0) : null,
+    invoice_amount: document.getElementById('f-invoice-amount')?.value !== '' ? Math.max(0, parseFloat(document.getElementById('f-invoice-amount').value) || 0) : (existingCase?.invoice_amount || null),
     inv1_status: document.getElementById('f-inv1status').value,
     inv2_status: finalInv2Status,
     hardcopy1_status: document.getElementById('f-hardcopy1status').value,

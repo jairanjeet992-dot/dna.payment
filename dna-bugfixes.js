@@ -180,9 +180,404 @@ ready(()=>{
 
   window.computeScorecard=function(monthStr){const prefix=(monthStr||'')+'-',rows=[];for(const inv of investigatorRows){const name=String(inv.name||''),myCases=cases.filter(c=>norm(c.inv1)===norm(name)||norm(c.inv2)===norm(name)).filter(c=>String(c.date||'').startsWith(prefix));if(!myCases.length)continue;const completed=myCases.filter(c=>{const slots=assignedSlots(c);return slots.length>0&&slots.every(s=>s.status==='Paid')}).length,payable=myCases.reduce((s,c)=>s+amount(c.total_payable),0),received=myCases.reduce((s,c)=>s+amount(c.received),0),receivedPct=payable?Math.round(received/payable*100):0,hcOnTime=myCases.filter(c=>{const slots=assignedSlots(c);return slots.length>0&&slots.every(s=>s.hardcopy==='Received')}).length,hcPct=myCases.length?Math.round(hcOnTime/myCases.length*100):0,paidDates=myCases.filter(c=>c.received_date&&amount(c.received)),avgDays=paidDates.length?paidDates.reduce((s,c)=>s+Math.max(0,(new Date(c.received_date)-new Date(c.date))/86400000),0)/paidDates.length:0,completionPct=Math.round(completed/myCases.length*100),speedScore=avgDays===0?100:Math.max(0,100-avgDays*3),volumeScore=Math.min(100,myCases.length*8),score=Math.round(completionPct*.25+speedScore*.25+hcPct*.15+receivedPct*.20+volumeScore*.15);rows.push({name,cases:myCases.length,completed,completionPct,avgDays:Math.round(avgDays),hcPct,totalPayable:payable,totalReceived:received,receivedPct,score})}rows.sort((a,b)=>b.score-a.score);return rows};
 
-  window.runMatch=function(){const raw=document.getElementById('match-input')?.value.trim();if(!raw)return;const lines=raw.split('\n').map(x=>x.trim()).filter(Boolean);if(lines.length<2){toast('Please paste data with a Header row and at least one data row.',true);return}const parseRow=(line)=>line.split(/\t|,/).map(x=>x.trim()),headers=parseRow(lines[0]).map(norm);const claimIdx=headers.findIndex(h=>h.includes('CLAIM')),compIdx=headers.findIndex(h=>h.includes('COMPANY')||h.includes('CLIENT')),typeIdx=headers.findIndex(h=>h.includes('TYPE')),insuredIdx=headers.findIndex(h=>h.includes('INSURED')||h.includes('NAME')),invIdx=headers.findIndex(h=>h.includes('INVOICE NO')||h.includes('INV NO')||h==='INVOICE'||h==='INV'),invAmtIdx=headers.findIndex(h=>h.includes('INVOICE AMOUNT')||h.includes('INVOICE AMT')||h.includes('BILLED')),amtIdx=headers.findIndex(h=>h.includes('AMOUNT PAID')||h.includes('RECEIVED')||h.includes('PAID')||(h.includes('AMOUNT')&&!h.includes('INVOICE')));if(claimIdx===-1){toast('Could not find a Claim column. Please ensure headers are included.',true);return}const results=[];for(let i=1;i<lines.length;i++){const p=parseRow(lines[i]),claim=p[claimIdx]||'';if(!claim)continue;const company=compIdx!==-1?p[compIdx]||'':'',type=typeIdx!==-1?p[typeIdx]||'':'',insured=insuredIdx!==-1?p[insuredIdx]||'':'',invoiceNo=invIdx!==-1?p[invIdx]||'':'',invoiceAmt=invAmtIdx!==-1?p[invAmtIdx]||'':'',amountReceived=amtIdx!==-1?p[amtIdx]||'':'';let matches=cases.filter(c=>norm(c.claim_no)===norm(claim));if(company)matches=matches.filter(c=>norm(c.company)===norm(company));if(matches.length===0){results.push({claim,company,insured,invoiceNo,invoiceAmt,amountReceived,status:'new',note:'Not in system yet'});continue}if(matches.length>1){results.push({claim,company,insured,invoiceNo,invoiceAmt,amountReceived,status:'mismatch',note:`Multiple cases found for Claim ${claim}`});continue}const existing=matches[0],mism=[];if(insured&&norm(existing.insured_name)!==norm(insured)&&!norm(existing.insured_name).includes(norm(insured))&&!norm(insured).includes(norm(existing.insured_name)))mism.push('Insured name differs');if(type&&norm(existing.case_type)!==norm(type))mism.push('Case type differs');results.push({claim,company,insured,invoiceNo,invoiceAmt,amountReceived,status:mism.length?'mismatch':'match',note:mism.length?mism.join('; '):`Doc code: ${existing.doc_code||'—'}`,docCode:existing.doc_code})}const panel=document.getElementById('match-results-panel');if(panel)panel.style.display='block';const tbody=document.getElementById('match-tbody');if(tbody){tbody.textContent='';results.forEach(r=>{const tr=document.createElement('tr');if(r.status==='match')tr.setAttribute('data-doc-code',r.docCode);const status=document.createElement('span');status.className='badge '+(r.status==='match'?'paid':r.status==='mismatch'?'overdue':'pending');status.textContent=r.status==='match'?'Match':r.status==='mismatch'?'Mismatch':'New';[r.claim,r.company||'—',r.insured||'—'].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td)});const st=document.createElement('td');st.appendChild(status);tr.appendChild(st);const updatesTd=document.createElement('td');if(r.status==='match'){let html='';html+=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><small style="color:var(--sub);width:45px">Inv No:</small> <input type="text" class="match-inv-input" placeholder="Skip" value="${esc(r.invoiceNo)}" style="width:90px;padding:4px;border:1px solid var(--line);border-radius:2px;font-size:11px;"></div>`;html+=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><small style="color:var(--sub);width:45px">Inv Amt:</small> <input type="text" class="match-invamt-input" placeholder="Skip" value="${esc(r.invoiceAmt)}" style="width:90px;padding:4px;border:1px solid var(--line);border-radius:2px;font-size:11px;"></div>`;html+=`<div style="display:flex;align-items:center;gap:6px"><small style="color:var(--sub);width:45px">Recv:</small> <input type="text" class="match-amt-input" placeholder="Skip" value="${esc(r.amountReceived)}" style="width:90px;padding:4px;border:1px solid var(--line);border-radius:2px;font-size:11px;"></div>`;updatesTd.innerHTML=html}else{updatesTd.innerHTML=`<span style="color:var(--sub);font-size:10px;">${r.note}</span>`}tr.appendChild(updatesTd);const actionTd=document.createElement('td');if(r.status==='match'){const btn=document.createElement('button');btn.className='btn btn-navy btn-sm';btn.style.padding='4px 8px';btn.style.fontSize='10px';btn.textContent='Update';btn.onclick=()=>window.applyMatchUpdate(tr,r.docCode);actionTd.appendChild(btn)}tr.appendChild(actionTd);tbody.appendChild(tr)})}};
-  window.applyMatchUpdate=async function(trEl,docCode){const invInput=trEl.querySelector('.match-inv-input'),invAmtInput=trEl.querySelector('.match-invamt-input'),amtInput=trEl.querySelector('.match-amt-input');const updates={};if(invInput&&invInput.value.trim()!=='')updates.invoice_no=invInput.value.trim();if(invAmtInput&&invAmtInput.value.trim()!==''){const amt=parseFloat(invAmtInput.value.trim().replace(/[^0-9.-]/g,''));if(!isNaN(amt))updates.invoice_amount=amt;}if(amtInput&&amtInput.value.trim()!==''){const amt=parseFloat(amtInput.value.trim().replace(/[^0-9.-]/g,''));if(!isNaN(amt)){const exCase=cases.find(c=>c.doc_code===docCode);const capAmt=exCase?.invoice_amount||exCase?.total_payable||0;updates.received=amt>capAmt&&capAmt>0?capAmt:amt;updates.received_date=new Date().toISOString().slice(0,10)}}if(Object.keys(updates).length===0){toast('No valid updates to apply',true);return false}try{const {error}=await supabaseClient.from('cases').update(updates).eq('doc_code',docCode);if(error)throw error;toast(`Updated case ${docCode}`);trEl.style.backgroundColor='var(--green-bg)';const btn=trEl.querySelector('button');if(btn){btn.textContent='Updated ✓';btn.className='btn btn-gold btn-sm';btn.disabled=true}await loadCasesFromDB();renderAll();return true}catch(e){console.error('Match update error',e);toast('Failed to update case',true);return false};};
-  window.applyBulkMatchUpdates=async function(){const rows=document.querySelectorAll('#match-tbody tr[data-doc-code]');if(rows.length===0){toast('No matches to update.',true);return}const docCodes=Array.from(rows).map(tr=>tr.getAttribute('data-doc-code')).filter(Boolean);if(typeof window.recordBatchSnapshot==='function'&&docCodes.length>0){window.recordBatchSnapshot({action:`Form Match: updated ${docCodes.length} matched cases`,type:'update',docCodes});}let ok=0;for(const tr of rows){const btn=tr.querySelector('button');if(btn&&btn.disabled)continue;const success=await window.applyMatchUpdate(tr,tr.getAttribute('data-doc-code'));if(success)ok++}if(ok>0)toast(`Bulk update complete for ${ok} cases. (Undo available in Rollback Log)`);else toast('No new updates to apply.')};
+  window.matchResults = [];
+  window.currentMatchFilter = 'all';
+
+  window.syncMatchRowCalc = function(el) {
+    const tr = el.closest('tr');
+    if (!tr) return;
+    const feeInp = tr.querySelector('.match-fee-input');
+    const expInp = tr.querySelector('.match-exp-input');
+    const invAmtInp = tr.querySelector('.match-invamt-input');
+    const amtInp = tr.querySelector('.match-amt-input');
+    const hintEl = tr.querySelector('.match-row-hint');
+
+    const fee = parseFloat(feeInp?.value) || 0;
+    const exp = parseFloat(expInp?.value) || 0;
+    
+    // Auto recalculate total invoice if user edits fee or TAT
+    if (el === feeInp || el === expInp) {
+      if (fee > 0 || exp > 0) {
+        const taxable = fee + exp;
+        const total = Math.round(taxable * 1.18);
+        if (invAmtInp) invAmtInp.value = total;
+      }
+    }
+
+    const invAmt = parseFloat(invAmtInp?.value) || 0;
+    const recv = parseFloat(amtInp?.value) || 0;
+
+    if (hintEl) {
+      if (invAmt > 0 && recv > 0 && recv < invAmt) {
+        const diff = Math.round((invAmt - recv) * 100) / 100;
+        const base10 = Math.round((invAmt / 1.18) * 0.10);
+        const gross10 = Math.round(invAmt * 0.10);
+        if (Math.abs(diff - base10) <= 2 || Math.abs(diff - gross10) <= 2) {
+          hintEl.innerHTML = `<span style="color:#059669; font-weight:700;">⚡ 10% TDS Detected: ₹${diff} will be credited to TDS ledger</span>`;
+        } else {
+          hintEl.innerHTML = `<span style="color:#d97706; font-weight:600;">Short Settlement: ₹${diff} balance pending</span>`;
+        }
+      } else if (invAmt > 0 && recv >= invAmt) {
+        hintEl.innerHTML = `<span style="color:#059669; font-weight:700;">✓ Full payment matched</span>`;
+      } else {
+        hintEl.innerHTML = '';
+      }
+    }
+  };
+
+  window.filterMatchRows = function(filter, btnEl) {
+    window.currentMatchFilter = filter;
+    const pills = document.querySelectorAll('#match-filter-pills button');
+    pills.forEach(b => {
+      b.className = 'btn btn-ghost btn-sm';
+    });
+    if (btnEl) btnEl.className = 'btn btn-navy btn-sm';
+    renderMatchResults(window.matchResults || [], filter);
+  };
+
+  window.runMatch = function() {
+    const raw = document.getElementById('match-input')?.value.trim();
+    if (!raw) return;
+    const lines = raw.split('\n').map(x => x.trim()).filter(Boolean);
+    if (lines.length < 2) {
+      toast('Please paste data with a Header row and at least one data row.', true);
+      return;
+    }
+    const parseRow = (line) => line.split(/\t|,/).map(x => x.trim());
+    const headers = parseRow(lines[0]).map(norm);
+
+    const claimIdx = headers.findIndex(h => h.includes('CLAIM'));
+    const compIdx = headers.findIndex(h => h.includes('COMPANY') || h.includes('CLIENT'));
+    const typeIdx = headers.findIndex(h => h.includes('TYPE'));
+    const insuredIdx = headers.findIndex(h => h.includes('INSURED') || h.includes('NAME') || h.includes('PATIENT'));
+    const invIdx = headers.findIndex(h => h.includes('INVOICE NO') || h.includes('INV NO') || h.includes('INVOICE #') || h === 'INVOICE' || h === 'INV');
+    const dateIdx = headers.findIndex(h => h.includes('INVOICE DATE') || h.includes('INV DATE') || h.includes('BILL DATE'));
+    const feeIdx = headers.findIndex(h => h.includes('PROFESSIONAL') || h.includes('PROF FEE') || h.includes('FEE') || h === 'BASE FEE');
+    const expIdx = headers.findIndex(h => h.includes('TAT') || h.includes('CONVEYANCE') || h.includes('EXPENSE') || h.includes('OTHER EXP') || h.includes('TA'));
+    const invAmtIdx = headers.findIndex(h => h.includes('INVOICE AMOUNT') || h.includes('INVOICE AMT') || h.includes('BILLED') || h.includes('TOTAL AMOUNT') || h.includes('TOTAL BILL'));
+    const amtIdx = headers.findIndex(h => h.includes('AMOUNT PAID') || h.includes('RECEIVED') || h.includes('PAID') || (h.includes('AMOUNT') && !h.includes('INVOICE') && !h.includes('FEE')));
+
+    if (claimIdx === -1) {
+      toast('Could not find a Claim column. Please ensure headers are included.', true);
+      return;
+    }
+
+    const results = [];
+    for (let i = 1; i < lines.length; i++) {
+      const p = parseRow(lines[i]);
+      const claim = p[claimIdx] || '';
+      if (!claim) continue;
+      const company = compIdx !== -1 ? (p[compIdx] || '') : '';
+      const type = typeIdx !== -1 ? (p[typeIdx] || '') : '';
+      const insured = insuredIdx !== -1 ? (p[insuredIdx] || '') : '';
+      const invoiceNo = invIdx !== -1 ? (p[invIdx] || '') : '';
+      const invoiceDate = dateIdx !== -1 ? (p[dateIdx] || '') : '';
+      let fee = feeIdx !== -1 ? (p[feeIdx] || '') : '';
+      let expense = expIdx !== -1 ? (p[expIdx] || '') : '';
+      let invoiceAmt = invAmtIdx !== -1 ? (p[invAmtIdx] || '') : '';
+      const amountReceived = amtIdx !== -1 ? (p[amtIdx] || '') : '';
+
+      let matches = cases.filter(c => norm(c.claim_no) === norm(claim));
+      if (company) {
+        const compMatches = matches.filter(c => norm(c.company) === norm(company));
+        if (compMatches.length > 0) matches = compMatches;
+      }
+
+      if (matches.length === 0) {
+        results.push({ claim, company, insured, invoiceNo, invoiceDate, fee, expense, invoiceAmt, amountReceived, status: 'new', note: 'Not found in system yet', existing: null });
+        continue;
+      }
+
+      if (matches.length > 1) {
+        results.push({ claim, company, insured, invoiceNo, invoiceDate, fee, expense, invoiceAmt, amountReceived, status: 'mismatch', note: `Multiple cases found (${matches.length})`, existing: matches[0] });
+        continue;
+      }
+
+      const existing = matches[0];
+      const mism = [];
+      if (insured && norm(existing.insured_name) !== norm(insured) && !norm(existing.insured_name).includes(norm(insured)) && !norm(insured).includes(norm(existing.insured_name))) {
+        mism.push('Insured name differs');
+      }
+      if (type && norm(existing.case_type) !== norm(type)) {
+        mism.push('Case type differs');
+      }
+
+      // Auto calculate invoiceAmt if fee/expense provided
+      const numFee = parseFloat(fee.replace(/[^0-9.-]/g, ''));
+      const numExp = parseFloat(expense.replace(/[^0-9.-]/g, ''));
+      if (!invoiceAmt && (!isNaN(numFee) || !isNaN(numExp))) {
+        const taxable = (isNaN(numFee) ? 0 : numFee) + (isNaN(numExp) ? 0 : numExp);
+        if (taxable > 0) invoiceAmt = String(Math.round(taxable * 1.18));
+      }
+
+      results.push({
+        claim, company, insured, invoiceNo, invoiceDate, fee, expense, invoiceAmt, amountReceived,
+        status: mism.length ? 'mismatch' : 'match',
+        note: mism.length ? mism.join('; ') : `Doc code: ${existing.doc_code || '—'}`,
+        docCode: existing.doc_code,
+        existing
+      });
+    }
+
+    window.matchResults = results;
+    window.currentMatchFilter = 'all';
+    renderMatchResults(results, 'all');
+  };
+
+  function renderMatchResults(results, filter = 'all') {
+    const panel = document.getElementById('match-results-panel');
+    if (panel) panel.style.display = 'block';
+
+    // Count statistics
+    const cntAll = results.length;
+    const cntUnbilled = results.filter(r => r.existing && (!r.existing.invoice_amount || Number(r.existing.invoice_amount) === 0)).length;
+    const cntBilled = results.filter(r => r.existing && Number(r.existing.invoice_amount) > 0).length;
+    const cntPaid = results.filter(r => r.existing && Number(r.existing.received) >= Number(r.existing.invoice_amount) && Number(r.existing.invoice_amount) > 0).length;
+    const cntNew = results.filter(r => r.status === 'new').length;
+
+    const elAll = document.getElementById('mf-cnt-all'); if (elAll) elAll.textContent = cntAll;
+    const elUnbilled = document.getElementById('mf-cnt-unbilled'); if (elUnbilled) elUnbilled.textContent = cntUnbilled;
+    const elBilled = document.getElementById('mf-cnt-billed'); if (elBilled) elBilled.textContent = cntBilled;
+    const elPaid = document.getElementById('mf-cnt-paid'); if (elPaid) elPaid.textContent = cntPaid;
+    const elNew = document.getElementById('mf-cnt-new'); if (elNew) elNew.textContent = cntNew;
+
+    // Filter results to display
+    let visible = results;
+    if (filter === 'unbilled') {
+      visible = results.filter(r => r.existing && (!r.existing.invoice_amount || Number(r.existing.invoice_amount) === 0));
+    } else if (filter === 'billed') {
+      visible = results.filter(r => r.existing && Number(r.existing.invoice_amount) > 0);
+    } else if (filter === 'paid') {
+      visible = results.filter(r => r.existing && Number(r.existing.received) >= Number(r.existing.invoice_amount) && Number(r.existing.invoice_amount) > 0);
+    } else if (filter === 'new') {
+      visible = results.filter(r => r.status === 'new');
+    }
+
+    const tbody = document.getElementById('match-tbody');
+    if (!tbody) return;
+    tbody.textContent = '';
+
+    if (visible.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--sub);">No rows match the selected filter.</td></tr>`;
+      return;
+    }
+
+    visible.forEach(r => {
+      const tr = document.createElement('tr');
+      if (r.status === 'match') tr.setAttribute('data-doc-code', r.docCode);
+
+      const isPaid = r.existing && Number(r.existing.received) >= Number(r.existing.invoice_amount) && Number(r.existing.invoice_amount) > 0;
+      const isPartPaid = r.existing && Number(r.existing.received) > 0 && Number(r.existing.received) < Number(r.existing.invoice_amount);
+      const isUnbilled = r.existing && (!r.existing.invoice_amount || Number(r.existing.invoice_amount) === 0);
+
+      // Col 1: Claim No
+      const tdClaim = document.createElement('td');
+      tdClaim.className = 'mono';
+      tdClaim.style.fontWeight = '700';
+      tdClaim.textContent = r.claim;
+      tr.appendChild(tdClaim);
+
+      // Col 2: Company & Insured
+      const tdComp = document.createElement('td');
+      tdComp.innerHTML = `
+        <div style="font-weight:700; color:var(--navy); font-size:12px;">${esc(r.company || r.existing?.company || '—')}</div>
+        <div style="font-size:11px; color:var(--sub);">${esc(r.insured || r.existing?.insured_name || '—')}</div>
+      `;
+      tr.appendChild(tdComp);
+
+      // Col 3: Existing in System (DB)
+      const tdDb = document.createElement('td');
+      if (r.existing) {
+        tdDb.innerHTML = `
+          <div style="font-size:11px; line-height:1.45; background:var(--paper); padding:6px 8px; border-radius:4px; border-left:3px solid var(--navy);">
+            <div><span style="color:var(--sub);">Doc:</span> <b class="mono" style="color:var(--navy);">${esc(r.existing.doc_code || '—')}</b></div>
+            <div><span style="color:var(--sub);">Inv No:</span> <b>${r.existing.invoice_no && r.existing.invoice_no !== '0' ? esc(r.existing.invoice_no) : '<span style="color:var(--sub);">None</span>'}</b></div>
+            <div><span style="color:var(--sub);">Billed:</span> ${Number(r.existing.invoice_amount || 0) > 0 ? `<b style="color:var(--navy);">₹${Number(r.existing.invoice_amount).toLocaleString('en-IN')}</b>` : '<span style="color:var(--sub);">₹0</span>'}</div>
+            <div><span style="color:var(--sub);">Recv:</span> ${Number(r.existing.received || 0) > 0 ? `<b style="color:var(--green);">₹${Number(r.existing.received).toLocaleString('en-IN')}</b>` : '<span style="color:var(--sub);">₹0</span>'}</div>
+            ${isPaid ? '<span class="badge" style="background:#dcfce7; color:#166534; font-size:9.5px; font-weight:700; margin-top:3px; display:inline-block;">✓ Paid in Full</span>' : ''}
+            ${isPartPaid ? '<span class="badge" style="background:#fef3c7; color:#92400e; font-size:9.5px; font-weight:700; margin-top:3px; display:inline-block;">⚡ Part Paid</span>' : ''}
+            ${isUnbilled ? '<span class="badge" style="background:#f1f5f9; color:#475569; font-size:9.5px; font-weight:600; margin-top:3px; display:inline-block;">⚪ Unbilled</span>' : ''}
+          </div>
+        `;
+      } else {
+        tdDb.innerHTML = `<span style="color:var(--sub); font-size:11px;"><i>Not found in DB</i></span>`;
+      }
+      tr.appendChild(tdDb);
+
+      // Col 4: Status Badge
+      const tdSt = document.createElement('td');
+      const stBadge = document.createElement('span');
+      stBadge.className = 'badge ' + (r.status === 'match' ? 'paid' : r.status === 'mismatch' ? 'overdue' : 'pending');
+      stBadge.textContent = r.status === 'match' ? 'Matched' : r.status === 'mismatch' ? 'Mismatch' : 'New Claim';
+      tdSt.appendChild(stBadge);
+      if (r.status !== 'match') {
+        const noteDiv = document.createElement('div');
+        noteDiv.style.fontSize = '10px';
+        noteDiv.style.color = 'var(--sub)';
+        noteDiv.style.marginTop = '4px';
+        noteDiv.textContent = r.note;
+        tdSt.appendChild(noteDiv);
+      }
+      tr.appendChild(tdSt);
+
+      // Col 5: Updates (Form / Editable)
+      const tdUp = document.createElement('td');
+      if (r.status === 'match') {
+        tdUp.innerHTML = `
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)); gap:6px; font-size:11px;">
+            <div>
+              <label style="display:block; font-size:10px; color:var(--sub); font-weight:600;">Inv No:</label>
+              <input type="text" class="match-inv-input" placeholder="${esc(r.existing?.invoice_no && r.existing?.invoice_no !== '0' ? r.existing.invoice_no : 'Skip')}" value="${esc(r.invoiceNo)}" style="width:100%; padding:3px 6px; border:1px solid var(--line); border-radius:3px; font-size:11px; font-family:var(--mono);">
+            </div>
+            <div>
+              <label style="display:block; font-size:10px; color:var(--sub); font-weight:600;">Inv Date:</label>
+              <input type="date" class="match-invdate-input" value="${esc(r.invoiceDate || (r.existing?.invoice_date ? r.existing.invoice_date.slice(0, 10) : ''))}" style="width:100%; padding:3px 6px; border:1px solid var(--line); border-radius:3px; font-size:11px;">
+            </div>
+            <div>
+              <label style="display:block; font-size:10px; color:var(--sub); font-weight:600;">Prof Fee (₹):</label>
+              <input type="number" class="match-fee-input" placeholder="${esc(r.existing?.invoice_fee || '0')}" value="${esc(r.fee)}" oninput="syncMatchRowCalc(this)" style="width:100%; padding:3px 6px; border:1px solid var(--line); border-radius:3px; font-size:11px;">
+            </div>
+            <div>
+              <label style="display:block; font-size:10px; color:var(--sub); font-weight:600;">TAT / Exp (₹):</label>
+              <input type="number" class="match-exp-input" placeholder="${esc(r.existing?.invoice_expense || '0')}" value="${esc(r.expense)}" oninput="syncMatchRowCalc(this)" style="width:100%; padding:3px 6px; border:1px solid var(--line); border-radius:3px; font-size:11px;">
+            </div>
+            <div>
+              <label style="display:block; font-size:10px; color:var(--navy); font-weight:700;">Total Inv (₹):</label>
+              <input type="number" class="match-invamt-input" placeholder="${esc(r.existing?.invoice_amount || '0')}" value="${esc(r.invoiceAmt)}" oninput="syncMatchRowCalc(this)" style="width:100%; padding:3px 6px; border:1px solid var(--navy); border-radius:3px; font-size:11px; font-weight:700; color:var(--navy);">
+            </div>
+            <div>
+              <label style="display:block; font-size:10px; color:var(--green); font-weight:700;">Received (₹):</label>
+              <input type="number" class="match-amt-input" placeholder="${esc(r.existing?.received || '0')}" value="${esc(r.amountReceived)}" oninput="syncMatchRowCalc(this)" style="width:100%; padding:3px 6px; border:1px solid var(--green); border-radius:3px; font-size:11px; font-weight:700; color:var(--green);">
+            </div>
+          </div>
+          <div class="match-row-hint" style="font-size:10.5px; margin-top:4px;"></div>
+        `;
+        setTimeout(() => {
+          const anyInp = tdUp.querySelector('.match-amt-input') || tdUp.querySelector('.match-invamt-input');
+          if (anyInp) window.syncMatchRowCalc(anyInp);
+        }, 0);
+      } else {
+        tdUp.innerHTML = `<span style="color:var(--sub); font-size:11px;">${esc(r.note)}</span>`;
+      }
+      tr.appendChild(tdUp);
+
+      // Col 6: Action
+      const tdAct = document.createElement('td');
+      tdAct.style.textAlign = 'center';
+      if (r.status === 'match') {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-navy btn-sm';
+        btn.style.padding = '4px 10px';
+        btn.style.fontSize = '11px';
+        btn.textContent = 'Update';
+        btn.onclick = () => window.applyMatchUpdate(tr, r.docCode);
+        tdAct.appendChild(btn);
+      }
+      tr.appendChild(tdAct);
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.applyMatchUpdate = async function(trEl, docCode) {
+    const invInput = trEl.querySelector('.match-inv-input');
+    const invDateInput = trEl.querySelector('.match-invdate-input');
+    const feeInput = trEl.querySelector('.match-fee-input');
+    const expInput = trEl.querySelector('.match-exp-input');
+    const invAmtInput = trEl.querySelector('.match-invamt-input');
+    const amtInput = trEl.querySelector('.match-amt-input');
+
+    const updates = {};
+    if (invInput && invInput.value.trim() !== '') updates.invoice_no = invInput.value.trim();
+    if (invDateInput && invDateInput.value.trim() !== '') updates.invoice_date = invDateInput.value.trim();
+
+    if (feeInput && feeInput.value.trim() !== '') {
+      const f = parseFloat(feeInput.value.trim().replace(/[^0-9.-]/g, ''));
+      if (!isNaN(f)) updates.invoice_fee = f;
+    }
+    if (expInput && expInput.value.trim() !== '') {
+      const e = parseFloat(expInput.value.trim().replace(/[^0-9.-]/g, ''));
+      if (!isNaN(e)) updates.invoice_expense = e;
+    }
+    if (invAmtInput && invAmtInput.value.trim() !== '') {
+      const amt = parseFloat(invAmtInput.value.trim().replace(/[^0-9.-]/g, ''));
+      if (!isNaN(amt)) updates.invoice_amount = amt;
+    }
+
+    const exCase = cases.find(c => c.doc_code === docCode);
+
+    if (amtInput && amtInput.value.trim() !== '') {
+      const amt = parseFloat(amtInput.value.trim().replace(/[^0-9.-]/g, ''));
+      if (!isNaN(amt)) {
+        const capAmt = updates.invoice_amount || exCase?.invoice_amount || exCase?.total_payable || 0;
+        updates.received = (amt > capAmt && capAmt > 0) ? capAmt : amt;
+        updates.received_date = new Date().toISOString().slice(0, 10);
+      }
+    }
+
+    const finalInvAmt = updates.invoice_amount !== undefined ? updates.invoice_amount : Number(exCase?.invoice_amount || 0);
+    const finalRecAmt = updates.received !== undefined ? updates.received : Number(exCase?.received || 0);
+
+    // Auto TDS detection (10% TDS)
+    if (finalInvAmt > 0 && finalRecAmt > 0 && finalRecAmt < finalInvAmt && (!exCase?.tds_deducted || Number(exCase.tds_deducted) === 0)) {
+      const diff = Math.round((finalInvAmt - finalRecAmt) * 100) / 100;
+      const base10 = Math.round((finalInvAmt / 1.18) * 0.10);
+      const gross10 = Math.round(finalInvAmt * 0.10);
+      if (Math.abs(diff - base10) <= 2 || Math.abs(diff - gross10) <= 2) {
+        updates.tds_deducted = diff;
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      toast('No valid updates to apply', true);
+      return false;
+    }
+
+    try {
+      const { error } = await supabaseClient.from('cases').update(updates).eq('doc_code', docCode);
+      if (error) throw error;
+      toast(`Updated case ${docCode}${updates.tds_deducted ? ' (TDS ₹' + updates.tds_deducted + ' auto-filled)' : ''}`);
+      trEl.style.backgroundColor = 'var(--green-bg)';
+      const btn = trEl.querySelector('button');
+      if (btn) {
+        btn.textContent = 'Updated ✓';
+        btn.className = 'btn btn-gold btn-sm';
+        btn.disabled = true;
+      }
+      await loadCasesFromDB();
+      renderAll();
+      return true;
+    } catch (e) {
+      console.error('Match update error', e);
+      toast('Failed to update case', true);
+      return false;
+    }
+  };
+
+  window.applyBulkMatchUpdates = async function() {
+    const rows = document.querySelectorAll('#match-tbody tr[data-doc-code]');
+    if (rows.length === 0) {
+      toast('No matches to update.', true);
+      return;
+    }
+    const docCodes = Array.from(rows).map(tr => tr.getAttribute('data-doc-code')).filter(Boolean);
+    if (typeof window.recordBatchSnapshot === 'function' && docCodes.length > 0) {
+      window.recordBatchSnapshot({
+        action: `Form Match: updated ${docCodes.length} matched cases`,
+        type: 'update',
+        docCodes
+      });
+    }
+    let ok = 0;
+    for (const tr of rows) {
+      const btn = tr.querySelector('button');
+      if (btn && btn.disabled) continue;
+      const success = await window.applyMatchUpdate(tr, tr.getAttribute('data-doc-code'));
+      if (success) ok++;
+    }
+    if (ok > 0) toast(`Bulk update complete for ${ok} cases. (Undo available in Rollback Log)`);
+    else toast('No new updates to apply.');
+  };
 
   if(typeof window.sendSlipWhatsApp==='function')window.sendSlipWhatsApp=function(){
     const name=document.getElementById('slip-inv')?.value||'',code=document.getElementById('slip-month')?.value||'',mo=MONTHS.find(m=>m.code===code);

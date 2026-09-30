@@ -1015,18 +1015,48 @@ tbody tr:hover{background:var(--line);}
         Paste rows copied from your Google Form or Excel sheet below. <b style="color:var(--navy)">You MUST include the Header row.</b> The system will auto-detect columns like <i>Claim, Company, Invoice, Amount</i>.<br>
         This checks each row against existing cases and flags matches. You can then instantly bulk-update missing Invoices or Amounts.
       </p>
-      <textarea id="match-input" rows="6" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:3px;font-family:var(--mono);font-size:11.5px;" placeholder="Claim No, Company, Invoice No, Invoice Amount, Received Amount
-97647620, CARE, INV-001, 2000, 1800
-97623380, CARE, INV-002, 1500, "></textarea>
-      <button class="btn btn-navy" style="margin-top:10px;" onclick="runMatch()">Run Match Check</button>
-    </div>
-    <div class="panel" id="match-results-panel" style="display:none;">
-      <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;">
-        <span class="panel-title">Match Results</span>
-        <button class="btn btn-gold btn-sm" onclick="applyBulkMatchUpdates()">Update All Matches</button>
+      <textarea id="match-input" rows="6" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:3px;font-family:var(--mono);font-size:11.5px;" placeholder="Claim No, Company, Invoice No, Invoice Date, Professional Fee, TAT, Invoice Amount, Received Amount
+97647620, CARE, INV-001, 2026-09-15, 3000, 500, 4130, 3780
+97623380, CARE, INV-002, 2026-09-16, 3000, 0, 3540, 3240"></textarea>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; flex-wrap:wrap; gap:8px;">
+        <button class="btn btn-navy" onclick="runMatch()" style="font-weight:700;">🔍 Run Match Check</button>
+        <span style="font-size:11px; color:var(--sub);">Supports headers: <i>Claim, Company, Invoice No, Inv Date, Fee, TAT, Inv Amount, Received</i></span>
       </div>
-      <div class="tbl-scroll"><table><thead><tr><th>Claim No</th><th>Company (Form)</th><th>Insured (Form)</th><th>Status</th><th>Updates / Note</th><th>Action</th></tr></thead>
-      <tbody id="match-tbody"></tbody></table></div>
+    </div>
+    <div class="panel" id="match-results-panel" style="display:none; margin-top:14px;">
+      <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center; flex-wrap:wrap; gap:10px; padding-bottom:10px; border-bottom:1px solid var(--line);">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="panel-title" style="margin:0;">Match Results</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <button class="btn btn-gold btn-sm" onclick="applyBulkMatchUpdates()" style="font-weight:700;">⚡ Update Visible Matches</button>
+        </div>
+      </div>
+
+      <!-- Quick Filter Pills -->
+      <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:10px; margin-bottom:12px;" id="match-filter-pills">
+        <button type="button" class="btn btn-navy btn-sm" onclick="filterMatchRows('all', this)" style="font-size:11px; padding:3px 8px;">All (<span id="mf-cnt-all">0</span>)</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="filterMatchRows('unbilled', this)" style="font-size:11px; padding:3px 8px;">⚪ Unbilled in DB (<span id="mf-cnt-unbilled">0</span>)</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="filterMatchRows('billed', this)" style="font-size:11px; padding:3px 8px;">🔵 Already Billed (<span id="mf-cnt-billed">0</span>)</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="filterMatchRows('paid', this)" style="font-size:11px; padding:3px 8px;">🟢 Paid in DB (<span id="mf-cnt-paid">0</span>)</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="filterMatchRows('new', this)" style="font-size:11px; padding:3px 8px;">🟡 New Claims (<span id="mf-cnt-new">0</span>)</button>
+      </div>
+
+      <div class="tbl-scroll">
+        <table style="width:100%;">
+          <thead>
+            <tr>
+              <th style="width:110px;">Claim No</th>
+              <th style="width:140px;">Company &amp; Insured</th>
+              <th style="width:170px;">Existing in DB</th>
+              <th style="width:90px;">Match Status</th>
+              <th>Incoming Form Values (Edit / Auto-Calc)</th>
+              <th style="width:85px; text-align:center;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="match-tbody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -1835,6 +1865,7 @@ tbody tr:hover{background:var(--line);}
             <div style="display:flex; align-items:center; gap:8px;">
               <span style="font-size:16px;">🧾</span>
               <span style="font-weight:800; font-size:12.5px; color:var(--navy);">Client Tax Invoicing (Insurance Company)</span>
+              <span id="f-invoice-status-badge"></span>
             </div>
             <div id="f-invoice-tax-type-badge">
               <span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700;">Intra-State: CGST (9%) + SGST (9%)</span>
@@ -1842,14 +1873,14 @@ tbody tr:hover{background:var(--line);}
           </div>
           <div class="form-grid">
             <div class="fg" style="grid-column:span 2;"><label>Company Billing Branch *</label><select id="f-invoice-branch" onchange="onInvoiceBranchChange()"><option value="">-- Select Billing Branch --</option></select></div>
-            <div class="fg"><label>Invoice No</label><input type="text" id="f-invoice" placeholder="Auto or manual"></div>
+            <div class="fg"><label>Invoice No</label><input type="text" id="f-invoice" placeholder="Auto or manual" oninput="updateCaseInvoiceButtonState()"></div>
             <div class="fg"><label>Invoice Date</label><input type="date" id="f-invoice-date"></div>
-            <div class="fg"><label>Professional Fee (₹)</label><input type="number" id="f-invoice-fee" placeholder="0" oninput="calcInvoiceTotals()"></div>
-            <div class="fg"><label>Conveyance / TA (₹)</label><input type="number" id="f-invoice-expense" placeholder="0" oninput="calcInvoiceTotals()"></div>
+            <div class="fg"><label>Professional Fee (₹)</label><input type="number" id="f-invoice-fee" placeholder="0" oninput="calcInvoiceTotals('fee')"></div>
+            <div class="fg"><label>Conveyance / TA (₹)</label><input type="number" id="f-invoice-expense" placeholder="0" oninput="calcInvoiceTotals('expense')"></div>
             <div class="fg"><label>Taxable Base (₹)</label><input type="number" id="f-invoice-taxable" readonly style="font-weight:700; color:var(--ink);"></div>
             <div class="fg">
               <label>GST Rate (%)</label>
-              <select id="f-invoice-gst-rate" onchange="calcInvoiceTotals()">
+              <select id="f-invoice-gst-rate" onchange="calcInvoiceTotals('rate')">
                 <option value="18" selected>18% (Standard Services)</option>
                 <option value="0">0% (Exempt / Non-GST)</option>
                 <option value="12">12%</option>
@@ -1857,11 +1888,11 @@ tbody tr:hover{background:var(--line);}
               </select>
             </div>
             <div class="fg"><label>GST Amount (₹)</label><input type="number" id="f-invoice-gst-amount" readonly style="font-weight:700; color:var(--navy);"></div>
-            <div class="fg"><label style="font-weight:800; color:var(--green);">Grand Total Invoice (₹)</label><input type="number" id="f-invoice-amount" readonly style="font-weight:800; font-size:14px; color:var(--green);" oninput="calcTotal()"></div>
+            <div class="fg"><label style="font-weight:800; color:var(--green);">Grand Total Invoice (₹)</label><input type="number" id="f-invoice-amount" placeholder="0" style="font-weight:800; font-size:14px; color:var(--green);" oninput="calcInvoiceTotals('total')"></div>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:8px; border-top:1px dashed var(--line); flex-wrap:wrap; gap:8px;">
             <div id="f-invoice-calc-detail" style="font-size:11px; color:var(--sub); font-weight:600;"></div>
-            <button type="button" class="btn btn-navy btn-sm" onclick="previewSingleCaseInvoice(editingDocCode)" style="display:inline-flex; align-items:center; gap:5px; font-weight:700;">
+            <button type="button" class="btn btn-navy btn-sm" id="btn-print-case-invoice" onclick="previewSingleCaseInvoice(editingDocCode)" style="display:inline-flex; align-items:center; gap:5px; font-weight:700;">
               <span>📄</span> Generate &amp; Print Tax Invoice
             </button>
           </div>
@@ -2216,6 +2247,7 @@ tbody tr:hover{background:var(--line);}
         </div>
         <span class="badge" id="cr-bulk-inv-count-badge" style="background:var(--navy); color:#fff; font-size:11px; font-weight:700;">0 Cases Selected</span>
       </div>
+      <div id="cr-bulk-inv-notice" style="display:none;"></div>
 
       <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:12px;">
         <div class="fg" style="grid-column:span 2; margin-bottom:0;">
@@ -3158,15 +3190,15 @@ tbody tr:hover{background:var(--line);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="google-drive-service.js?v=2"></script>
 <script src="ux-enhancements.js?v=4"></script>
-<script src="app.js?v=80"></script>
+<script src="app.js?v=83"></script>
 <script src="investigator-portal.js?v=5"></script>
-<script src="company-recovery.js?v=10"></script>
-<script src="gst-invoicing.js?v=6"></script>
+<script src="company-recovery.js?v=11"></script>
+<script src="gst-invoicing.js?v=8"></script>
 <script src="batch-rollback.js?v=4"></script>
 <script src="realtime-sync.js?v=5"></script>
 <script src="role-permissions.js?v=8"></script>
 <script src="import-pdf-enhancements.js?v=4"></script>
-<script src="dna-bugfixes.js?v=7"></script>
+<script src="dna-bugfixes.js?v=9"></script>
 <script src="frontend/investigator-360/investigator-360.js?v=4"></script>
 <script src="investigator-case-breakdown.js?v=2"></script>
 <script src="plugins-manager.js?v=2"></script>
